@@ -1,0 +1,48 @@
+# Byte-compiled / optimized / DLL files
+__pycache__/
+*.py[cod]
+*$py.class
+
+# C extensions
+*.so
+
+# Distribution / packaging
+build/
+dist/
+*.egg-info/
+*.egg
+
+# Virtual environment
+.venv/
+venv/
+ENV/
+env/
+.env
+
+# Local configuration files
+*.local
+
+# Logs
+*.log
+
+# OS-specific files
+.DS_Store
+Thumbs.db
+
+# IDE / editor directories
+.vscode/
+.idea/
+*.iml
+
+# Cache files
+*.cache
+
+# AI tool directories
+.antigravitycli/
+.claude/
+.obsidian/
+.agent/
+
+# graphify temporary/intermediate files
+.graphify_*
+graphify-out/.needs_update

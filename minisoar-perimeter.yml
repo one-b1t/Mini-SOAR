@@ -1,0 +1,10 @@
+# miniSOAR Security Perimeter Mapping
+# Maps websites to their respective security perimeters (paloalto / akamai / imperva / none)
+
+sites:
+  test-site.com:
+    provider: imperva
+  another-site.com:
+    provider: akamai
+  internal-portal.local:
+    provider: paloalto
