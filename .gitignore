@@ -42,6 +42,9 @@ Thumbs.db
 .claude/
 .obsidian/
 .agent/
+.gemini/
+.codex/
+.cursor/
 
 # graphify temporary/intermediate files
 .graphify_*
