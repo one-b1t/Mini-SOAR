@@ -16,23 +16,23 @@ REDIS_KEY=logstash_alert_queue
 
 # === Integrasi Telegram Bot ===
 # Token Bot dan Chat ID Utama untuk menerima alert trafik anomali
-TELEGRAM_BOT=8009754346:AAE-H3YZwdmjO_bB0wXNDQibgsk2XcQojfM
-TELEGRAM_CHAT_ID=6811235542
+TELEGRAM_BOT=YOUR_TELEGRAM_BOT_TOKEN
+TELEGRAM_CHAT_ID=YOUR_TELEGRAM_CHAT_ID
 
 # (Opsional) Penampung log audit proses (seperti eksekusi blokir/unblokir).
 # Kosongkan jika ingin menyatukan notifikasi trafik dan proses ke chat utama!
-TELEGRAM_PROCESS_CHAT_ID=-1002072039826
+TELEGRAM_PROCESS_CHAT_ID=YOUR_TELEGRAM_PROCESS_CHAT_ID
 
 # === Threat Intelligence API ===
-ABUSEIPDB_API_KEY=18afc8c4828d37fe0dba3cbb0f9fe0482967c1f605443aeb89242dfbf0ff9f70429ba7c90533757c
+ABUSEIPDB_API_KEY=YOUR_ABUSEIPDB_API_KEY
 ABUSEIPDB_CACHE_TTL=21600
 IPAPI_CACHE_TTL=43200
 LOOKUP_TIMEOUT=4
 
 # === Elasticsearch Cluster ===
-ES_HOSTS=https://172.30.103.21:9200
-ES_USER=elastic
-ES_PASS=
+ES_HOSTS=https://YOUR_ELASTICSEARCH_HOST:9200
+ES_USER=YOUR_ES_USER
+ES_PASS=YOUR_ES_PASS
 ES_VERIFY=false
 ES_EVENTS_INDEX_PREFIX=minisoar-events
 ES_LABELS_INDEX_PREFIX=minisoar-labels

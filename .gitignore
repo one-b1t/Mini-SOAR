@@ -45,4 +45,12 @@ Thumbs.db
 
 # graphify temporary/intermediate files
 .graphify_*
-graphify-out/.needs_update
+graphify-out/
+
+# MiniSOAR generated artifacts and logs
+dataset.csv
+baseline_model.joblib
+*.log
+minisoar-bypass.txt
+minisoar-unmapped-sites.log
+tele-soar-actions.log
