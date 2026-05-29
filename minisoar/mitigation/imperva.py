@@ -14,6 +14,9 @@ logger = logging.getLogger(__name__)
 
 
 def login_via_api(base_url: str, username: str, password: str) -> Optional[dict]:
+    if os.getenv("MINISOAR_MOCK", "").lower() in {"1", "true", "yes"}:
+        return {"mock-session": "1"}
+
     login_url = f"{base_url}/SecureSphere/api/v1/auth/session"
     headers = {"Content-Type": "application/json", "Accept": "application/json"}
     try:

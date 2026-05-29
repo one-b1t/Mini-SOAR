@@ -93,6 +93,58 @@ flowchart LR
     C3 --> D1
 ```
 
+## Refactored Package Architecture
+
+MiniSOAR has now been refactored into a modular package structure under `minisoar/`:
+
+- `minisoar/config.py` — centralized environment parsing, provider normalization, and Telegram config helpers.
+- `minisoar/utils.py` — shared utility helpers for:
+  - threat intelligence enrichment (`abuseipdb_lookup`, `ipapi_lookup`, `enrich_ip`, `enrich_multi_ip`)
+  - whitelist/bypass checks
+  - perimeter mapping lookup and telemetry log helpers
+  - message formatting and Telegram delivery
+- `minisoar/database.py` — Redis client, Elasticsearch indexing, event ID generation, and analyst label storage.
+- `minisoar/mitigation/` — vendor-specific modules for Imperva, Palo Alto, and Akamai; `core.py` provides unified auto-block behavior.
+- `minisoar/ml/` — ML inference, dataset export, and baseline training.
+- `minisoar/daemon.py` — the Redis consumer loop, event enrichment, event indexing, ML recommendation, and alert broadcast logic.
+- `minisoar/bot.py` — Telegram command handlers and callback handling for analyst-driven mitigation actions.
+
+## Wrapper Entrypoints
+
+The root-level executable scripts now act as thin wrappers only:
+
+- `14_redis_telegram_alert.py` → calls `minisoar.daemon.main()`
+- `09-tele-soar.py` → calls `minisoar.bot.main()`
+- `export_dataset.py` → calls `minisoar.ml.export.main()`
+- `train_baseline.py` → calls `minisoar.ml.train.main()`
+
+This preserves the original operational entrypoints while keeping the core implementation inside the package.
+
+## Legacy Cleanup
+
+The following legacy transition files have been removed:
+- `minisoar/legacy_alert_daemon.py`
+- `minisoar/legacy_bot.py`
+- `perimeter_mitigation.py`
+
+Their responsibilities have been re-homed into the modular package files listed above.
+
+## Testing
+
+A pytest suite has been added under `tests/` with initial coverage for:
+- config/provider normalization
+- utility helpers
+- ML inference fallback behavior
+- mitigation mock flows
+- event ID and timestamp parsing
+
+Representative test files:
+- `tests/test_config.py`
+- `tests/test_utils.py`
+- `tests/test_ml.py`
+- `tests/test_mitigation.py`
+- `tests/test_database.py`
+
 ## Short Summary
 
-MiniSOAR currently works as an alert delivery pipeline. Logstash analyzes incoming logs and pushes selected events into Redis. The Python layer consumes those Redis events, enriches and formats them, then sends the result to Telegram for analyst visibility.
+MiniSOAR still works as an alert delivery and mitigation pipeline, but its implementation is now organized into a maintainable Python package. Logstash pushes alerts into Redis, `minisoar.daemon` consumes and enriches them, then broadcasts operational alerts to Telegram. Analysts interact through `minisoar.bot`, which issues mitigation actions through the vendor modules inside `minisoar/mitigation/`.
