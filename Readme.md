@@ -106,3 +106,15 @@ Gunakan perintah-perintah berikut di dalam ruang obrolan Telegram Bot untuk kont
 | `/blocklistakamai` | Menampilkan halaman IP yang diblokir di Akamai. | Akamai |
 | `/activateakamai` | Mengaktivasi konfigurasi Akamai ke STAGING & PRODUCTION. | Akamai |
 | `/activationstatus <id>`| Mengecek status aktivasi EdgeGrid Akamai. | Akamai |
+
+---
+
+## 6. Pengujian & Mock Traffic
+
+Untuk menyimulasikan data log dari Logstash dan menguji kapabilitas respons MiniSOAR secara _end-to-end_, Anda dapat menyuntikkan _mock payload_ langsung ke antrean Redis. Jalankan perintah Python _one-liner_ berikut di terminal Windows/PowerShell Anda saat kedua daemon sedang berjalan:
+
+```bash
+python -c "import redis, json, datetime; r = redis.StrictRedis(host='127.0.0.1', port=6379); payload = {'alert': {'type': 'alert_webshell_immediate', 'server_name': 'mock-target.com', 'src_ip': '8.8.8.8', 'method': 'POST', 'url': '/api/upload.php', 'status': '200', 'severity': 'high'}, 'tags': ['alert_webshell_immediate'], '@timestamp': datetime.datetime.now(datetime.timezone.utc).isoformat()}; r.lpush('logstash_alert_queue', json.dumps(payload)); print('Mock traffic berhasil dikirim ke Redis!')"
+```
+
+Pastikan Anda telah mengaktifkan mode _mock_ (`MINISOAR_MOCK=1` pada `.env`) jika Anda ingin menguji integrasi pemblokiran perimeter tanpa benar-benar mengeksekusi *API Call* riil.

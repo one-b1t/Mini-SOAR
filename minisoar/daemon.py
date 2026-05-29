@@ -67,13 +67,15 @@ def main() -> None:
 
     # Resolve paths
     bypass_file_path = resolve_log_path("BYPASS_FILE", "/etc/logstash/minisoar-bypass.txt", "minisoar-bypass.txt")
+    whitelist_file_path = resolve_log_path("WHITELIST_FILE", "minisoar-whitelist.txt", "minisoar-whitelist.txt")
     perimeter_map_path = resolve_log_path("PERIMETER_MAP_PATH", "/etc/logstash/minisoar-perimeter.yml", "minisoar-perimeter.yml")
     unmapped_log_path = resolve_log_path("UNMAPPED_LOG_PATH", "/var/log/minisoar-unmapped-sites.log", "minisoar-unmapped-sites.log")
     unmapped_log_ttl = int(os.environ.get("UNMAPPED_LOG_TTL_SEC", "86400"))
     logfile = resolve_log_path("LOGFILE", "/var/log/tele-soar-actions.log", "tele-soar-actions.log")
 
-    # Load bypass networks
+    # Load bypass and whitelist networks
     bypass_nets = load_cidr_list_from_env_and_file("BYPASS_IPS", bypass_file_path)
+    whitelist_nets = load_cidr_list_from_env_and_file("WHITELIST_IPS", whitelist_file_path)
 
     # Helper function for checking bypass
     def is_ip_bypassed(ip_addr: str) -> bool:
@@ -94,6 +96,8 @@ def main() -> None:
     print(f"• Redis Target     : {redis_host}:{redis_port} (Key: {redis_key})")
     print(f"• Bypass File Path : {bypass_file_path}")
     print(f"• Bypass Nets      : {bypass_nets}")
+    print(f"• Whitelist File   : {whitelist_file_path}")
+    print(f"• Whitelist Nets   : {len(whitelist_nets)} networks loaded")
     print(f"• Perimeter Map    : {perimeter_map_path}")
     print(f"• Unmapped Log Path: {unmapped_log_path}")
 
@@ -128,11 +132,11 @@ def main() -> None:
                 ip = (event.get("alert") or {}).get("src_ip") or event.get("src_ip") or event.get("ip") or ""
                 website = (event.get("alert") or {}).get("server_name") or event.get("server_name") or event.get("servername") or ""
 
-                provider, mapped, _ = get_perimeter_info(website, perimeter_map_path)
+                providers, mapped, _ = get_perimeter_info(website, perimeter_map_path)
                 if not mapped:
                     log_unmapped_site_once_per_day(website, event, unmapped_log_path, unmapped_log_ttl)
 
-                whitelisted = bool(ip and is_ip_whitelisted(ip))
+                whitelisted = bool(ip and is_ip_whitelisted(ip, whitelist_nets))
                 bypassed = bool(ip and is_ip_bypassed(ip))
 
                 # Handle bypass for single IP alerts
@@ -141,7 +145,7 @@ def main() -> None:
                     continue
 
                 msg = build_message(event)
-                perimeter = provider_badge(provider, mapped)
+                perimeter = provider_badge(providers, mapped)
                 msg = inject_perimeter_line(msg, perimeter)
 
                 alert_type = (event.get("alert") or {}).get("type")
@@ -171,7 +175,7 @@ def main() -> None:
                     src["ip"] = src_ip
 
                     perimeter_node = event.setdefault("perimeter", {})
-                    perimeter_node["vendor"] = norm_provider(provider)
+                    perimeter_node["vendor"] = norm_provider(providers[0] if providers else "none")
 
                     metrics = event.setdefault("metrics", {})
                     metrics["hit_count"] = (event.get("alert") or {}).get("count") or event.get("count")
@@ -192,7 +196,7 @@ def main() -> None:
                         "severity": event.get("severity"),
                         "asset": {"id": asset_id},
                         "src": {"ip": src_ip},
-                        "perimeter": {"vendor": norm_provider(provider)},
+                        "perimeter": {"vendor": norm_provider(providers[0] if providers else "none")},
                         "metrics": {"hit_count": event.get("metrics", {}).get("hit_count"), "window_seconds": minisoar_event_window},
                         "samples": {"paths_top": top_paths},
                         "signature": {"top_paths_hash": event.get("signature", {}).get("top_paths_hash")},
@@ -226,6 +230,10 @@ def main() -> None:
                     "alert_webshell_heur",
                     "alert_url_probe",
                     "alert_webshell_immediate",
+                    "alert_sqli_attack",
+                    "alert_xss_attack",
+                    "alert_lfi_attempt",
+                    "alert_rce_heur",
                 } or {
                     "alert_random_url",
                     "alert_url_major",
@@ -235,39 +243,60 @@ def main() -> None:
                     "alert_webshell_heur",
                     "alert_url_probe",
                     "alert_webshell_immediate",
+                    "alert_sqli_attack",
+                    "alert_xss_attack",
+                    "alert_lfi_attempt",
+                    "alert_rce_heur",
                 } & tags:
                     _, rep_str = abuseipdb_lookup(ip) if ip and ip != "(unknown)" else (ip, "")
-                    pred_label, pred_prob = predict_block(event, ip, provider, whitelisted, rep_str, model_artifact)
+                    ml_provider = providers[0] if providers else "none"
+                    pred_label, pred_prob = predict_block(event, ip, ml_provider, whitelisted, rep_str, model_artifact)
 
                     if minisoar_blocking_mode == "AUTO":
                         if pred_label == 1:
-                            success, blk_msg = trigger_auto_block(ip, provider)
-                            log_user_action(
-                                "AUTO_BLOCK",
-                                {"username": "system"},
-                                ip=ip,
-                                target=provider,
-                                note=f"ML prediction {pred_prob:.2%}",
-                                logfile=logfile,
-                            )
+                            for p in providers:
+                                success, blk_msg = trigger_auto_block(ip, p)
+                                log_user_action(
+                                    "AUTO_BLOCK",
+                                    {"username": "system"},
+                                    ip=ip,
+                                    target=p,
+                                    note=f"ML prediction {pred_prob:.2%}",
+                                    logfile=logfile,
+                                )
                             msg = f"🤖 *AI Action: AUTO-BLOCKED* (Confidence: {pred_prob:.0%})\n" + msg
-                            send_telegram(msg, ip=ip, show_buttons=False, provider=provider, website=website, event_id=event_id)
+                            send_telegram(msg, ip=ip, show_buttons=False, providers=providers, website=website, event_id=event_id)
                             continue
                         else:
                             msg = f"🤖 *AI Recommendation: ALLOW* (Confidence: {pred_prob:.0%})\n" + msg
                     elif minisoar_blocking_mode == "SEMI":
                         if pred_label == 1:
-                            msg = f"🤖 *AI Recommendation: BLOCK* (Confidence: {pred_prob:.0%})\n" + msg
+                            if pred_prob > 0.70:
+                                for p in providers:
+                                    success, blk_msg = trigger_auto_block(ip, p)
+                                    log_user_action(
+                                        "SEMI_AUTO_BLOCK",
+                                        {"username": "system"},
+                                        ip=ip,
+                                        target=p,
+                                        note=f"ML prediction {pred_prob:.2%} (>70%)",
+                                        logfile=logfile,
+                                    )
+                                msg = f"🤖 *AI Action: AUTO-BLOCKED* (Confidence: {pred_prob:.0%} > 70% in SEMI Mode)\n" + msg
+                                send_telegram(msg, ip=ip, show_buttons=False, providers=providers, website=website, event_id=event_id)
+                                continue
+                            else:
+                                msg = f"🤖 *AI Recommendation: BLOCK* (Confidence: {pred_prob:.0%})\n" + msg
                         else:
                             msg = f"🤖 *AI Recommendation: ALLOW* (Confidence: {pred_prob:.0%})\n" + msg
 
                     show_btn = (de_disable_buttons != "1" and not whitelisted)
                     if whitelisted:
                         logger.info("[WL] %s whitelisted — sending alert without action buttons.", ip)
-                    send_telegram(msg, ip=ip, show_buttons=show_btn, provider=provider, website=website, event_id=event_id)
+                    send_telegram(msg, ip=ip, show_buttons=show_btn, providers=providers, website=website, event_id=event_id)
                 else:
                     show_btn = (de_disable_buttons != "1" and not whitelisted)
-                    send_telegram(msg, ip=ip if ip else None, show_buttons=show_btn, provider=provider, website=website, event_id=event_id)
+                    send_telegram(msg, ip=ip if ip else None, show_buttons=show_btn, providers=providers, website=website, event_id=event_id)
 
             except Exception as e:
                 logger.error("Redis loop error: %s", e)

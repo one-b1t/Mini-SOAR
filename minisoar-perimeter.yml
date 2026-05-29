@@ -8,3 +8,11 @@ sites:
     provider: akamai
   internal-portal.local:
     provider: paloalto
+  mock-target.com:
+    provider:
+      - paloalto
+      - akamai
+  "*.mock-target.com":
+    provider:
+      - akamai
+      - imperva

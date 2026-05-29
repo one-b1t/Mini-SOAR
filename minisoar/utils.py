@@ -98,12 +98,6 @@ def extract_reputation_score(rep_str: str) -> int:
 # Networking / Whitelist / Bypass
 # -----------------
 
-WHITELIST = [
-    "103.8.77.26", "172.30.100.0/22", "103.8.76.0/24", "103.8.77.0/24", "36.91.84.230/29",
-    "182.23.23.206/29", "103.164.13.182/29", "202.89.116.0/24", "202.89.117.0/24",
-    "172.30.0.0/24", "172.30.11.0/24", "172.30.12.0/24", "172.30.96.0/24", "172.30.32.0/24",
-    "172.30.200.0/24", "172.30.112.0/24", "103.119.138.1", "10.0.0.0/8"
-]
 
 
 def load_cidr_list_from_env_and_file(env_key: str, file_path: str) -> List[str]:
@@ -149,8 +143,8 @@ def ip_in_nets(ip: str, nets: List[str]) -> bool:
         return False
 
 
-def is_ip_whitelisted(ip: str) -> bool:
-    return ip_in_nets(ip, WHITELIST)
+def is_ip_whitelisted(ip: str, nets: List[str]) -> bool:
+    return ip_in_nets(ip, nets)
 
 
 # -----------------
@@ -250,10 +244,10 @@ def enrich_multi_ip(ip_list: list[str]) -> dict[str, dict[str, str]]:
 # Perimeter Mapping Helper
 # -----------------
 
-def get_perimeter_info(server_name: str, perimeter_map_path: str) -> tuple[str, bool, str | None]:
+def get_perimeter_info(server_name: str, perimeter_map_path: str) -> tuple[list[str], bool, str | None]:
     host = (server_name or "").strip().lower()
     if not host:
-        return "none", False, None
+        return ["none"], False, None
 
     try:
         with open(perimeter_map_path, "r", encoding="utf-8") as f:
@@ -264,28 +258,46 @@ def get_perimeter_info(server_name: str, perimeter_map_path: str) -> tuple[str, 
 
     sites = cfg.get("sites") or {}
     if not isinstance(sites, dict):
-        return "none", False, None
+        return ["none"], False, None
 
+    match_key = None
     if host in sites:
-        meta = sites.get(host)
-        if isinstance(meta, dict):
-            return norm_provider(meta.get("provider")), True, host
-        return norm_provider(meta), True, host
+        match_key = host
+    else:
+        for key in sites.keys():
+            if key.startswith("*.") and host.endswith(key[1:]):
+                match_key = key
+                break
 
-    return "none", False, None
+    if match_key:
+        meta = sites.get(match_key)
+        prov_raw = meta.get("provider") if isinstance(meta, dict) else meta
+        if isinstance(prov_raw, list):
+            providers = [norm_provider(p) for p in prov_raw]
+        else:
+            providers = [norm_provider(prov_raw)]
+        return providers, True, match_key
+
+    return ["none"], False, None
 
 
-def provider_badge(provider: str, mapped: bool) -> str:
-    p = norm_provider(provider)
-    if p == "akamai":
-        return "🟢 Akamai"
-    if p == "imperva":
-        return "🔵 Imperva"
-    if p == "paloalto":
-        return "🟠 Palo Alto"
-    if mapped:
-        return "⚪ External/None"
-    return "⚪ UNKNOWN (unmapped)"
+def provider_badge(providers: list[str], mapped: bool) -> str:
+    if not mapped or not providers or providers == ["none"]:
+        return "⚪ UNKNOWN (unmapped)"
+        
+    badges = []
+    for p in providers:
+        p = norm_provider(p)
+        if p == "akamai":
+            badges.append("🟢 Akamai")
+        elif p == "imperva":
+            badges.append("🔵 Imperva")
+        elif p == "paloalto":
+            badges.append("🟠 Palo Alto")
+        else:
+            badges.append(f"⚪ External ({p})")
+            
+    return " | ".join(badges)
 
 
 def log_unmapped_site_once_per_day(server_name: str, event: Dict[str, Any], unmapped_log_path: str, unmapped_log_ttl: int) -> None:
@@ -555,11 +567,19 @@ def build_message(event: Dict[str, Any]) -> str:
             f"{_bullet_last_seen(event)}"
         )
 
-    if alert_type in {"alert_gambling_slot", "alert_url_probe"} or {"alert_gambling_slot", "alert_url_probe"} & tags:
+    exploit_types = {"alert_url_probe", "alert_sqli_attack", "alert_xss_attack", "alert_lfi_attempt", "alert_rce_heur"}
+    if alert_type in ({"alert_gambling_slot"} | exploit_types) or ({"alert_gambling_slot"} | exploit_types) & tags:
         rep, geo = enrich_ip(ip) if ip != "(unknown)" else ("-", "-")
-        title_plain = "Gambling/Slot Pattern" if (alert_type == "alert_gambling_slot" or "alert_gambling_slot" in tags) else "Exploit/Probe URL"
-        emoji = "🎰" if "gambling" in title_plain.lower() else "🛠️"
-        sev = severity or ("high" if "Gambling" in title_plain else "medium")
+        if alert_type == "alert_gambling_slot" or "alert_gambling_slot" in tags:
+            title_plain = "Gambling/Slot Pattern"
+        elif "sqli" in alert_type: title_plain = "SQLi Attack"
+        elif "xss" in alert_type: title_plain = "XSS Attack"
+        elif "lfi" in alert_type: title_plain = "LFI Attempt"
+        elif "rce" in alert_type: title_plain = "RCE Heuristic"
+        else: title_plain = "Exploit/Probe URL"
+            
+        emoji = "🎰" if "gambling" in title_plain.lower() else "💣" if "rce" in alert_type else "🛠️"
+        sev = severity or ("critical" if "rce" in alert_type else "high" if "Gambling" in title_plain or "lfi" in alert_type or "sqli" in alert_type else "medium")
         return (
             f"{emoji} *{title_plain} {emoji}*\n"
             f"• *Severity:* `{sev}`\n"
@@ -593,7 +613,7 @@ def send_telegram(
     msg: str,
     ip: str | None = None,
     show_buttons: bool = True,
-    provider: str = "none",
+    providers: list[str] | None = None,
     website: str = "",
     event_id: str = "",
 ) -> None:
@@ -611,27 +631,30 @@ def send_telegram(
     }
 
     if show_buttons and ip and ip != "(unknown)":
-        p = norm_provider(provider)
-        if p in {"akamai", "imperva", "paloalto"}:
-            if p == "akamai":
-                txt = f"🚫 Block di Akamai {ip}"
-                cb = _build_callback_data("blockonakamai", ip, event_id)
-            elif p == "imperva":
-                txt = f"🚫 Block di Imperva {ip}"
-                cb = _build_callback_data("blockonimperva", ip, event_id)
-            else:
-                txt = f"🛡️ Block di Palo Alto {ip}"
-                cb = _build_callback_data("blockonpalo", ip, event_id)
-
-            if website:
-                txt = txt + f" ({website})"
-
+        buttons = []
+        if providers:
+            for p in providers:
+                p = norm_provider(p)
+                if p == "akamai":
+                    txt = f"🚫 Block di Akamai {ip}"
+                    cb = _build_callback_data("blockonakamai", ip, event_id)
+                    if website: txt += f" ({website})"
+                    buttons.append([{"text": txt, "callback_data": cb}])
+                elif p == "imperva":
+                    txt = f"🚫 Block di Imperva {ip}"
+                    cb = _build_callback_data("blockonimperva", ip, event_id)
+                    if website: txt += f" ({website})"
+                    buttons.append([{"text": txt, "callback_data": cb}])
+                elif p == "paloalto":
+                    txt = f"🛡️ Block di Palo Alto {ip}"
+                    cb = _build_callback_data("blockonpalo", ip, event_id)
+                    if website: txt += f" ({website})"
+                    buttons.append([{"text": txt, "callback_data": cb}])
+        
+        if buttons:
             ignore_cb = _build_callback_data("ignore", ip, event_id)
-            data["reply_markup"] = {
-                "inline_keyboard": [
-                    [{"text": txt, "callback_data": cb}, {"text": "🙈 Ignore", "callback_data": ignore_cb}]
-                ]
-            }
+            buttons.append([{"text": "🙈 Ignore", "callback_data": ignore_cb}])
+            data["reply_markup"] = {"inline_keyboard": buttons}
 
     try:
         resp = requests.post(url, json=data, timeout=10)
@@ -641,3 +664,45 @@ def send_telegram(
             logger.info("Alert sent (buttons: %s)", "ON" if "reply_markup" in data else "OFF")
     except Exception as e:
         logger.error("Failed to send alert: %s", e)
+
+
+def log_user_action(
+    action: str,
+    user: Any,
+    ip: str | None = None,
+    target: str | None = None,
+    source: str | None = None,
+    chat_id: str | int | None = None,
+    note: str | None = None,
+    logfile: str | None = None
+) -> None:
+    if not logfile:
+        return
+    try:
+        if hasattr(user, "username"):
+            username = getattr(user, "username") or getattr(user, "full_name", str(user))
+        elif isinstance(user, dict):
+            username = user.get("username", str(user))
+        else:
+            username = str(user)
+            
+        ts = datetime.datetime.now(datetime.timezone.utc).isoformat()
+        payload = {
+            "timestamp": ts,
+            "action": action,
+            "user": username,
+            "ip": ip,
+            "target": target,
+            "source": source,
+            "chat_id": chat_id,
+            "note": note
+        }
+        
+        log_dir = os.path.dirname(logfile)
+        if log_dir:
+            os.makedirs(log_dir, exist_ok=True)
+            
+        with open(logfile, "a", encoding="utf-8") as f:
+            f.write(json.dumps(payload) + "\n")
+    except Exception as e:
+        logger.warning("Failed to write log_user_action to %s: %s", logfile, e)
