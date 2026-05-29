@@ -52,5 +52,6 @@ dataset.csv
 baseline_model.joblib
 *.log
 minisoar-bypass.txt
+minisoar-whitelist.txt
 minisoar-unmapped-sites.log
 tele-soar-actions.log

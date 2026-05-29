@@ -4,6 +4,9 @@ This document explains the current MiniSOAR runtime flow based on the project ar
 
 `Logstash -> Redis -> Python Script -> Telegram`
 
+## AI Session Code
+- Claude : claude --resume e065865c-bc70-466c-80a6-4858df9e90e4
+  
 ## High-Level Graph
 
 ```mermaid
@@ -144,6 +147,15 @@ Representative test files:
 - `tests/test_ml.py`
 - `tests/test_mitigation.py`
 - `tests/test_database.py`
+
+### Mock Traffic Injection
+
+To perform end-to-end operational testing without actual Logstash data, an analyst or developer can manually inject JSON payload directly into the Redis queue (`logstash_alert_queue`). This verifies the `minisoar.daemon` processing pipeline, ML scoring, and Telegram delivery.
+
+Example execution (Windows PowerShell/Linux Terminal):
+```bash
+python -c "import redis, json, datetime; r = redis.StrictRedis(host='127.0.0.1', port=6379); payload = {'alert': {'type': 'alert_webshell_immediate', 'server_name': 'mock-target.com', 'src_ip': '8.8.8.8', 'method': 'POST', 'url': '/api/upload.php', 'status': '200', 'severity': 'high'}, 'tags': ['alert_webshell_immediate'], '@timestamp': datetime.datetime.now(datetime.timezone.utc).isoformat()}; r.lpush('logstash_alert_queue', json.dumps(payload)); print('Mock traffic berhasil dikirim ke Redis!')"
+```
 
 ## Short Summary
 
