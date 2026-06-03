@@ -58,3 +58,8 @@ minisoar-bypass.txt
 minisoar-whitelist.txt
 minisoar-unmapped-sites.log
 tele-soar-actions.log
+
+# Additional AI-related directories and files to ignore
+.minisoar/
+minisoar-*/
+*.joblib
