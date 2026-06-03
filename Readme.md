@@ -78,11 +78,11 @@ MiniSOAR terdiri dari dua modul Python utama yang berjalan terus-menerus sebagai
 
 1. **Modul Pengambil Alert & Notifikasi (Ingestion & Enrichment):**
    ```bash
-   python 14_redis_telegram_alert.py
+   python -m minisoar.daemon
    ```
 2. **Modul Interaksi & Bot Handler (Mitigation & Decision Bot):**
    ```bash
-   python 09-tele-soar.py
+   python -m minisoar.bot
    ```
 
 ---
