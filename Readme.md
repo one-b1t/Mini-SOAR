@@ -1,35 +1,190 @@
-# MiniSOAR: Security Orchestration, Automation, and Response
+# MiniSOAR
 
-MiniSOAR adalah orkestrator keamanan otomatis ringan berbasis bot Telegram yang digunakan untuk memproses alert anomali, melakukan pengayaan threat intelligence IP penyerang, dan memicu aksi pemblokiran/mitigasi di tingkat perimeter keamanan (Palo Alto, Akamai, dan Imperva).
+MiniSOAR adalah orkestrator keamanan ringan berbasis **Logstash**, **Redis**, **Python**, dan **Telegram Bot**. Sistem ini dibuat untuk menerima alert keamanan, melakukan enrichment terhadap IP penyerang, memberi rekomendasi keputusan, dan membantu proses mitigasi ke perimeter seperti **Imperva**, **Palo Alto**, dan **Akamai**.
+
+Dokumentasi ini menggabungkan penjelasan dari README, Context, dan Wiki lama agar seluruh informasi utama berada di satu tempat.
 
 ---
 
-## 1. Konfigurasi Integrasi & Kredensial (.env Template)
+## Daftar Isi
 
-Berikut adalah detail konfigurasi dan kredensial penting untuk menjalankan layanan MiniSOAR. Buat berkas `.env` di root direktori dengan template berikut:
+- [Ringkasan Alur Kerja](#ringkasan-alur-kerja)
+- [Fitur Utama](#fitur-utama)
+- [Arsitektur Sistem](#arsitektur-sistem)
+- [Struktur Project](#struktur-project)
+- [Persyaratan](#persyaratan)
+- [Instalasi](#instalasi)
+- [Konfigurasi Environment](#konfigurasi-environment)
+- [Mode Operasi Blocking](#mode-operasi-blocking)
+- [Menjalankan Layanan](#menjalankan-layanan)
+- [Perintah Telegram Bot](#perintah-telegram-bot)
+- [Testing dan Mock Traffic](#testing-dan-mock-traffic)
+- [Machine Learning](#machine-learning)
+- [Catatan Operasional dan Keamanan](#catatan-operasional-dan-keamanan)
+
+---
+
+## Ringkasan Alur Kerja
+
+MiniSOAR bekerja dengan alur berikut:
+
+```text
+Security Device / Raw Logs
+        ↓
+Logstash Detection Pipeline
+        ↓
+Redis Queue
+        ↓
+Python Alert Daemon
+        ↓
+Enrichment, Event Indexing, ML Recommendation
+        ↓
+Telegram Notification / Analyst Action
+        ↓
+Mitigation ke Imperva, Palo Alto, atau Akamai
+```
+
+Secara sederhana:
+
+1. **Logstash** membaca log dari sumber keamanan, melakukan normalisasi field, lalu mendeteksi pola serangan atau anomali.
+2. Alert yang valid dikirim ke **Redis** sebagai buffer queue.
+3. **MiniSOAR daemon** membaca event dari Redis.
+4. Daemon melakukan enrichment, whitelist/bypass check, event indexing, dan scoring berbasis rule/ML.
+5. Alert dikirim ke **Telegram** agar analis dapat melihat konteks dan mengambil tindakan.
+6. Jika mode mengizinkan, MiniSOAR dapat menjalankan blokir otomatis atau semi-otomatis ke perimeter.
+
+---
+
+## Fitur Utama
+
+- **Telegram-based SOAR workflow** untuk notifikasi dan aksi analis.
+- **Redis queue** sebagai buffer agar proses deteksi dan notifikasi tidak saling blocking.
+- **Threat intelligence enrichment** menggunakan AbuseIPDB dan IP API.
+- **Whitelist dan bypass list** untuk mencegah false positive terhadap IP internal atau trusted.
+- **Perimeter mapping** untuk menentukan vendor mitigasi berdasarkan domain/website.
+- **Integrasi mitigation** ke Imperva, Palo Alto, dan Akamai.
+- **Mode MANUAL, SEMI, dan AUTO** untuk fleksibilitas tingkat otomasi.
+- **Mock mode** agar testing tidak memanggil API perimeter sungguhan.
+- **Event indexing ke Elasticsearch** untuk audit, label analis, dan kebutuhan ML.
+- **Machine learning baseline** untuk memberi rekomendasi block/allow berdasarkan data historis.
+- **Cross-platform path handling** agar dapat berjalan di Linux/WSL maupun Windows development host.
+
+---
+
+## Arsitektur Sistem
+
+```mermaid
+flowchart LR
+    A[Security Device / Raw Logs] --> B[Logstash]
+    B -->|Parse, normalize, classify| C[Redis Queue]
+    C -->|Alert payload| D[MiniSOAR Daemon]
+    D --> E[Enrichment]
+    D --> F[Elasticsearch Indexing]
+    D --> G[ML Recommendation]
+    G --> H[Telegram Bot]
+    H --> I[Analyst]
+    H --> J[Mitigation Action]
+    J --> K[Imperva / Palo Alto / Akamai]
+```
+
+### Tanggung jawab komponen
+
+| Komponen | Tanggung Jawab |
+|---|---|
+| Logstash | Membaca log, normalisasi field, deteksi alert, dan push event ke Redis. |
+| Redis | Menjadi buffer queue antara pipeline deteksi dan worker Python. |
+| MiniSOAR Daemon | Membaca event, enrichment, indexing, ML scoring, dan broadcast alert. |
+| Telegram Bot | Menampilkan alert, menerima command analis, dan menjalankan callback action. |
+| Mitigation Modules | Menjalankan block/unblock ke Imperva, Palo Alto, atau Akamai. |
+| Elasticsearch | Menyimpan event, label analis, dan data untuk retraining ML. |
+
+---
+
+## Struktur Project
+
+Implementasi utama sudah dipisahkan ke package `minisoar/` agar lebih mudah dirawat.
+
+```text
+minisoar/
+├── bot.py                  # Telegram command handler dan callback action
+├── config.py               # Parsing env, normalisasi provider, helper Telegram
+├── daemon.py               # Redis consumer, enrichment, indexing, ML, alert broadcast
+├── database.py             # Redis client, Elasticsearch indexing, event ID, label storage
+├── utils.py                # Helper enrichment, whitelist, bypass, formatting, Telegram send
+├── mitigation/             # Integrasi vendor perimeter
+│   ├── akamai.py
+│   ├── core.py             # Unified auto-block controller
+│   ├── imperva.py
+│   └── paloalto.py
+└── ml/                     # Export dataset, training, dan inference model
+```
+
+Beberapa wrapper lama tetap dapat dipakai untuk menjaga kompatibilitas operasional:
+
+| Wrapper Lama | Entry Point Baru |
+|---|---|
+| `14_redis_telegram_alert.py` | `minisoar.daemon.main()` |
+| `09-tele-soar.py` | `minisoar.bot.main()` |
+| `export_dataset.py` | `minisoar.ml.export.main()` |
+| `train_baseline.py` | `minisoar.ml.train.main()` |
+
+---
+
+## Persyaratan
+
+- Python 3.10+
+- Redis Server
+- Telegram Bot Token dan Chat ID
+- Elasticsearch, opsional tetapi direkomendasikan untuk event storage dan ML retraining
+- Akses API vendor perimeter jika ingin menjalankan mitigasi real:
+  - Imperva
+  - Palo Alto
+  - Akamai
+
+---
+
+## Instalasi
+
+Clone repository, masuk ke folder project, lalu install dependensi:
+
+```bash
+pip install redis requests xmltodict python-telegram-bot edgegrid-python pyyaml pandas scikit-learn joblib python-dotenv
+```
+
+Disarankan menggunakan virtual environment:
+
+```bash
+python -m venv .venv
+source .venv/bin/activate  # Linux / WSL
+# .venv\Scripts\activate   # Windows PowerShell
+pip install redis requests xmltodict python-telegram-bot edgegrid-python pyyaml pandas scikit-learn joblib python-dotenv
+```
+
+---
+
+## Konfigurasi Environment
+
+Buat file `.env` di root project. Gunakan `env.example` sebagai acuan.
 
 ```ini
-# === Redis Buffer Queue ===
+# === Redis Queue ===
 REDIS_HOST=127.0.0.1
 REDIS_PORT=6379
 REDIS_KEY=logstash_alert_queue
 
-# === Integrasi Telegram Bot ===
-# Token Bot dan Chat ID Utama untuk menerima alert trafik anomali
+# === Telegram Bot ===
 TELEGRAM_BOT=YOUR_TELEGRAM_BOT_TOKEN
 TELEGRAM_CHAT_ID=YOUR_TELEGRAM_CHAT_ID
+TELEGRAM_PROCESS_CHAT_ID=YOUR_PROCESS_CHAT_ID
+ALLOWED_USERS=123456789,987654321
 
-# (Opsional) Penampung log audit proses (seperti eksekusi blokir/unblokir).
-# Kosongkan jika ingin menyatukan notifikasi trafik dan proses ke chat utama!
-TELEGRAM_PROCESS_CHAT_ID=YOUR_TELEGRAM_PROCESS_CHAT_ID
-
-# === Threat Intelligence API ===
+# === Threat Intelligence ===
 ABUSEIPDB_API_KEY=YOUR_ABUSEIPDB_API_KEY
 ABUSEIPDB_CACHE_TTL=21600
 IPAPI_CACHE_TTL=43200
 LOOKUP_TIMEOUT=4
 
-# === Elasticsearch Cluster ===
+# === Elasticsearch ===
 ES_HOSTS=https://YOUR_ELASTICSEARCH_HOST:9200
 ES_USER=YOUR_ES_USER
 ES_PASS=YOUR_ES_PASS
@@ -39,82 +194,165 @@ ES_LABELS_INDEX_PREFIX=minisoar-labels
 ES_TIMEOUT=6
 MINISOAR_EVENT_WINDOW=60
 
-# === Mode Simulasi & Pengujian ===
-# Set ke 1 untuk menyimulasikan pemblokiran (mencegah pemanggilan API riil ke Palo Alto/Akamai/Imperva)
+# === Testing / Safety ===
 MINISOAR_MOCK=1
 
-# === Mode Keputusan Pemblokiran (AUTO / SEMI / MANUAL) ===
-# AUTO  : AI otomatis memblokir IP berbahaya (tanpa tombol tindakan di bot)
-# SEMI  : AI menyajikan rekomendasi (Block/Allow), operator tetap memilih secara manual
-# MANUAL: Tanpa saran keputusan aktif (default, tombol tindakan klasik)
-MINISOAR_BLOCKING_MODE=AUTO
+# === Blocking Mode ===
+MINISOAR_BLOCKING_MODE=MANUAL
 ```
 
----
+### File konfigurasi pendukung
 
-## 2. Fitur Utama & Keunggulan Sistem
-
-1. **Resolusi Path Otomatis (Cross-platform):** Skrip secara otomatis mendeteksi OS. Jika berjalan di Windows Host, seluruh berkas bypass (`minisoar-bypass.txt`), perimeter map (`minisoar-perimeter.yml`), log audit, dan log unmapped dialihkan secara otomatis ke direktori proyek lokal tanpa memicu error OS (`WinError 3`).
-2. **Penyelamatan Pemuatan Env:** Fallback `override=True` otomatis diaktifkan untuk `.env` jika terdeteksi variabel Telegram bernilai kosong di system env.
-3. **Pemisahan Log Proses asinkron:** Menyediakan dual-chat ID untuk memisahkan saluran alert trafik dari log proses tindakan analis, yang dikirimkan secara asinkron menggunakan asyncio task tanpa memblokir thread eksekusi utama.
-4. **Mock Mode Staging:** Fitur sandboxing `MINISOAR_MOCK=1` menyimulasikan pemanggilan API perimeter demi keamanan pengujian lokal.
-5. **Shutdown KeyboardInterrupt Anggun:** Menangani interupsi terminal (`Ctrl+C`) secara bersih untuk mencegah cetakan traceback error yang mengotori konsol.
+| File | Fungsi |
+|---|---|
+| `minisoar-perimeter.yml` | Mapping website/domain ke provider mitigasi. |
+| `minisoar-whitelist.txt` | IP/CIDR trusted. Alert tetap dikirim, tetapi tombol block disembunyikan. |
+| `minisoar-bypass.txt` | IP/CIDR yang diabaikan total. Alert tidak dikirim ke Telegram. |
 
 ---
 
-## 3. Instalasi & Dependensi
+## Mode Operasi Blocking
 
-Layanan ini dibangun menggunakan Python 3. Instal semua pustaka dependensi yang dibutuhkan sebelum menjalankan script:
+MiniSOAR mendukung tiga mode melalui `MINISOAR_BLOCKING_MODE`.
+
+| Mode | Perilaku | Rekomendasi Penggunaan |
+|---|---|---|
+| `MANUAL` | Semua alert dikirim ke Telegram. Analis memilih action secara manual. | Paling aman untuk production awal. |
+| `SEMI` | AI memberi rekomendasi. Jika confidence tinggi, sistem dapat melakukan auto-block. | Cocok setelah rule dan whitelist stabil. |
+| `AUTO` | Prediksi berbahaya langsung diblokir ke perimeter. | Gunakan hanya jika model, whitelist, dan rollback sudah matang. |
+
+> Untuk staging atau demo, aktifkan `MINISOAR_MOCK=1` agar API block/unblock tidak benar-benar dijalankan ke vendor perimeter.
+
+---
+
+## Menjalankan Layanan
+
+Jalankan dua proses utama berikut di terminal terpisah.
+
+### 1. Alert daemon
+
+Daemon membaca queue Redis, melakukan enrichment, indexing, ML scoring, dan mengirim alert ke Telegram.
 
 ```bash
-pip install redis requests xmltodict python-telegram-bot edgegrid-python pyyaml pandas scikit-learn joblib python-dotenv
+python -m minisoar.daemon
+```
+
+Atau melalui wrapper lama:
+
+```bash
+python 14_redis_telegram_alert.py
+```
+
+### 2. Telegram bot handler
+
+Bot menerima command operator dan callback action dari Telegram.
+
+```bash
+python -m minisoar.bot
+```
+
+Atau melalui wrapper lama:
+
+```bash
+python 09-tele-soar.py
 ```
 
 ---
 
-## 4. Menjalankan Layanan
-
-MiniSOAR terdiri dari dua modul Python utama yang berjalan terus-menerus sebagai background daemon:
-
-1. **Modul Pengambil Alert & Notifikasi (Ingestion & Enrichment):**
-   ```bash
-   python -m minisoar.daemon
-   ```
-2. **Modul Interaksi & Bot Handler (Mitigation & Decision Bot):**
-   ```bash
-   python -m minisoar.bot
-   ```
-
----
-
-## 5. Daftar Perintah Bot Telegram
-
-Gunakan perintah-perintah berikut di dalam ruang obrolan Telegram Bot untuk kontrol manual:
+## Perintah Telegram Bot
 
 | Perintah | Deskripsi | Platform |
-| :--- | :--- | :--- |
-| `/help` | Menampilkan pesan bantuan dan ringkasan perintah. | Bot |
-| `/blockonimperva <ip>` | Memasukkan IP ke daftar blokir Imperva. | Imperva |
-| `/unblockonimperva <ip>`| Menghapus IP dari daftar blokir Imperva. | Imperva |
-| `/blocklistimperva` | Menampilkan halaman IP yang diblokir di Imperva. | Imperva |
+|---|---|---|
+| `/help` | Menampilkan bantuan dan ringkasan command. | Bot |
+| `/blockonimperva <ip>` | Menambahkan IP ke blocklist Imperva. | Imperva |
+| `/unblockonimperva <ip>` | Menghapus IP dari blocklist Imperva. | Imperva |
+| `/blocklistimperva` | Menampilkan IP yang diblokir di Imperva. | Imperva |
 | `/tracev <event_id>` | Melakukan tracing violation di Imperva. | Imperva |
-| `/blockonpalo <ip>` | Memasukkan IP ke grup alamat Palo Alto. | Palo Alto |
-| `/unblockonpalo <ip>` | Menghapus IP dari grup alamat Palo Alto. | Palo Alto |
-| `/commitpalo` | Melakukan partial commit untuk mengaktifkan perubahan. | Palo Alto |
-| `/blockonakamai <ip>` | Menambah IP ke Akamai Client List. | Akamai |
-| `/unblockonakamai <ip>`| Menghapus IP dari Akamai Client List. | Akamai |
-| `/blocklistakamai` | Menampilkan halaman IP yang diblokir di Akamai. | Akamai |
-| `/activateakamai` | Mengaktivasi konfigurasi Akamai ke STAGING & PRODUCTION. | Akamai |
-| `/activationstatus <id>`| Mengecek status aktivasi EdgeGrid Akamai. | Akamai |
+| `/blockonpalo <ip>` | Menambahkan IP ke address group Palo Alto. | Palo Alto |
+| `/unblockonpalo <ip>` | Menghapus IP dari address group Palo Alto. | Palo Alto |
+| `/commitpalo` | Melakukan partial commit Palo Alto. | Palo Alto |
+| `/blockonakamai <ip>` | Menambahkan IP ke Akamai Client List. | Akamai |
+| `/unblockonakamai <ip>` | Menghapus IP dari Akamai Client List. | Akamai |
+| `/blocklistakamai` | Menampilkan IP yang diblokir di Akamai. | Akamai |
+| `/activateakamai` | Mengaktivasi konfigurasi Akamai ke STAGING dan PRODUCTION. | Akamai |
+| `/activationstatus <id>` | Mengecek status aktivasi Akamai. | Akamai |
 
 ---
 
-## 6. Pengujian & Mock Traffic
+## Testing dan Mock Traffic
 
-Untuk menyimulasikan data log dari Logstash dan menguji kapabilitas respons MiniSOAR secara _end-to-end_, Anda dapat menyuntikkan _mock payload_ langsung ke antrean Redis. Jalankan perintah Python _one-liner_ berikut di terminal Windows/PowerShell Anda saat kedua daemon sedang berjalan:
+Untuk menguji alur end-to-end tanpa Logstash asli, inject payload langsung ke Redis.
+
+Pastikan daemon dan bot sudah berjalan, lalu jalankan:
 
 ```bash
 python -c "import redis, json, datetime; r = redis.StrictRedis(host='127.0.0.1', port=6379); payload = {'alert': {'type': 'alert_webshell_immediate', 'server_name': 'mock-target.com', 'src_ip': '8.8.8.8', 'method': 'POST', 'url': '/api/upload.php', 'status': '200', 'severity': 'high'}, 'tags': ['alert_webshell_immediate'], '@timestamp': datetime.datetime.now(datetime.timezone.utc).isoformat()}; r.lpush('logstash_alert_queue', json.dumps(payload)); print('Mock traffic berhasil dikirim ke Redis!')"
 ```
 
-Pastikan Anda telah mengaktifkan mode _mock_ (`MINISOAR_MOCK=1` pada `.env`) jika Anda ingin menguji integrasi pemblokiran perimeter tanpa benar-benar mengeksekusi *API Call* riil.
+Jika tersedia, mock traffic yang lebih lengkap dapat dijalankan dengan:
+
+```bash
+python scratch/mock_traffic.py
+```
+
+---
+
+## Machine Learning
+
+MiniSOAR memiliki pipeline ML sederhana untuk membantu memberi rekomendasi block/allow berdasarkan event historis dan label analis.
+
+### 1. Export dataset
+
+```bash
+python -m minisoar.ml.export
+```
+
+Atau melalui wrapper lama:
+
+```bash
+python export_dataset.py
+```
+
+Output utama: `dataset.csv`.
+
+### 2. Training baseline model
+
+```bash
+python -m minisoar.ml.train
+```
+
+Atau melalui wrapper lama:
+
+```bash
+python train_baseline.py
+```
+
+Output utama: `baseline_model.joblib`.
+
+### 3. Restart daemon
+
+Model dibaca saat daemon start. Setelah training ulang, restart daemon agar model baru dipakai.
+
+```bash
+# Stop daemon dengan Ctrl+C, lalu jalankan ulang
+python -m minisoar.daemon
+```
+
+---
+
+## Catatan Operasional dan Keamanan
+
+- Jangan commit file `.env` atau credential vendor ke repository.
+- Gunakan `MINISOAR_MOCK=1` saat development, demo, atau staging.
+- Mulai dari `MINISOAR_BLOCKING_MODE=MANUAL` sebelum mengaktifkan `SEMI` atau `AUTO`.
+- Pastikan `ALLOWED_USERS` hanya berisi Telegram user ID operator yang berwenang.
+- Review whitelist dan bypass list secara berkala.
+- Gunakan TLS verification untuk Elasticsearch di production. Hindari `ES_VERIFY=false` kecuali untuk lab/testing.
+- Simpan audit log action agar aktivitas block/unblock dapat ditelusuri.
+- Untuk Logstash pipeline yang memakai filter `aggregate`, gunakan `pipeline.workers: 1` agar agregasi event tetap konsisten.
+
+---
+
+## Status Dokumentasi
+
+`Context.md` dan `WIKI.md` sudah digabungkan ke dalam README ini. Ke depannya, jadikan `Readme.md` sebagai sumber dokumentasi utama agar penjelasan tidak tersebar dan tidak berulang.
