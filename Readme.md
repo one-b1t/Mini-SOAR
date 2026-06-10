@@ -351,8 +351,3 @@ python -m minisoar.daemon
 - Simpan audit log action agar aktivitas block/unblock dapat ditelusuri.
 - Untuk Logstash pipeline yang memakai filter `aggregate`, gunakan `pipeline.workers: 1` agar agregasi event tetap konsisten.
 
----
-
-## Status Dokumentasi
-
-`Context.md` dan `WIKI.md` sudah digabungkan ke dalam README ini. Ke depannya, jadikan `Readme.md` sebagai sumber dokumentasi utama agar penjelasan tidak tersebar dan tidak berulang.

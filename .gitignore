@@ -63,3 +63,6 @@ tele-soar-actions.log
 .minisoar/
 minisoar-*/
 *.joblib
+
+# Reports folder
+Reports/
