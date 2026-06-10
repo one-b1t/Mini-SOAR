@@ -75,7 +75,7 @@ Secara sederhana:
 
 ```mermaid
 flowchart LR
-    A[Security Device / Raw Logs] --> B[Logstash]
+    A[Proxy Log / Raw Logs] --> B[Logstash]
     B -->|Parse, normalize, classify| C[Redis Queue]
     C -->|Alert payload| D[MiniSOAR Daemon]
     D --> E[Enrichment]
