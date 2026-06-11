@@ -10,5 +10,8 @@ def test_extract_reputation_score():
     assert extract_reputation_score("") == 0
 
 def test_whitelist():
-    assert is_ip_whitelisted("103.8.77.26") is True
-    assert is_ip_whitelisted("8.8.8.8") is False
+    nets = ["103.8.77.26", "192.168.1.0/24"]
+    assert is_ip_whitelisted("103.8.77.26", nets) is True
+    assert is_ip_whitelisted("192.168.1.5", nets) is True
+    assert is_ip_whitelisted("8.8.8.8", nets) is False
+
