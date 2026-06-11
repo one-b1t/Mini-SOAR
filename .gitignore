@@ -65,4 +65,7 @@ minisoar-*/
 *.joblib
 
 # Reports folder
-Reports/
+Reports/
+
+# Internal documentation
+Context.md
