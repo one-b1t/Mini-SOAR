@@ -4,7 +4,16 @@ Semua perubahan penting pada proyek **MiniSOAR** akan dicatat di dokumen ini.
 
 Format changelog berbasis pada [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 
+## [1.2.1] - 2026-06-11
+
+### Fixed
+- **Whitelist Test Bug:** Memperbaiki bug pada `test_whitelist` di [test_utils.py](file:///c:/Users/rezy0/OneDrive%20-%20Kementerian%20Komunikasi%20dan%20Informatika/Documents/Kantor/Program/MiniSOAR/tests/test_utils.py) yang memanggil `is_ip_whitelisted` tanpa argumen `nets` yang wajib disuplai.
+
+### Changed
+- Dokumentasi [Context.md](file:///c:/Users/rezy0/OneDrive%20-%20Kementerian%20Komunikasi%20dan%20Informatika/Documents/Kantor/Program/MiniSOAR/Context.md) dipulihkan kembali dan dilengkapi dengan Decision Log sesuai aturan pengembangan codebase.
+
 ## [1.2.0] - 2026-05-26
+
 
 ### Added
 - Parameter `MINISOAR_BLOCKING_MODE` di dalam berkas `.env` untuk mendukung 3 mode pemblokiran: `AUTO`, `SEMI`, dan `MANUAL`.
