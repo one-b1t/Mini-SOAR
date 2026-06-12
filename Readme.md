@@ -263,6 +263,86 @@ sudo systemctl start logstash
 sudo tail -f /var/log/logstash/logstash-plain.log
 ```
 
+#### D. Menjalankan MiniSOAR sebagai Systemd Service
+
+Agar daemon alert consumer dan Telegram bot berjalan secara persisten di latar belakang (background) dan otomatis menyala kembali setelah crash atau server restart, buat service systemd berikut:
+
+##### 1. Service untuk Alert Daemon (`minisoar-daemon.service`)
+Buat file unit systemd baru:
+```bash
+sudo nano /etc/systemd/system/minisoar-daemon.service
+```
+Tempelkan konfigurasi berikut (sesuaikan `User` dan `WorkingDirectory` dengan environment Anda):
+```ini
+[Unit]
+Description=MiniSOAR Alert Daemon Service
+After=network.target redis-server.service
+
+[Service]
+Type=simple
+User=ubuntu
+WorkingDirectory=/home/ubuntu/Mini-SOAR
+ExecStart=/home/ubuntu/Mini-SOAR/.venv/bin/python -m minisoar.daemon
+Restart=on-failure
+RestartSec=5s
+Environment=PYTHONUNBUFFERED=1
+
+[Install]
+WantedBy=multi-user.target
+```
+
+##### 2. Service untuk Telegram Bot (`minisoar-bot.service`)
+Buat file unit systemd baru:
+```bash
+sudo nano /etc/systemd/system/minisoar-bot.service
+```
+Tempelkan konfigurasi berikut:
+```ini
+[Unit]
+Description=MiniSOAR Telegram Bot Service
+After=network.target
+
+[Service]
+Type=simple
+User=ubuntu
+WorkingDirectory=/home/ubuntu/Mini-SOAR
+ExecStart=/home/ubuntu/Mini-SOAR/.venv/bin/python -m minisoar.bot
+Restart=on-failure
+RestartSec=5s
+Environment=PYTHONUNBUFFERED=1
+
+[Install]
+WantedBy=multi-user.target
+```
+
+##### 3. Mengaktifkan dan Mengelola Layanan
+Jalankan perintah berikut untuk memuat ulang systemd, lalu mengaktifkan dan menjalankan kedua service:
+```bash
+# Reload systemd configuration
+sudo systemctl daemon-reload
+
+# Enable auto-start pada saat booting
+sudo systemctl enable minisoar-daemon
+sudo systemctl enable minisoar-bot
+
+# Jalankan service secara instan
+sudo systemctl start minisoar-daemon
+sudo systemctl start minisoar-bot
+
+# Periksa status masing-masing service
+sudo systemctl status minisoar-daemon
+sudo systemctl status minisoar-bot
+```
+
+Untuk memantau log aktivitas (stdout/stderr) dari service, gunakan perintah:
+```bash
+# Pantau log Alert Daemon
+journalctl -u minisoar-daemon -f
+
+# Pantau log Telegram Bot
+journalctl -u minisoar-bot -f
+```
+
 ---
 
 ## Konfigurasi Environment
