@@ -18,8 +18,18 @@ from telegram.ext import (
 )
 
 from .config import load_env, parse_allowed_users, telegram_config
-from .database import es_find_latest_event_id_by_ip, store_label
-from .mitigation import akamai, imperva, paloalto
+from .database import es_find_latest_event_id_by_ip, store_label, redis_client
+from .mitigation import (
+    akamai,
+    imperva,
+    paloalto,
+    trigger_auto_block,
+    trigger_auto_unblock,
+    is_ip_blocked,
+    register_block_state,
+    extend_block_state,
+    remove_block_state,
+)
 from .utils import log_user_action, resolve_log_path, valid_ip
 
 logger = logging.getLogger(__name__)
@@ -46,7 +56,7 @@ async def blockonimperva(update: Update, context: ContextTypes.DEFAULT_TYPE):
         await update.message.reply_text("❌ Maaf, kamu tidak punya akses ke bot ini.")
         return
 
-    if len(context.args) != 1:
+    if len(context.args) != 1 or not valid_ip(context.args[0]):
         await update.message.reply_text("Format: /blockonimperva <ip>")
         return
 
@@ -54,16 +64,14 @@ async def blockonimperva(update: Update, context: ContextTypes.DEFAULT_TYPE):
     logfile = resolve_log_path("LOGFILE", "/var/log/tele-soar-actions.log", "tele-soar-actions.log")
     log_user_action("block_imperva", user, ip=ip, target="Imperva", source="command", chat_id=update.effective_chat.id, logfile=logfile)
 
-    await update.message.reply_text(f"Memproses blokir IP {ip}...")
+    await update.message.reply_text(f"Memproses blokir IP {ip} pada Imperva...")
 
-    base_url = os.getenv("IMPERVA_BASE_URL", "")
-    cookies = imperva.login_via_api(base_url, os.getenv("IMPERVA_USERNAME", ""), os.getenv("IMPERVA_PASSWORD", ""))
-    if not cookies:
-        await update.message.reply_text("❌ Gagal login ke API Imperva. Cek kredensial/API.")
-        return
-
-    group = os.getenv("IMPERVA_GROUP_NAME", "Blocked-IP-Addresses")
-    ok, msg = imperva.ip_blocklist_api(base_url, group, cookies, ip, action="add")
+    r = redis_client()
+    duration = int(os.environ.get("MINISOAR_BLOCK_DURATION", "600"))
+    ok, msg = trigger_auto_block(ip, "imperva")
+    if ok:
+        register_block_state(r, ip, "imperva", duration=duration)
+        msg += f"\nℹ️ IP terdaftar dalam pemblokiran sementara ({duration} detik)."
     await update.message.reply_text(msg)
 
 
@@ -73,7 +81,7 @@ async def unblockonimperva(update: Update, context: ContextTypes.DEFAULT_TYPE):
         await update.message.reply_text("❌ Maaf, kamu tidak punya akses ke bot ini.")
         return
 
-    if len(context.args) != 1:
+    if len(context.args) != 1 or not valid_ip(context.args[0]):
         await update.message.reply_text("Format: /unblockonimperva <ip>")
         return
 
@@ -81,16 +89,12 @@ async def unblockonimperva(update: Update, context: ContextTypes.DEFAULT_TYPE):
     logfile = resolve_log_path("LOGFILE", "/var/log/tele-soar-actions.log", "tele-soar-actions.log")
     log_user_action("unblock_imperva", user, ip=ip, target="Imperva", source="command", chat_id=update.effective_chat.id, logfile=logfile)
 
-    await update.message.reply_text(f"Memproses unblock IP {ip}...")
+    await update.message.reply_text(f"Memproses unblock IP {ip} pada Imperva...")
 
-    base_url = os.getenv("IMPERVA_BASE_URL", "")
-    cookies = imperva.login_via_api(base_url, os.getenv("IMPERVA_USERNAME", ""), os.getenv("IMPERVA_PASSWORD", ""))
-    if not cookies:
-        await update.message.reply_text("❌ Gagal login ke API Imperva. Cek kredensial/API.")
-        return
-
-    group = os.getenv("IMPERVA_GROUP_NAME", "Blocked-IP-Addresses")
-    ok, msg = imperva.ip_blocklist_api(base_url, group, cookies, ip, action="remove")
+    r = redis_client()
+    ok, msg = trigger_auto_unblock(ip, "imperva")
+    if ok:
+        remove_block_state(r, ip, "imperva")
     await update.message.reply_text(msg)
 
 
@@ -149,19 +153,14 @@ async def blockonpalo(update: Update, context: ContextTypes.DEFAULT_TYPE):
     logfile = resolve_log_path("LOGFILE", "/var/log/tele-soar-actions.log", "tele-soar-actions.log")
     log_user_action("block_palo", user, ip=ip, target="PaloAlto", source="command", chat_id=update.effective_chat.id, logfile=logfile)
 
-    await update.message.reply_text(f"Menambah {ip} ke IP group di Palo Alto...")
+    await update.message.reply_text(f"Menambah {ip} ke IP group Palo Alto...")
 
-    pa_host = os.getenv("PA_HOST", "")
-    pa_key = os.getenv("PA_API_KEY", "")
-    pa_vsys = os.getenv("PA_VSYS", "vsys1")
-    pa_group = os.getenv("PA_GROUP", "")
-
-    resp_obj = paloalto.add_address_object(pa_host, pa_key, ip=ip, vsys=pa_vsys)
-    resp_grp = paloalto.add_to_group(pa_host, pa_key, ip=ip, vsys=pa_vsys, group=pa_group)
-    msg = "\n".join([
-        paloalto.response_message(resp_obj, f"PA: Add object {ip}"),
-        paloalto.response_message(resp_grp, f"PA: Add to group {pa_group}")
-    ])
+    r = redis_client()
+    duration = int(os.environ.get("MINISOAR_BLOCK_DURATION", "600"))
+    ok, msg = trigger_auto_block(ip, "paloalto", commit=False)
+    if ok:
+        register_block_state(r, ip, "paloalto", duration=duration)
+        msg += f"\nJangan lupa jalankan /commitpalo.\nℹ️ IP terdaftar dalam pemblokiran sementara ({duration} detik)."
     await update.message.reply_text(msg)
 
 
@@ -181,17 +180,11 @@ async def unblockonpalo(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
     await update.message.reply_text(f"Menghapus {ip} dari IP group Palo Alto...")
 
-    pa_host = os.getenv("PA_HOST", "")
-    pa_key = os.getenv("PA_API_KEY", "")
-    pa_vsys = os.getenv("PA_VSYS", "vsys1")
-    pa_group = os.getenv("PA_GROUP", "")
-
-    resp_grp = paloalto.remove_from_group(pa_host, pa_key, ip=ip, vsys=pa_vsys, group=pa_group)
-    resp_obj = paloalto.delete_address_object(pa_host, pa_key, ip=ip, vsys=pa_vsys)
-    msg = "\n".join([
-        paloalto.response_message(resp_grp, f"PA: Remove from group {pa_group}"),
-        paloalto.response_message(resp_obj, f"PA: Delete object {ip}")
-    ])
+    r = redis_client()
+    ok, msg = trigger_auto_unblock(ip, "paloalto", commit=False)
+    if ok:
+        remove_block_state(r, ip, "paloalto")
+        msg += "\nJangan lupa jalankan /commitpalo."
     await update.message.reply_text(msg)
 
 
@@ -229,20 +222,13 @@ async def blockonakamai(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
     await update.message.reply_text(f"Menambah {ip} ke Akamai Client List...")
 
-    session = akamai.akamai_session(
-        client_token=os.getenv("AKAMAI_CLIENT_TOKEN", ""),
-        client_secret=os.getenv("AKAMAI_CLIENT_SECRET", ""),
-        access_token=os.getenv("AKAMAI_ACCESS_TOKEN", "")
-    )
-    url = akamai.akamai_url(os.getenv("AKAMAI_BASEURL", ""), f"/client-list/v1/lists/{os.getenv('AKAMAI_LIST_ID', '')}/items")
-    headers = {"accept": "application/json", "content-type": "application/json"}
-    body = {"append": [{"value": ip, "description": "added via bot", "type": "IP"}]}
-
-    resp = session.post(url, headers=headers, json=body)
-    if resp.status_code == 200:
-        await update.message.reply_text(f"✅ {ip} berhasil ditambahkan ke client list Akamai.")
-    else:
-        await update.message.reply_text(f"❌ Gagal add IP ke Akamai: {resp.text}")
+    r = redis_client()
+    duration = int(os.environ.get("MINISOAR_BLOCK_DURATION", "600"))
+    ok, msg = trigger_auto_block(ip, "akamai", commit=False)
+    if ok:
+        register_block_state(r, ip, "akamai", duration=duration)
+        msg += f"\nJangan lupa jalankan /activateakamai.\nℹ️ IP terdaftar dalam pemblokiran sementara ({duration} detik)."
+    await update.message.reply_text(msg)
 
 
 async def unblockonakamai(update: Update, context: ContextTypes.DEFAULT_TYPE):
@@ -260,20 +246,12 @@ async def unblockonakamai(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
     await update.message.reply_text(f"Menghapus {ip} dari Akamai Client List...")
 
-    session = akamai.akamai_session(
-        client_token=os.getenv("AKAMAI_CLIENT_TOKEN", ""),
-        client_secret=os.getenv("AKAMAI_CLIENT_SECRET", ""),
-        access_token=os.getenv("AKAMAI_ACCESS_TOKEN", "")
-    )
-    url = akamai.akamai_url(os.getenv("AKAMAI_BASEURL", ""), f"/client-list/v1/lists/{os.getenv('AKAMAI_LIST_ID', '')}/items")
-    headers = {"accept": "application/json", "content-type": "application/json"}
-    body = {"delete": [{"value": ip}]}
-
-    resp = session.post(url, headers=headers, json=body)
-    if resp.status_code == 200:
-        await update.message.reply_text(f"✅ {ip} berhasil dihapus dari client list Akamai.")
-    else:
-        await update.message.reply_text(f"❌ Gagal hapus IP dari Akamai: {resp.text}")
+    r = redis_client()
+    ok, msg = trigger_auto_unblock(ip, "akamai", commit=False)
+    if ok:
+        remove_block_state(r, ip, "akamai")
+        msg += "\nJangan lupa jalankan /activateakamai."
+    await update.message.reply_text(msg)
 
 
 async def activateakamai(update: Update, context: ContextTypes.DEFAULT_TYPE):
@@ -336,15 +314,14 @@ async def callback_query_handler(update: Update, context: ContextTypes.DEFAULT_T
         ip_to_block, event_id = _parse_callback_payload(payload)
 
         log_user_action("block_imperva", user, ip=ip_to_block, target="Imperva", source="button", chat_id=update.effective_chat.id, note="inline_button", logfile=logfile)
-        await context.bot.send_message(chat_id=update.effective_chat.id, text=f"Memproses blokir IP [{ip_to_block}](http://{ip_to_block}) ...", parse_mode="Markdown")
+        await context.bot.send_message(chat_id=update.effective_chat.id, text=f"Memproses blokir IP [{ip_to_block}](http://{ip_to_block}) pada Imperva ...", parse_mode="Markdown")
 
-        base_url = os.getenv("IMPERVA_BASE_URL", "")
-        cookies = imperva.login_via_api(base_url, os.getenv("IMPERVA_USERNAME", ""), os.getenv("IMPERVA_PASSWORD", ""))
-        if not cookies:
-            await context.bot.send_message(chat_id=update.effective_chat.id, text="❌ Gagal login ke API Imperva. Cek kredensial/API.")
-            return
-
-        ok, msg = imperva.ip_blocklist_api(base_url, os.getenv("IMPERVA_GROUP_NAME", "Blocked-IP-Addresses"), cookies, ip_to_block, action="add")
+        r = redis_client()
+        duration = int(os.environ.get("MINISOAR_BLOCK_DURATION", "600"))
+        ok, msg = trigger_auto_block(ip_to_block, "imperva")
+        if ok:
+            register_block_state(r, ip_to_block, "imperva", duration=duration)
+            msg += f"\nℹ️ IP terdaftar dalam pemblokiran sementara ({duration} detik)."
         await context.bot.send_message(chat_id=update.effective_chat.id, text=msg)
 
         if not event_id:
@@ -357,16 +334,14 @@ async def callback_query_handler(update: Update, context: ContextTypes.DEFAULT_T
         ip_to_block, event_id = _parse_callback_payload(payload)
 
         log_user_action("block_palo", user, ip=ip_to_block, target="PaloAlto", source="button", chat_id=update.effective_chat.id, note="inline_button", logfile=logfile)
-        await context.bot.send_message(chat_id=update.effective_chat.id, text=f"Menambah {ip_to_block} ke IP group di Palo Alto ...", parse_mode="Markdown")
+        await context.bot.send_message(chat_id=update.effective_chat.id, text=f"Menambah {ip_to_block} ke IP group Palo Alto ...", parse_mode="Markdown")
 
-        pa_host = os.getenv("PA_HOST", "")
-        pa_key = os.getenv("PA_API_KEY", "")
-        pa_vsys = os.getenv("PA_VSYS", "vsys1")
-        pa_group = os.getenv("PA_GROUP", "")
-
-        resp_obj = paloalto.add_address_object(pa_host, pa_key, ip=ip_to_block, vsys=pa_vsys)
-        resp_grp = paloalto.add_to_group(pa_host, pa_key, ip=ip_to_block, vsys=pa_vsys, group=pa_group)
-        msg = f"✅ {ip_to_block} berhasil ditambahkan ke {pa_group}.\nJangan lupa jalankan /commitpalo."
+        r = redis_client()
+        duration = int(os.environ.get("MINISOAR_BLOCK_DURATION", "600"))
+        ok, msg = trigger_auto_block(ip_to_block, "paloalto", commit=False)
+        if ok:
+            register_block_state(r, ip_to_block, "paloalto", duration=duration)
+            msg += f"\nJangan lupa jalankan /commitpalo.\nℹ️ IP terdaftar dalam pemblokiran sementara ({duration} detik)."
         await context.bot.send_message(chat_id=update.effective_chat.id, text=msg)
 
         if not event_id:
@@ -381,20 +356,13 @@ async def callback_query_handler(update: Update, context: ContextTypes.DEFAULT_T
         log_user_action("block_akamai", user, ip=ip_to_block, target="Akamai", source="button", chat_id=update.effective_chat.id, note="inline_button", logfile=logfile)
         await context.bot.send_message(chat_id=update.effective_chat.id, text=f"Menambah {ip_to_block} ke Akamai Client List...")
 
-        session = akamai.akamai_session(
-            client_token=os.getenv("AKAMAI_CLIENT_TOKEN", ""),
-            client_secret=os.getenv("AKAMAI_CLIENT_SECRET", ""),
-            access_token=os.getenv("AKAMAI_ACCESS_TOKEN", "")
-        )
-        url = akamai.akamai_url(os.getenv("AKAMAI_BASEURL", ""), f"/client-list/v1/lists/{os.getenv('AKAMAI_LIST_ID', '')}/items")
-        headers = {"accept": "application/json", "content-type": "application/json"}
-        body = {"append": [{"value": ip_to_block, "description": "added via button", "type": "IP"}]}
-
-        resp = session.post(url, headers=headers, json=body)
-        if resp.status_code == 200:
-            await context.bot.send_message(chat_id=update.effective_chat.id, text=f"✅ {ip_to_block} berhasil ditambahkan ke client list Akamai.\nJangan lupa /activateakamai.")
-        else:
-            await context.bot.send_message(chat_id=update.effective_chat.id, text=f"❌ Gagal add IP ke Akamai: {resp.text}")
+        r = redis_client()
+        duration = int(os.environ.get("MINISOAR_BLOCK_DURATION", "600"))
+        ok, msg = trigger_auto_block(ip_to_block, "akamai", commit=False)
+        if ok:
+            register_block_state(r, ip_to_block, "akamai", duration=duration)
+            msg += f"\nJangan lupa jalankan /activateakamai.\nℹ️ IP terdaftar dalam pemblokiran sementara ({duration} detik)."
+        await context.bot.send_message(chat_id=update.effective_chat.id, text=msg)
 
         if not event_id:
             event_id = es_find_latest_event_id_by_ip(ip_to_block, getattr(query.message, "date", None))

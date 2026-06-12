@@ -1,0 +1,151 @@
+# MiniSOAR whitelist config
+
+# ==== RANDOM URL SPRAY (by single IP) ====
+random_url:
+  min_unique: 120           # minimal URL unik dalam 60s
+  min_err_ratio: 0.8       # minimal rasio 4xx (0.0–1.0) agar dianggap probing
+
+  ua_allow:                # User-Agent yang lazim untuk sync/bot sah
+    - '(?i)Nextcloud'
+    - '(?i)ownCloud'
+    - '(?i)WebDAV'
+    - 'Microsoft-WebDAV-MiniRedir'
+    - '(?i)rclone'
+    - '(?i)curl/dav'
+
+  path_allow:              # jalur aman (repo/dependency/terjemahan/WebDAV)
+    - '^/remote\.php/dav/'
+    - '^/remote\.php/webdav/'
+    - '/(vendor|node_modules|bower_components)/'
+    - '/yii2-user/messages/'
+    - '/(i18n|locale|translations?)/'
+    - '^/api/v1/(contents|card_items|general_config)($|/|\?)'
+
+  per_host:
+    igd:
+      min_unique: 150
+      min_err_ratio: 0.85
+    web-dot-komdigi:
+      min_unique: 150
+      min_err_ratio: 0.85
+# ==== WEBSHELL IMMEDIATE ====
+
+
+# ==== GAMBLING / SLOT ====
+gambling:
+  hosts_publik:            # host publik berita/informasi
+    - web-utama-komdigi
+    - web-dot-komdigi
+    - igd
+    - infopublik
+    - jdih
+    - djppi
+    - bpsdm
+    - bpptik
+    - indonesiakini
+    - eppid
+    - djkpm-staging
+    - wasdig
+
+  news_section:            # prefix section berita/konten dan pencarian umum
+    - '^/(berita|siaran-pers|masyarakat-digital|kategori|pengumuman)/'
+    - '^/(api/v1/content/detail|produk_hukum|view|detail|artikel|post|news)(/|\?|$)'
+    - '^/(api/v1/search)(/|\?|$)'
+    - '^/lainnya/hasil-pencarian(/|\?|$)'
+    - '^/upt/banjarmasin/berita(/|$)'
+    - '^/upt/makassar(/|$)'
+    - '^/Publikasi/detail(/|$)'
+    - '^/index\.php/video-jdih(/|$)'
+    - '^/search(/|)keyword(/|$)'
+    - '^/(search)(/|\?|$)'
+    - '^/satker/pusbanglitdig(?:/)?\?mod=pencarian(\&|$)'
+
+
+
+  anti_judi_phrases:       # frasa kampanye/anti-judi
+    - '(?i)stop[-_ ]judi'
+    - '(?i)anti[-_ ]judi'
+    - '(?i)berantas[-_ ]judi'
+    - '(?i)blokir[-_ ]judi'
+    - '(?i)laporkan[-_ ]judi'
+    - '(?i)lapor[-_ ]judi'
+    - '(?i)pemberantasan[-_ ]judi'
+    - '(?i)judi[-_ ]online[-_ ]adalah[-_ ]maut'
+
+  slot_non_gambling:       # makna "slot" yang bukan judi
+    - '(?i)slot(?:[-_ ]|%20)*(penerbangan|bandara|airport|parkir|jadwal|server|gpu|memory|ram|pabrik|produksi)'
+
+  host_path_allow:         # whitelist spesifik host+path
+    djppi:
+      - '^/news/laporkan-judi-online/?$'
+    web-utama-komdigi:
+      - '^/lainnya/hasil-pencarian/?$'
+      - '^/api/v1/contents/tag/judi-online(?:/|\?.*)?$'
+      - '^/content/detail/\d+/judi-online(?:/.*)?$'
+      - '^ /content/detail/.*'
+      - '^/content/detail/\d+/.*/siaran[-_ ]pers.*'
+      - '^/berita/.*/.*judi(-online|-daring)?(\?.*)?$'
+      - '^/berita/pengumuman/detail/.*judi(-online|-daring).*(\?.*)?$'
+      - '^/index\.php/content/detail/[0-9]+/.*judi-online.*/[0-9]+/siaran_pers(\?.*)?$'
+    web-dot-komdigi:
+      - '^/api/v1/search(?:/)?(?:\?.*)?$'
+      - '^/api/v1/gallery(?:/|\?|$)'
+      - '^/api/v1/gallery/.+'
+      - '^/api/v1/contents/tag/judi-online(?:/|\?.*)?$'
+      - '^/api/v1/contents/category/berita-hoaks(?:/|\?.*)?$'
+      - '^/api/v1/content/detail/siaran-pers/.*judi(-online|-daring)?(\?.*)?$'
+      - '^/api/v1/search\?.*(&|^)query=.*judi(\+|%20|-)(online|daring).*'
+    bpsdm:
+      - '^/upt/banjarmasin/berita/?$'
+      - '^/satker/pusbanglitdig(?:/)?(?:\?.*mod=pencarian(?:&|$).*)$'
+      - '^/berita.*'
+      - '^/upt/.*'
+      - '^/satker/psdppi/\?.*'
+    bpptik:
+      - '^/Publikasi/detail/?$'
+    jdih:
+      - '^/index\.php/video-jdih/?$'
+      - - '^/video-jdih/id/[0-9]+/t/kalah\+sebelum\+bermain\+judi\+online\+\+kominfopedia$'
+    igd:
+      - '^/search/?keyword/?$'
+      - '^/+.*/kategori/editorial/.*'
+      - '^/+.*/kategori/sosial-budaya/.*'
+      - '^/+.*/kategori/politik-hukum/.+judi-online.*'
+      - '^/+.*/kategori/budaya/.+judi-online.*'
+      - '^/+/kategori/ekonomi-bisnis/[0-9]+/kampanye-judi-pasti-rugi-sasar-masyarakat-langsung-lewat-edukasi-interaktif(\?.*)?$'
+      - '^/+/kategori/kependudukan/[0-9]+/.*judi-online.*(\?.*)?$'
+      - '^/+/kategori/ekonomi-bisnis/[0-9]+/kampanye-judi-pasti-rugi-sasar-masyarakat-langsung-lewat-edukasi-interaktif(\?.*)?$'
+      - '^/+/kategori/kependudukan/[0-9]+/.*judi-online.*(\?.*)?$'
+      - '^/+/kategori/ekonomi-bisnis/[0-9]+/kampanye-judi-pasti-rugi.*(\?.*)?$'
+    djkpm:
+      - '^/publikasi/materi-kegiatan/57/judi-online-adalah-maut/?$'
+      - '^/berita/.*'
+    indonesiakini:
+      - '^/berita(?:/|\?|$)'
+    infopublik:
+      - '^/read(?:/|\?|$)'
+      - '^/read/\d+/.+\.html(?:\?.*)?$'
+      - '^/kategori/siaran-pers/[0-9]+/siaran-pers-menkominfo-ungkap-modus-sebaran-konten-judi-online(\?.*)?$'
+      - '^/kategori/nusantara/[0-9]+/musrenbang-perempuan-gresik-2026-rumuskan-10-isu-strategis-dari-stunting-hingga-judi-online(\?.*)?$'
+
+    eppid:
+      - '^/berita/detail/.+judi-online.*$'
+    djkpm-staging:
+      - '^/publikasi/.*'
+      - '^/berita/.*'
+      - '^/news-ticker/.*'
+      - '^(?i).*publikasi.*'
+      - '^(?i).*siaran-pers.*'
+    csirt:
+      - '^/galeri/.*'
+      - '^/content/.*'
+      - '^/galeri/.+judi-online.*'
+    wasdig:
+      - '^/kemkomdigi-apresiasi-inovasi-mahasiswa-perangi-judi-online-gate-system(?:\?.*)?$'
+    iniapi:
+      - '^/api/berita/detail-data/.*judi-online.*'
+      - '^/api/berita/detail-data/tiga-jurus-sakti-memberantas-judi/?(\?.*)?$'
+    portal:
+      - '^/login(?:%22)?/cdn-[^/]+/wp-content/slot(?:/.*)?$'
+    apiigrsid:
+      - '^/public/games\?nameLike=(slot|casino)(&.*)?$'
