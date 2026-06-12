@@ -29,7 +29,9 @@ Dokumentasi ini menggabungkan penjelasan dari README, Context, dan Wiki lama aga
 MiniSOAR bekerja dengan alur berikut:
 
 ```text
-Security Device / Raw Logs
+Proxy Logs / Raw Logs
+        ↓
+Elasticsearch
         ↓
 Logstash Detection Pipeline
         ↓
@@ -41,12 +43,12 @@ Enrichment, Event Indexing, ML Recommendation
         ↓
 Telegram Notification / Analyst Action
         ↓
-Mitigation ke Imperva, Palo Alto, atau Akamai
+Mitigation Action ke Security Perimeter
 ```
 
 Secara sederhana:
 
-1. **Logstash** membaca log dari sumber keamanan, melakukan normalisasi field, lalu mendeteksi pola serangan atau anomali.
+1. **Logstash** membaca log dari elasticsearch, melakukan normalisasi field, lalu mendeteksi pola serangan atau anomali.
 2. Alert yang valid dikirim ke **Redis** sebagai buffer queue.
 3. **MiniSOAR daemon** membaca event dari Redis.
 4. Daemon melakukan enrichment, whitelist/bypass check, event indexing, dan scoring berbasis rule/ML.
@@ -62,7 +64,7 @@ Secara sederhana:
 - **Threat intelligence enrichment** menggunakan AbuseIPDB dan IP API.
 - **Whitelist dan bypass list** untuk mencegah false positive terhadap IP internal atau trusted.
 - **Perimeter mapping** untuk menentukan vendor mitigasi berdasarkan domain/website.
-- **Integrasi mitigation** ke Imperva, Palo Alto, dan Akamai.
+- **Integrasi mitigation** ke security perimeter dengan API. 
 - **Mode MANUAL, SEMI, dan AUTO** untuk fleksibilitas tingkat otomasi.
 - **Mock mode** agar testing tidak memanggil API perimeter sungguhan.
 - **Event indexing ke Elasticsearch** untuk audit, label analis, dan kebutuhan ML.
@@ -84,7 +86,7 @@ flowchart LR
     G --> H[Telegram Bot]
     H --> I[Analyst]
     H --> J[Mitigation Action]
-    J --> K[Imperva / Palo Alto / Akamai]
+    J --> K[Security Perimeter]
 ```
 
 ### Tanggung jawab komponen
@@ -95,7 +97,7 @@ flowchart LR
 | Redis | Menjadi buffer queue antara pipeline deteksi dan worker Python. |
 | MiniSOAR Daemon | Membaca event, enrichment, indexing, ML scoring, dan broadcast alert. |
 | Telegram Bot | Menampilkan alert, menerima command analis, dan menjalankan callback action. |
-| Mitigation Modules | Menjalankan block/unblock ke Imperva, Palo Alto, atau Akamai. |
+| Mitigation Modules | Menjalankan block/unblock ke Security Perimeter. |
 | Elasticsearch | Menyimpan event, label analis, dan data untuk retraining ML. |
 
 ---
@@ -136,10 +138,7 @@ Beberapa wrapper lama tetap dapat dipakai untuk menjaga kompatibilitas operasion
 - Redis Server
 - Telegram Bot Token dan Chat ID
 - Elasticsearch, opsional tetapi direkomendasikan untuk event storage dan ML retraining
-- Akses API vendor perimeter jika ingin menjalankan mitigasi real:
-  - Imperva
-  - Palo Alto
-  - Akamai
+- Security perimeter yang memiliki fitur konfigurasi dengan API
 
 ---
 
@@ -259,7 +258,7 @@ python 09-tele-soar.py
 
 ---
 
-## Perintah Telegram Bot
+## Perintah Telegram Bot (Studi Kasus Imperva, Palo Alto, dan Akamai)
 
 | Perintah | Deskripsi | Platform |
 |---|---|---|
