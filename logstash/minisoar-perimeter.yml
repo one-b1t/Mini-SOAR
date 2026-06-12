@@ -1,0 +1,8 @@
+# /etc/logstash/minisoar-perimeter.yml
+sites:
+  web1:
+    provider: imperva
+  web2:
+    provider: akamai
+  web3:
+    provider: paloalto

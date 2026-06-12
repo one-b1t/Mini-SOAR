@@ -104,21 +104,53 @@ flowchart LR
 
 ## Struktur Project
 
-Implementasi utama sudah dipisahkan ke package `minisoar/` agar lebih mudah dirawat.
+Berikut adalah struktur organisasi direktori proyek:
 
 ```text
-minisoar/
-├── bot.py                  # Telegram command handler dan callback action
-├── config.py               # Parsing env, normalisasi provider, helper Telegram
-├── daemon.py               # Redis consumer, enrichment, indexing, ML, alert broadcast
-├── database.py             # Redis client, Elasticsearch indexing, event ID, label storage
-├── utils.py                # Helper enrichment, whitelist, bypass, formatting, Telegram send
-├── mitigation/             # Integrasi vendor perimeter
-│   ├── akamai.py
-│   ├── core.py             # Unified auto-block controller
-│   ├── imperva.py
-│   └── paloalto.py
-└── ml/                     # Export dataset, training, dan inference model
+MiniSOAR/
+├── logstash/                     # Konfigurasi pipeline deteksi Logstash
+│   ├── 01-detection.conf         # Pipeline untuk normalisasi dan deteksi alert
+│   ├── 02-alert-redis.conf       # Pipeline pengiriman alert ke Redis
+│   ├── minisoar-perimeter.yml    # Pemetaan target domain ke provider mitigasi
+│   └── minisoar-whitelist.yml    # Whitelist domain, keyword, dan anti-judi untuk Logstash
+├── minisoar/                     # Kode utama aplikasi SOAR (modul Python)
+│   ├── __init__.py
+│   ├── bot.py                    # Handlers Telegram bot dan interaksi analis
+│   ├── config.py                 # Konfigurasi environment dan variabel SOAR
+│   ├── daemon.py                 # Core consumer loop dari Redis ke Telegram
+│   ├── database.py               # Pustaka koneksi database (Redis & Elasticsearch)
+│   ├── utils.py                  # Fungsi utilitas (Enrichment, IP validation, dll.)
+│   ├── mitigation/               # Integrasi mitigasi WAF dan perimeter keamanan
+│   │   ├── __init__.py
+│   │   ├── akamai.py             # Integrasi Fast Purge / Client List Akamai
+│   │   ├── core.py               # Orchestrator block/unblock dan commit
+│   │   ├── imperva.py            # Integrasi API blocking IP Imperva
+│   │   └── paloalto.py           # Integrasi Address Object/Group Palo Alto
+│   └── ml/                       # Modul klasifikasi machine learning (Phase 1 & 2)
+│       ├── __init__.py
+│       ├── export.py             # Pustaka export dataset dari Elasticsearch/Redis
+│       ├── inference.py          # Logika prediksi decision block
+│       └── train.py              # Pustaka training model klasifikasi baseline
+├── scratch/                      # Skrip uji coba lokal dan mock data
+│   ├── mock_traffic.py           # Injeksi data simulasi ke Redis
+│   ├── test_imports.py           # Verifikasi import modul Python
+│   └── test_predict.py           # Verifikasi fungsi prediksi ML secara lokal
+├── scripts/                      # Script wrapper penunjang operasional
+│   ├── export_dataset.py         # Wrapper pengekspor dataset ML
+│   └── train_baseline.py         # Wrapper pen-training model baseline ML
+├── tests/                        # Unit test suite (Pytest)
+│   ├── __init__.py
+│   ├── test_config.py            # Test case untuk parsing config
+│   ├── test_database.py          # Test case koneksi & operasi DB
+│   ├── test_mitigation.py        # Test case fungsi mitigasi (mock)
+│   ├── test_ml.py                # Test case inference fallback
+│   └── test_utils.py             # Test case helper utilities
+├── .gitignore
+├── Changelog.md                  # Catatan riwayat rilis proyek
+├── Readme.md                     # Dokumentasi utama proyek SOAR
+├── WIKI.md                       # Dokumentasi tambahan teknis operasional
+├── env.example                   # Contoh konfigurasi environment variable
+└── requirements.txt              # Daftar dependensi pustaka Python
 ```
 
 Beberapa wrapper lama tetap dapat dipakai untuk menjaga kompatibilitas operasional:
@@ -127,8 +159,8 @@ Beberapa wrapper lama tetap dapat dipakai untuk menjaga kompatibilitas operasion
 |---|---|
 | `14_redis_telegram_alert.py` | `minisoar.daemon.main()` |
 | `09-tele-soar.py` | `minisoar.bot.main()` |
-| `export_dataset.py` | `minisoar.ml.export.main()` |
-| `train_baseline.py` | `minisoar.ml.train.main()` |
+| `scripts/export_dataset.py` | `minisoar.ml.export.main()` |
+| `scripts/train_baseline.py` | `minisoar.ml.train.main()` |
 
 ---
 
@@ -144,19 +176,91 @@ Beberapa wrapper lama tetap dapat dipakai untuk menjaga kompatibilitas operasion
 
 ## Instalasi
 
-Clone repository, masuk ke folder project, lalu install dependensi:
+### 1. Windows
 
-```bash
-pip install redis requests xmltodict python-telegram-bot edgegrid-python pyyaml pandas scikit-learn joblib python-dotenv
+Buka PowerShell atau Command Prompt, masuk ke folder project, lalu buat dan aktifkan virtual environment:
+
+```powershell
+python -m venv .venv
+.venv\Scripts\activate
+pip install -r requirements.txt
 ```
 
-Disarankan menggunakan virtual environment:
+### 2. Linux (Ubuntu/Debian modern)
+
+Pada Linux modern (Python 3.11+ / PEP 668), Anda akan menemui error `externally-managed-environment` jika menginstal paket Python secara global. Anda **wajib** menggunakan virtual environment untuk mengisolasi dependensi proyek:
 
 ```bash
-python -m venv .venv
-source .venv/bin/activate  # Linux / WSL
-# .venv\Scripts\activate   # Windows PowerShell
-pip install redis requests xmltodict python-telegram-bot edgegrid-python pyyaml pandas scikit-learn joblib python-dotenv
+# Update dan instal dependensi venv sistem jika belum ada
+sudo apt update && sudo apt install -y python3-venv python3-full
+
+# Buat virtual environment
+python3 -m venv .venv
+
+# Aktifkan virtual environment
+source .venv/bin/activate
+
+# Install dependensi proyek
+pip install -r requirements.txt
+```
+
+> [!NOTE]
+> Jika Anda menjalankan aplikasi ini di dalam container terisolasi (seperti Docker) dan ingin mengabaikan pembatasan sistem secara global, Anda dapat menggunakan flag `--break-system-packages`:
+> ```bash
+> pip install -r requirements.txt --break-system-packages
+> ```
+
+### 3. Logstash (Infrastruktur Deteksi)
+
+MiniSOAR menggunakan **Logstash** untuk mendeteksi ancaman dari log keamanan dan mengalirkan peringatan ke Redis. Logstash dikonfigurasi menggunakan sistem **Pipeline-to-Pipeline Communication** dengan membagi proses menjadi dua tahap:
+
+*   **Detection Pipeline ([01-detection.conf]):** Menarik log dari Elasticsearch secara periodik, melakukan normalisasi field, dan melakukan korelasi serta agregasi ancaman menggunakan filter `aggregate`.
+*   **Alert Pipeline ([02-alert-redis.conf]):** Menerima luaran dari detection pipeline melalui modul internal Logstash, menetapkan tingkat keparahan (*severity*), memformat teks notifikasi, dan mengirimkannya ke antrean Redis `logstash_alert_queue`.
+
+#### A. Instalasi Logstash (Debian/Ubuntu)
+
+Jalankan perintah berikut untuk menginstal repositori resmi Elastic dan menginstal Logstash:
+
+```bash
+# 1. Install Java OpenJDK (prasyarat Logstash)
+sudo apt install -y openjdk-17-jre-headless
+
+# 2. Tambahkan Elastic GPG Key dan Repositori
+wget -qO - https://artifacts.elastic.co/GPG-KEY-elasticsearch | sudo gpg --dearmor -o /usr/share/keyrings/elasticsearch-keyring.gpg
+echo "deb [signed-by=/usr/share/keyrings/elasticsearch-keyring.gpg] https://artifacts.elastic.co/packages/8.x/apt stable main" | sudo tee /etc/apt/sources.list.d/elastic-8.x.list
+
+# 3. Instal Logstash
+sudo apt update && sudo apt install -y logstash
+```
+
+#### B. Konfigurasi Multi-Pipeline Logstash
+
+Salin file konfigurasi [01-detection.conf] dan [02-alert-redis.conf] ke server Anda (misalnya diletakkan di `/home/ubuntu/Mini-SOAR-dev/`).
+
+Edit berkas `/etc/logstash/pipelines.yml` untuk memetakan kedua pipeline tersebut:
+
+```yaml
+# /etc/logstash/pipelines.yml
+
+- pipeline.id: detection-pipeline
+  path.config: "/home/ubuntu/Mini-SOAR-dev/01-detection.conf"
+  # CRITICAL: Wajib bernilai 1 agar filter 'aggregate' berjalan konsisten pada satu utas (thread).
+  pipeline.workers: 1
+
+- pipeline.id: alert-pipeline
+  path.config: "/home/ubuntu/Mini-SOAR-dev/02-alert-redis.conf"
+```
+
+#### C. Menjalankan Layanan Logstash
+
+```bash
+# Aktifkan dan jalankan Logstash sebagai systemd service
+sudo systemctl daemon-reload
+sudo systemctl enable logstash
+sudo systemctl start logstash
+
+# Pantau logs Logstash untuk verifikasi kesalahan
+sudo tail -f /var/log/logstash/logstash-plain.log
 ```
 
 ---
@@ -193,18 +297,41 @@ ES_LABELS_INDEX_PREFIX=minisoar-labels
 ES_TIMEOUT=6
 MINISOAR_EVENT_WINDOW=60
 
+# === Security Perimeter Credentials ===
+# Imperva
+IMPERVA_BASE_URL=https://YOUR_IMPERVA_BASE_URL
+IMPERVA_USERNAME=YOUR_IMPERVA_USERNAME
+IMPERVA_PASSWORD=YOUR_IMPERVA_PASSWORD
+IMPERVA_GROUP_NAME=Blocked-IP-Addresses
+
+# Palo Alto
+PA_HOST=https://YOUR_PA_HOST
+PA_API_KEY=YOUR_PA_API_KEY
+PA_VSYS=vsys1
+PA_GROUP=YOUR_PA_GROUP
+PA_ADMIN=YOUR_PA_ADMIN
+
+# Akamai
+AKAMAI_BASEURL=https://YOUR_AKAMAI_BASEURL
+AKAMAI_LIST_ID=YOUR_AKAMAI_LIST_ID
+AKAMAI_CLIENT_TOKEN=YOUR_AKAMAI_CLIENT_TOKEN
+AKAMAI_CLIENT_SECRET=YOUR_AKAMAI_CLIENT_SECRET
+AKAMAI_ACCESS_TOKEN=YOUR_AKAMAI_ACCESS_TOKEN
+AKAMAI_ACCOUNT_SWITCH=
+
 # === Testing / Safety ===
 MINISOAR_MOCK=1
 
 # === Blocking Mode ===
 MINISOAR_BLOCKING_MODE=MANUAL
-```
+```,StartLine:191,TargetContent:
 
 ### File konfigurasi pendukung
 
 | File | Fungsi |
 |---|---|
-| `minisoar-perimeter.yml` | Mapping website/domain ke provider mitigasi. |
+| `logstash/minisoar-perimeter.yml` | Mapping website/domain ke provider mitigasi. |
+| `logstash/minisoar-whitelist.yml` | Whitelist website, keyword, dan anti-judi untuk pendeteksian Logstash. |
 | `minisoar-whitelist.txt` | IP/CIDR trusted. Alert tetap dikirim, tetapi tombol block disembunyikan. |
 | `minisoar-bypass.txt` | IP/CIDR yang diabaikan total. Alert tidak dikirim ke Telegram. |
 
@@ -309,7 +436,7 @@ python -m minisoar.ml.export
 Atau melalui wrapper lama:
 
 ```bash
-python export_dataset.py
+python scripts/export_dataset.py
 ```
 
 Output utama: `dataset.csv`.
@@ -323,7 +450,7 @@ python -m minisoar.ml.train
 Atau melalui wrapper lama:
 
 ```bash
-python train_baseline.py
+python scripts/train_baseline.py
 ```
 
 Output utama: `baseline_model.joblib`.
