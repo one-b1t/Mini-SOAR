@@ -109,8 +109,12 @@ def write_synthetic_dataset(csv_path: Path):
 
 
 def main():
-    load_dotenv(Path.cwd() / ".env")
-    csv_path = Path("dataset.csv")
+    root_dir = Path(__file__).resolve().parent.parent.parent
+    if (root_dir / ".env").exists():
+        load_dotenv(root_dir / ".env")
+    else:
+        load_dotenv(Path.cwd() / ".env")
+    csv_path = root_dir / "dataset.csv"
     labels_prefix = os.getenv("ES_LABELS_INDEX_PREFIX", "minisoar-labels")
     events_prefix = os.getenv("ES_EVENTS_INDEX_PREFIX", "minisoar-events")
 
