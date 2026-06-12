@@ -11,6 +11,7 @@ Format changelog berbasis pada [Keep a Changelog](https://keepachangelog.com/en/
 - **Logstash Configurations Grouping:** Mengelompokkan semua berkas konfigurasi Logstash (`01-detection.conf`, `02-alert-redis.conf`, `minisoar-perimeter.yml`, `minisoar-whitelist.yml`) ke dalam folder `/logstash/`.
 - **Temporary Perimeter Blocking & Dynamic Extension:** Pemblokiran perimeter keamanan (Imperva, Palo Alto, Akamai) kini bersifat sementara (10 menit, dikonfigurasi via `MINISOAR_BLOCK_DURATION`). Jika ada serangan lagi sebelum masa blokir habis, durasi blokir otomatis diperpanjang 10 menit.
 - **Automatic IP Unblocking Daemon:** Worker daemon secara berkala memantau status pemblokiran via Redis Sorted Set (`minisoar:pending_unblocks`) dan melakukan unblocking otomatis saat masa blokir berakhir.
+- **Unmapped Perimeter Fallback Blocking:** Jika perimeter website unmapped/tidak dikenali, dan prediksi blokir AI berkekuatan tinggi (high confidence), pemblokiran otomatis dialihkan untuk diproses pada Imperva saja.
 
 ### Changed
 - **Folder Reorganization:** Memindahkan file operational wrapper (`export_dataset.py`, `train_baseline.py`) ke folder `/scripts/` dengan import path dinamis.
