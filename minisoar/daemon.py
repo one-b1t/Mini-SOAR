@@ -310,6 +310,7 @@ def main() -> None:
                     "alert_rce_heur",
                 } & tags:
                     _, rep_str = abuseipdb_lookup(ip) if ip and ip != "(unknown)" else (ip, "")
+                    ml_provider = providers[0] if providers else "none"
                     pred_label, pred_prob = predict_block(event, ip, ml_provider, whitelisted, rep_str, model_artifact)
 
                     if minisoar_blocking_mode == "AUTO":
