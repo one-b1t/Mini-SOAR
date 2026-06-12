@@ -317,7 +317,8 @@ def main() -> None:
                         if pred_label == 1:
                             extended_any = False
                             blocked_any = False
-                            for p in providers:
+                            block_targets = providers if (mapped and providers) else ["imperva"]
+                            for p in block_targets:
                                 p_norm = norm_provider(p)
                                 if is_ip_blocked(r, ip, p_norm):
                                     extend_block_state(r, ip, p_norm, duration=minisoar_block_duration)
@@ -349,7 +350,7 @@ def main() -> None:
                                 msg = f"🤖 *AI Action: BLOCK EXTENDED* (Confidence: {pred_prob:.0%} - IP already blocked, extended +{minisoar_block_duration}s)\n" + msg
                             else:
                                 msg = f"🤖 *AI Action: AUTO-BLOCKED* (Confidence: {pred_prob:.0%} - Commit pending, temporary block {minisoar_block_duration}s)\n" + msg
-                            send_telegram(msg, ip=ip, show_buttons=False, providers=providers, website=website, event_id=event_id)
+                            send_telegram(msg, ip=ip, show_buttons=False, providers=block_targets, website=website, event_id=event_id)
                             continue
                         else:
                             msg = f"🤖 *AI Recommendation: ALLOW* (Confidence: {pred_prob:.0%})\n" + msg
@@ -358,7 +359,8 @@ def main() -> None:
                             if pred_prob > 0.70:
                                 extended_any = False
                                 blocked_any = False
-                                for p in providers:
+                                block_targets = providers if (mapped and providers) else ["imperva"]
+                                for p in block_targets:
                                     p_norm = norm_provider(p)
                                     if is_ip_blocked(r, ip, p_norm):
                                         extend_block_state(r, ip, p_norm, duration=minisoar_block_duration)
@@ -390,7 +392,7 @@ def main() -> None:
                                     msg = f"🤖 *AI Action: BLOCK EXTENDED* (Confidence: {pred_prob:.0%} > 70% in SEMI Mode - IP already blocked, extended +{minisoar_block_duration}s)\n" + msg
                                 else:
                                     msg = f"🤖 *AI Action: AUTO-BLOCKED* (Confidence: {pred_prob:.0%} > 70% in SEMI Mode - Commit pending, temporary block {minisoar_block_duration}s)\n" + msg
-                                send_telegram(msg, ip=ip, show_buttons=False, providers=providers, website=website, event_id=event_id)
+                                send_telegram(msg, ip=ip, show_buttons=False, providers=block_targets, website=website, event_id=event_id)
                                 continue
                             else:
                                 msg = f"🤖 *AI Recommendation: BLOCK* (Confidence: {pred_prob:.0%})\n" + msg
