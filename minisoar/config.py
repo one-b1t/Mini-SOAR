@@ -20,10 +20,9 @@ def load_env(*, linux_fallback: str = "/root/tele-soar/.env") -> None:
 
     Order:
     1) Linux/WSL canonical path if present
-    2) local .env next to the running script
-    3) forced override from local .env if telegram vars are missing
-
-    Mirrors prior behavior in 09-tele-soar.py and 14_redis_telegram_alert.py.
+    2) Package-root .env (next to minisoar/ directory)
+    3) Local .env in current working directory (CWD)
+    4) Forced override from package-root or CWD if telegram vars are missing
     """
 
     try:
@@ -32,11 +31,14 @@ def load_env(*, linux_fallback: str = "/root/tele-soar/.env") -> None:
         # If path does not exist / unreadable, ignore.
         pass
 
-    # Local .env (project root / script dir)
-    # We resolve relative to CWD; entrypoints should run from repo root.
+    pkg_root = Path(__file__).resolve().parent.parent
+    if (pkg_root / ".env").exists():
+        load_dotenv(pkg_root / ".env", override=False)
     load_dotenv(Path.cwd() / ".env", override=False)
 
     if not os.environ.get("TELEGRAM_TOKEN") and not os.environ.get("TELEGRAM_BOT"):
+        if (pkg_root / ".env").exists():
+            load_dotenv(pkg_root / ".env", override=True)
         load_dotenv(Path.cwd() / ".env", override=True)
 
 

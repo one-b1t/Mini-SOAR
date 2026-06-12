@@ -9,9 +9,15 @@ from sklearn.metrics import accuracy_score, classification_report, confusion_mat
 from sklearn.model_selection import train_test_split
 
 
-def train_baseline(csv_path: Path = Path("dataset.csv"), artifact_path: Path = Path("baseline_model.joblib")) -> None:
+def train_baseline(csv_path: Path | None = None, artifact_path: Path | None = None) -> None:
+    root_dir = Path(__file__).resolve().parent.parent.parent
+    if csv_path is None:
+        csv_path = root_dir / "dataset.csv"
+    if artifact_path is None:
+        artifact_path = root_dir / "baseline_model.joblib"
+
     if not csv_path.exists():
-        raise FileNotFoundError("dataset.csv not found. Please run export_dataset.py first.")
+        raise FileNotFoundError(f"dataset.csv not found at {csv_path}. Please run export_dataset.py first.")
 
     df = pd.read_csv(csv_path)
     print(f"Loaded dataset: {df.shape[0]} rows, {df.shape[1]} columns.")
