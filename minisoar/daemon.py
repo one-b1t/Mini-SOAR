@@ -349,7 +349,11 @@ def main() -> None:
                             if extended_any and not blocked_any:
                                 msg = f"🤖 *AI Action: BLOCK EXTENDED* (Confidence: {pred_prob:.0%} - IP already blocked, extended +{minisoar_block_duration}s)\n" + msg
                             else:
-                                msg = f"🤖 *AI Action: AUTO-BLOCKED* (Confidence: {pred_prob:.0%} - Commit pending, temporary block {minisoar_block_duration}s)\n" + msg
+                                needs_commit = any(norm_provider(t) in {"paloalto", "akamai"} for t in block_targets)
+                                if needs_commit:
+                                    msg = f"🤖 *AI Action: AUTO-BLOCKED* (Confidence: {pred_prob:.0%} - Commit pending, temporary block {minisoar_block_duration}s)\n" + msg
+                                else:
+                                    msg = f"🤖 *AI Action: AUTO-BLOCKED* (Confidence: {pred_prob:.0%} - Temporary block {minisoar_block_duration}s)\n" + msg
                             send_telegram(msg, ip=ip, show_buttons=False, providers=block_targets, website=website, event_id=event_id)
                             continue
                         else:
@@ -391,7 +395,11 @@ def main() -> None:
                                 if extended_any and not blocked_any:
                                     msg = f"🤖 *AI Action: BLOCK EXTENDED* (Confidence: {pred_prob:.0%} > 70% in SEMI Mode - IP already blocked, extended +{minisoar_block_duration}s)\n" + msg
                                 else:
-                                    msg = f"🤖 *AI Action: AUTO-BLOCKED* (Confidence: {pred_prob:.0%} > 70% in SEMI Mode - Commit pending, temporary block {minisoar_block_duration}s)\n" + msg
+                                    needs_commit = any(norm_provider(t) in {"paloalto", "akamai"} for t in block_targets)
+                                    if needs_commit:
+                                        msg = f"🤖 *AI Action: AUTO-BLOCKED* (Confidence: {pred_prob:.0%} > 70% in SEMI Mode - Commit pending, temporary block {minisoar_block_duration}s)\n" + msg
+                                    else:
+                                        msg = f"🤖 *AI Action: AUTO-BLOCKED* (Confidence: {pred_prob:.0%} > 70% in SEMI Mode - Temporary block {minisoar_block_duration}s)\n" + msg
                                 send_telegram(msg, ip=ip, show_buttons=False, providers=block_targets, website=website, event_id=event_id)
                                 continue
                             else:

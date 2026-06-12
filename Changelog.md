@@ -20,6 +20,7 @@ Format changelog berbasis pada [Keep a Changelog](https://keepachangelog.com/en/
 
 ### Fixed
 - **Location-Independent Script Execution:** Memperbaiki resolusi berkas `.env`, `dataset.csv`, dan `baseline_model.joblib` di `export_dataset.py` dan `train_baseline.py` agar bernilai relatif terhadap letak kode program (`Path(__file__)`) dan bukan direktori kerja saat ini (`Path.cwd()`), sehingga skrip dapat dipanggil secara aman dari folder `/scripts/`.
+- **Conditional Commit Status Notification:** Memperbaiki notifikasi alert Telegram agar hanya menampilkan status "Commit pending" jika target pemblokiran melibatkan Palo Alto atau Akamai, sedangkan pemblokiran yang hanya melibatkan Imperva (real-time) tidak lagi menampilkan status tersebut untuk menghindari kebingungan analis.
 
 ## [1.2.1] - 2026-06-11
 
