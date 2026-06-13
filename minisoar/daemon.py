@@ -48,6 +48,7 @@ from .utils import (
     provider_badge,
     resolve_log_path,
     send_telegram,
+    extract_reputation_score,
 )
 from .ecs_normalizer import normalize_to_ecs
 
@@ -103,6 +104,13 @@ def main() -> None:
     # Commit Batching State
     last_commit_times = {"paloalto": time.time(), "akamai": time.time()}
     pending_commits = {"paloalto": False, "akamai": False}
+    
+    # Scheduling logic: Minimum 1 hour, triggers strictly at XX:00
+    minisoar_commit_interval = max(3600, minisoar_commit_interval)
+    interval_hours = max(1, minisoar_commit_interval // 3600)
+    now_dt = datetime.datetime.now()
+    next_commit_dt = now_dt.replace(minute=0, second=0, microsecond=0) + datetime.timedelta(hours=interval_hours)
+    next_commit_ts = next_commit_dt.timestamp()
 
     # Startup Diagnostics
     print("=" * 60)
@@ -158,15 +166,12 @@ def main() -> None:
 
                 # Check for scheduled commits
                 current_time = time.time()
-                for p_name in ["paloalto", "akamai"]:
-                    if pending_commits[p_name]:
-                        elapsed = current_time - last_commit_times[p_name]
-                        if elapsed >= minisoar_commit_interval:
+                if current_time >= next_commit_ts:
+                    for p_name in ["paloalto", "akamai"]:
+                        if pending_commits[p_name]:
                             logger.info(
-                                "Scheduled commit/activation triggered for %s (elapsed: %.1fs, interval: %ds)",
+                                "Scheduled commit/activation triggered for %s at hour boundary",
                                 p_name,
-                                elapsed,
-                                minisoar_commit_interval,
                             )
                             success, commit_msg = trigger_commit(p_name)
                             if success:
@@ -175,6 +180,11 @@ def main() -> None:
                                 logger.info("Scheduled commit/activation for %s completed: %s", p_name, commit_msg)
                             else:
                                 logger.error("Scheduled commit/activation for %s failed: %s", p_name, commit_msg)
+                    
+                    # Update to next hour boundary
+                    now_dt = datetime.datetime.now()
+                    next_commit_dt = now_dt.replace(minute=0, second=0, microsecond=0) + datetime.timedelta(hours=interval_hours)
+                    next_commit_ts = next_commit_dt.timestamp()
 
                 item = r.blpop(redis_key, timeout=10)
                 if not item:
@@ -310,6 +320,9 @@ def main() -> None:
                     ml_provider = providers[0] if providers else "none"
                     pred_label, pred_prob = predict_block(event, ip, ml_provider, whitelisted, rep_str, model_artifact)
 
+                    rep_score = extract_reputation_score(rep_str)
+                    is_permanent = rep_score >= 50
+
                     if minisoar_blocking_mode == "AUTO":
                         if pred_label == 1:
                             extended_any = False
@@ -318,39 +331,58 @@ def main() -> None:
                             for p in block_targets:
                                 p_norm = norm_provider(p)
                                 if is_ip_blocked(r, ip, p_norm):
-                                    extend_block_state(r, ip, p_norm, duration=minisoar_block_duration)
-                                    extended_any = True
-                                    log_user_action(
-                                        "BLOCK_EXTEND",
-                                        {"username": "system"},
-                                        ip=ip,
-                                        target=p,
-                                        note=f"ML prediction {pred_prob:.2%} - Block extended +{minisoar_block_duration}s",
-                                        logfile=logfile,
-                                    )
+                                    if not is_permanent:
+                                        extend_block_state(r, ip, p_norm, duration=minisoar_block_duration)
+                                        extended_any = True
+                                        log_user_action(
+                                            "BLOCK_EXTEND",
+                                            {"username": "system"},
+                                            ip=ip,
+                                            target=p,
+                                            note=f"ML prediction {pred_prob:.2%} - Block extended +{minisoar_block_duration}s",
+                                            logfile=logfile,
+                                        )
+                                    else:
+                                        remove_block_state(r, ip, p_norm)
+                                        extended_any = True
+                                        log_user_action(
+                                            "BLOCK_PERMANENT",
+                                            {"username": "system"},
+                                            ip=ip,
+                                            target=p,
+                                            note=f"Reputation {rep_score}% - Upgraded to Permanent Block",
+                                            logfile=logfile,
+                                        )
                                 else:
                                     success, blk_msg = trigger_auto_block(ip, p, commit=False)
                                     if success:
-                                        register_block_state(r, ip, p_norm, duration=minisoar_block_duration)
+                                        if not is_permanent:
+                                            register_block_state(r, ip, p_norm, duration=minisoar_block_duration)
                                         blocked_any = True
                                         if p_norm in pending_commits:
                                             pending_commits[p_norm] = True
+                                    act_type = "AUTO_BLOCK_PERMANENT" if is_permanent else "AUTO_BLOCK"
+                                    act_note = "Permanent" if is_permanent else f"Temporary {minisoar_block_duration}s"
                                     log_user_action(
-                                        "AUTO_BLOCK",
+                                        act_type,
                                         {"username": "system"},
                                         ip=ip,
                                         target=p,
-                                        note=f"ML prediction {pred_prob:.2%} (Commit deferred)",
+                                        note=f"ML prediction {pred_prob:.2%} ({act_note})",
                                         logfile=logfile,
                                     )
                             if extended_any and not blocked_any:
-                                msg = f"🤖 *AI Action: BLOCK EXTENDED* (Confidence: {pred_prob:.0%} - IP already blocked, extended +{minisoar_block_duration}s)\n" + msg
+                                if is_permanent:
+                                    msg = f"🤖 *AI Action: PERMANENT BLOCK* (Confidence: {pred_prob:.0%} - Rep: {rep_score}%)\n" + msg
+                                else:
+                                    msg = f"🤖 *AI Action: BLOCK EXTENDED* (Confidence: {pred_prob:.0%} - IP already blocked, extended +{minisoar_block_duration}s)\n" + msg
                             else:
                                 needs_commit = any(norm_provider(t) in {"paloalto", "akamai"} for t in block_targets)
-                                if needs_commit:
-                                    msg = f"🤖 *AI Action: AUTO-BLOCKED* (Confidence: {pred_prob:.0%} - Commit pending, temporary block {minisoar_block_duration}s)\n" + msg
+                                if is_permanent:
+                                    status_str = "Commit pending, permanent block" if needs_commit else "Permanent block"
                                 else:
-                                    msg = f"🤖 *AI Action: AUTO-BLOCKED* (Confidence: {pred_prob:.0%} - Temporary block {minisoar_block_duration}s)\n" + msg
+                                    status_str = f"Commit pending, temporary block {minisoar_block_duration}s" if needs_commit else f"Temporary block {minisoar_block_duration}s"
+                                msg = f"🤖 *AI Action: AUTO-BLOCKED* (Confidence: {pred_prob:.0%} - Rep: {rep_score}% - {status_str})\n" + msg
                             send_telegram(msg, ip=ip, show_buttons=False, providers=block_targets, website=website, event_id=event_id)
                             continue
                         else:
@@ -364,39 +396,58 @@ def main() -> None:
                                 for p in block_targets:
                                     p_norm = norm_provider(p)
                                     if is_ip_blocked(r, ip, p_norm):
-                                        extend_block_state(r, ip, p_norm, duration=minisoar_block_duration)
-                                        extended_any = True
-                                        log_user_action(
-                                            "SEMI_BLOCK_EXTEND",
-                                            {"username": "system"},
-                                            ip=ip,
-                                            target=p,
-                                            note=f"ML prediction {pred_prob:.2%} (>70%) - Block extended +{minisoar_block_duration}s",
-                                            logfile=logfile,
-                                        )
+                                        if not is_permanent:
+                                            extend_block_state(r, ip, p_norm, duration=minisoar_block_duration)
+                                            extended_any = True
+                                            log_user_action(
+                                                "SEMI_BLOCK_EXTEND",
+                                                {"username": "system"},
+                                                ip=ip,
+                                                target=p,
+                                                note=f"ML prediction {pred_prob:.2%} (>70%) - Block extended +{minisoar_block_duration}s",
+                                                logfile=logfile,
+                                            )
+                                        else:
+                                            remove_block_state(r, ip, p_norm)
+                                            extended_any = True
+                                            log_user_action(
+                                                "SEMI_BLOCK_PERMANENT",
+                                                {"username": "system"},
+                                                ip=ip,
+                                                target=p,
+                                                note=f"Reputation {rep_score}% - Upgraded to Permanent Block (>70% confidence)",
+                                                logfile=logfile,
+                                            )
                                     else:
                                         success, blk_msg = trigger_auto_block(ip, p, commit=False)
                                         if success:
-                                            register_block_state(r, ip, p_norm, duration=minisoar_block_duration)
+                                            if not is_permanent:
+                                                register_block_state(r, ip, p_norm, duration=minisoar_block_duration)
                                             blocked_any = True
                                             if p_norm in pending_commits:
                                                 pending_commits[p_norm] = True
+                                        act_type = "SEMI_AUTO_BLOCK_PERMANENT" if is_permanent else "SEMI_AUTO_BLOCK"
+                                        act_note = "Permanent" if is_permanent else f"Temporary {minisoar_block_duration}s"
                                         log_user_action(
-                                            "SEMI_AUTO_BLOCK",
+                                            act_type,
                                             {"username": "system"},
                                             ip=ip,
                                             target=p,
-                                            note=f"ML prediction {pred_prob:.2%} (>70%, Commit deferred)",
+                                            note=f"ML prediction {pred_prob:.2%} (>70%) ({act_note})",
                                             logfile=logfile,
                                         )
                                 if extended_any and not blocked_any:
-                                    msg = f"🤖 *AI Action: BLOCK EXTENDED* (Confidence: {pred_prob:.0%} > 70% in SEMI Mode - IP already blocked, extended +{minisoar_block_duration}s)\n" + msg
+                                    if is_permanent:
+                                        msg = f"🤖 *AI Action: PERMANENT BLOCK* (Confidence: {pred_prob:.0%} > 70% in SEMI Mode - Rep: {rep_score}%)\n" + msg
+                                    else:
+                                        msg = f"🤖 *AI Action: BLOCK EXTENDED* (Confidence: {pred_prob:.0%} > 70% in SEMI Mode - IP already blocked, extended +{minisoar_block_duration}s)\n" + msg
                                 else:
                                     needs_commit = any(norm_provider(t) in {"paloalto", "akamai"} for t in block_targets)
-                                    if needs_commit:
-                                        msg = f"🤖 *AI Action: AUTO-BLOCKED* (Confidence: {pred_prob:.0%} > 70% in SEMI Mode - Commit pending, temporary block {minisoar_block_duration}s)\n" + msg
+                                    if is_permanent:
+                                        status_str = "Commit pending, permanent block" if needs_commit else "Permanent block"
                                     else:
-                                        msg = f"🤖 *AI Action: AUTO-BLOCKED* (Confidence: {pred_prob:.0%} > 70% in SEMI Mode - Temporary block {minisoar_block_duration}s)\n" + msg
+                                        status_str = f"Commit pending, temporary block {minisoar_block_duration}s" if needs_commit else f"Temporary block {minisoar_block_duration}s"
+                                    msg = f"🤖 *AI Action: AUTO-BLOCKED* (Confidence: {pred_prob:.0%} > 70% in SEMI Mode - Rep: {rep_score}% - {status_str})\n" + msg
                                 send_telegram(msg, ip=ip, show_buttons=False, providers=block_targets, website=website, event_id=event_id)
                                 continue
                             else:
