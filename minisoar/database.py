@@ -99,7 +99,7 @@ def es_find_latest_event_id_by_ip(ip: str, approx_dt: datetime.datetime | None =
     query = {
         "size": 1,
         "sort": [{"@timestamp": "desc"}],
-        "_source": ["event_id", "event.event_id", "alert.src_ip", "src.ip", "@timestamp"],
+        "_source": ["event_id", "event.event_id", "rule.id", "alert.src_ip", "src.ip", "@timestamp"],
         "query": {"bool": {"must": must, "should": should, "minimum_should_match": 1}},
     }
 
@@ -113,7 +113,7 @@ def es_find_latest_event_id_by_ip(ip: str, approx_dt: datetime.datetime | None =
         if not hits:
             return None
         src = hits[0].get("_source") or {}
-        return src.get("event_id") or (src.get("event") or {}).get("event_id")
+        return src.get("event_id") or (src.get("event") or {}).get("event_id") or (src.get("rule") or {}).get("id")
     except Exception as e:
         logger.warning("ES event lookup exception: %s", e)
         return None

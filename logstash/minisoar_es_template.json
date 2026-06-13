@@ -1,0 +1,269 @@
+{
+  "index_patterns": [
+    "minisoar-normalized-*"
+  ],
+  "template": {
+    "settings": {
+      "number_of_shards": 1,
+      "number_of_replicas": 0
+    },
+    "mappings": {
+      "dynamic": "strict",
+      "properties": {
+        "@timestamp": {
+          "type": "date"
+        },
+        "message": {
+          "type": "text"
+        },
+        "raw_log": {
+          "type": "text"
+        },
+        "event": {
+          "properties": {
+            "kind": { "type": "keyword" },
+            "category": { "type": "keyword" },
+            "type": { "type": "keyword" },
+            "action": { "type": "keyword" },
+            "outcome": { "type": "keyword" },
+            "severity": { "type": "integer" },
+            "risk_score": { "type": "integer" },
+            "original": { "type": "text" },
+            "original_time": { "type": "keyword" },
+            "dataset": { "type": "keyword" },
+            "module": { "type": "keyword" },
+            "timezone": { "type": "keyword" }
+          }
+        },
+        "log": {
+          "properties": {
+            "level": { "type": "keyword" },
+            "logger": { "type": "keyword" },
+            "source": { "type": "keyword" }
+          }
+        },
+        "observer": {
+          "properties": {
+            "name": { "type": "keyword" },
+            "type": { "type": "keyword" },
+            "vendor": { "type": "keyword" },
+            "product": { "type": "keyword" }
+          }
+        },
+        "host": {
+          "properties": {
+            "name": { "type": "keyword" },
+            "hostname": { "type": "keyword" },
+            "ip": { "type": "ip" },
+            "os": {
+              "properties": {
+                "type": { "type": "keyword" }
+              }
+            }
+          }
+        },
+        "source": {
+          "properties": {
+            "ip": { "type": "ip" },
+            "port": { "type": "integer" },
+            "address": { "type": "keyword" },
+            "domain": { "type": "keyword" },
+            "user": {
+              "properties": {
+                "name": { "type": "keyword" }
+              }
+            },
+            "geo": {
+              "properties": {
+                "country_name": { "type": "keyword" }
+              }
+            }
+          }
+        },
+        "destination": {
+          "properties": {
+            "ip": { "type": "ip" },
+            "port": { "type": "integer" },
+            "address": { "type": "keyword" },
+            "domain": { "type": "keyword" },
+            "user": {
+              "properties": {
+                "name": { "type": "keyword" }
+              }
+            }
+          }
+        },
+        "client": {
+          "properties": {
+            "ip": { "type": "ip" },
+            "port": { "type": "integer" }
+          }
+        },
+        "server": {
+          "properties": {
+            "ip": { "type": "ip" },
+            "port": { "type": "integer" }
+          }
+        },
+        "user": {
+          "properties": {
+            "name": { "type": "keyword" },
+            "id": { "type": "keyword" },
+            "domain": { "type": "keyword" },
+            "target": {
+              "properties": {
+                "name": { "type": "keyword" }
+              }
+            }
+          }
+        },
+        "network": {
+          "properties": {
+            "transport": { "type": "keyword" },
+            "protocol": { "type": "keyword" },
+            "direction": { "type": "keyword" },
+            "bytes": { "type": "long" },
+            "packets": { "type": "long" }
+          }
+        },
+        "http": {
+          "properties": {
+            "request": {
+              "properties": {
+                "method": { "type": "keyword" }
+              }
+            },
+            "response": {
+              "properties": {
+                "status_code": { "type": "integer" }
+              }
+            },
+            "version": { "type": "keyword" }
+          }
+        },
+        "url": {
+          "properties": {
+            "original": { "type": "keyword" },
+            "scheme": { "type": "keyword" },
+            "domain": { "type": "keyword" },
+            "path": { "type": "keyword" },
+            "query": { "type": "keyword" }
+          }
+        },
+        "user_agent": {
+          "properties": {
+            "original": { "type": "keyword" }
+          }
+        },
+        "dns": {
+          "properties": {
+            "question": {
+              "properties": {
+                "name": { "type": "keyword" },
+                "type": { "type": "keyword" }
+              }
+            },
+            "answers": {
+              "properties": {
+                "data": { "type": "keyword" },
+                "type": { "type": "keyword" }
+              }
+            }
+          }
+        },
+        "process": {
+          "properties": {
+            "name": { "type": "keyword" },
+            "pid": { "type": "integer" },
+            "command_line": { "type": "keyword" },
+            "executable": { "type": "keyword" },
+            "parent": {
+              "properties": {
+                "name": { "type": "keyword" },
+                "pid": { "type": "integer" },
+                "command_line": { "type": "keyword" }
+              }
+            }
+          }
+        },
+        "file": {
+          "properties": {
+            "name": { "type": "keyword" },
+            "path": { "type": "keyword" },
+            "extension": { "type": "keyword" },
+            "hash": {
+              "properties": {
+                "md5": { "type": "keyword" },
+                "sha1": { "type": "keyword" },
+                "sha256": { "type": "keyword" }
+              }
+            }
+          }
+        },
+        "rule": {
+          "properties": {
+            "name": { "type": "keyword" },
+            "id": { "type": "keyword" },
+            "category": { "type": "keyword" },
+            "description": { "type": "text" }
+          }
+        },
+        "threat": {
+          "properties": {
+            "indicator": {
+              "properties": {
+                "type": { "type": "keyword" },
+                "ip": { "type": "ip" },
+                "url": {
+                  "properties": {
+                    "full": { "type": "keyword" }
+                  }
+                },
+                "file": {
+                  "properties": {
+                    "hash": {
+                      "properties": {
+                        "sha256": { "type": "keyword" }
+                      }
+                    }
+                  }
+                }
+              }
+            },
+            "tactic": {
+              "properties": {
+                "name": { "type": "keyword" }
+              }
+            },
+            "technique": {
+              "properties": {
+                "name": { "type": "keyword" },
+                "id": { "type": "keyword" }
+              }
+            }
+          }
+        },
+        "related": {
+          "properties": {
+            "ip": { "type": "ip" },
+            "hosts": { "type": "keyword" },
+            "user": { "type": "keyword" },
+            "hash": { "type": "keyword" }
+          }
+        },
+        "labels": {
+          "properties": {
+            "normalization_status": { "type": "keyword" },
+            "parser": { "type": "keyword" },
+            "parser_version": { "type": "keyword" },
+            "timezone_missing": { "type": "boolean" },
+            "dedup_key": { "type": "keyword" },
+            "recommended_action": { "type": "keyword" },
+            "recommended_priority": { "type": "keyword" }
+          }
+        },
+        "tags": { "type": "keyword" }
+      }
+    }
+  }
+}

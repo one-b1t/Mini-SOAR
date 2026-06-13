@@ -49,6 +49,7 @@ from .utils import (
     resolve_log_path,
     send_telegram,
 )
+from .ecs_normalizer import normalize_to_ecs
 
 logger = logging.getLogger(__name__)
 
@@ -250,20 +251,16 @@ def main() -> None:
 
                     dt_obj = datetime.datetime.fromtimestamp(ts_epoch, tz=datetime.timezone.utc)
                     index_name = f"{es_index_prefix}-{dt_obj.strftime('%Y.%m.%d')}"
-                    es_doc = {
-                        "@timestamp": dt_obj.isoformat(),
-                        "event_id": event_id,
-                        "detector_type": detector_type,
-                        "severity": event.get("severity"),
-                        "asset": {"id": asset_id},
-                        "src": {"ip": src_ip},
-                        "perimeter": {"vendor": norm_provider(providers[0] if providers else "none")},
-                        "metrics": {"hit_count": event.get("metrics", {}).get("hit_count"), "window_seconds": minisoar_event_window},
-                        "samples": {"paths_top": top_paths},
-                        "signature": {"top_paths_hash": event.get("signature", {}).get("top_paths_hash")},
-                        "alert": event.get("alert") or {},
-                        "event": event,
-                    }
+                    
+                    # Normalisasi ECS-like
+                    es_doc = normalize_to_ecs(
+                        raw_event=event,
+                        event_id=event_id,
+                        providers=providers,
+                        minisoar_event_window=minisoar_event_window,
+                        ts_epoch=ts_epoch
+                    )
+                    
                     es_index(index_name, event_id, es_doc)
                 else:
                     event_id = ""
