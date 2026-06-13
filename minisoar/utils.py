@@ -700,6 +700,19 @@ def log_user_action(
             "note": note
         }
         
+        proc_chat_id = os.environ.get("TELEGRAM_PROCESS_CHAT_ID")
+        if proc_chat_id:
+            msg_log = (
+                f"📝 *SYSTEM LOG*\n"
+                f"• *Action:* `{action}`\n"
+                f"• *User:* `{username}`\n"
+                f"• *IP:* `{ip or '-'}`\n"
+                f"• *Target:* `{target or '-'}`\n"
+                f"• *Source:* `{source or '-'}`\n"
+                f"• *Note:* `{note or '-'}`"
+            )
+            send_telegram(msg_log, show_buttons=False, chat_id=proc_chat_id)
+        
         log_dir = os.path.dirname(logfile)
         if log_dir:
             os.makedirs(log_dir, exist_ok=True)
