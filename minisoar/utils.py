@@ -616,15 +616,17 @@ def send_telegram(
     providers: list[str] | None = None,
     website: str = "",
     event_id: str = "",
+    chat_id: str | None = None,
 ) -> None:
     cfg = telegram_config()
-    if not cfg.chat_id or not cfg.token:
-        logger.warning("[WARN] TELEGRAM_BOT / TELEGRAM_CHAT_ID not set — skipping send.")
+    target_chat = chat_id or cfg.chat_id
+    if not target_chat or not cfg.token:
+        logger.warning("[WARN] TELEGRAM_BOT / TARGET_CHAT_ID not set — skipping send.")
         return
 
     url = f"https://api.telegram.org/bot{cfg.token}/sendMessage"
     data = {
-        "chat_id": cfg.chat_id,
+        "chat_id": target_chat,
         "text": msg,
         "parse_mode": "Markdown",
         "disable_web_page_preview": True,

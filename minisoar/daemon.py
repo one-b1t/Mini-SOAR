@@ -143,7 +143,7 @@ def main() -> None:
                                 pending_commits[p_norm] = True
                             
                             unblk_notify_msg = f"ℹ️ *System Action: AUTO-UNBLOCKED*\n• IP: `{exp_ip}`\n• Provider: `{exp_prov.upper()}`\n• Status: Expiration of temporary block duration ({minisoar_block_duration}s) reached with no further activity."
-                            send_telegram(unblk_notify_msg, show_buttons=False)
+                            send_telegram(unblk_notify_msg, show_buttons=False, chat_id=telegram_proc_chat_id)
                             log_user_action(
                                 "AUTO_UNBLOCK",
                                 {"username": "system"},
@@ -354,7 +354,7 @@ def main() -> None:
                                     msg = f"🤖 *AI Action: AUTO-BLOCKED* (Confidence: {pred_prob:.0%} - Commit pending, temporary block {minisoar_block_duration}s)\n" + msg
                                 else:
                                     msg = f"🤖 *AI Action: AUTO-BLOCKED* (Confidence: {pred_prob:.0%} - Temporary block {minisoar_block_duration}s)\n" + msg
-                            send_telegram(msg, ip=ip, show_buttons=False, providers=block_targets, website=website, event_id=event_id)
+                            send_telegram(msg, ip=ip, show_buttons=False, providers=block_targets, website=website, event_id=event_id, chat_id=telegram_proc_chat_id)
                             continue
                         else:
                             msg = f"🤖 *AI Recommendation: ALLOW* (Confidence: {pred_prob:.0%})\n" + msg
@@ -400,7 +400,7 @@ def main() -> None:
                                         msg = f"🤖 *AI Action: AUTO-BLOCKED* (Confidence: {pred_prob:.0%} > 70% in SEMI Mode - Commit pending, temporary block {minisoar_block_duration}s)\n" + msg
                                     else:
                                         msg = f"🤖 *AI Action: AUTO-BLOCKED* (Confidence: {pred_prob:.0%} > 70% in SEMI Mode - Temporary block {minisoar_block_duration}s)\n" + msg
-                                send_telegram(msg, ip=ip, show_buttons=False, providers=block_targets, website=website, event_id=event_id)
+                                send_telegram(msg, ip=ip, show_buttons=False, providers=block_targets, website=website, event_id=event_id, chat_id=telegram_proc_chat_id)
                                 continue
                             else:
                                 msg = f"🤖 *AI Recommendation: BLOCK* (Confidence: {pred_prob:.0%})\n" + msg
