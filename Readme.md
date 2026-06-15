@@ -146,6 +146,7 @@ MiniSOAR/
 │   ├── test_ml.py                # Test case inference fallback
 │   └── test_utils.py             # Test case helper utilities
 ├── .gitignore
+├── .gitlab-ci.yml                 # Konfigurasi GitLab CI/CD (SonarQube analysis)
 ├── Changelog.md                  # Catatan riwayat rilis proyek
 ├── Readme.md                     # Dokumentasi utama proyek SOAR
 ├── WIKI.md                       # Dokumentasi tambahan teknis operasional

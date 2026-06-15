@@ -4,7 +4,13 @@ Semua perubahan penting pada proyek **MiniSOAR** akan dicatat di dokumen ini.
 
 Format changelog berbasis pada [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 
+## [1.2.3] - 2026-06-15
+
+### Added
+- **GitLab CI/CD Pipeline Configuration:** Menambahkan berkas `.gitlab-ci.yml` untuk mengintegrasikan static code analysis dengan SonarQube menggunakan model `sonarsource/sonar-scanner-cli`.
+
 ## [1.2.2] - 2026-06-12
+
 
 ### Added
 - **Timed Commit/Activation Batching:** Menambahkan mekanisme penundaan commit berkala (`MINISOAR_COMMIT_INTERVAL`, default 1 jam) untuk Palo Alto dan Akamai guna menghindari overload CPU dan limitasi rate API WAF.
