@@ -9,6 +9,9 @@ Format changelog berbasis pada [Keep a Changelog](https://keepachangelog.com/en/
 ### Added
 - **GitLab CI/CD Pipeline Configuration:** Menambahkan berkas `.gitlab-ci.yml` untuk mengintegrasikan static code analysis dengan SonarQube menggunakan model `sonarsource/sonar-scanner-cli`.
 
+### Fixed
+- **Bypass Blocking for Whitelisted IPs:** Memperbaiki bug pada mode pemblokiran `AUTO` dan `SEMI` di `minisoar/daemon.py` yang tetap memblokir IP whitelisted apabila prediksi ML bernilai bahaya (high confidence). Sekarang, sistem secara mutlak melompati instruksi pemblokiran jika IP terdaftar dalam whitelist.
+
 ## [1.2.2] - 2026-06-12
 
 

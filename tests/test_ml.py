@@ -11,3 +11,11 @@ def test_predict_block_fallback():
     pred_mal, prob_mal = predict_block(event, "1.2.3.4", "none", False, "🛑 Malicious (95/100, 10 rep)", model_artifact=None)
     assert pred_mal == 1
     assert prob_mal == 0.95
+
+def test_predict_block_whitelisted():
+    event = {"alert": {"type": "alert_url_major", "count": 5, "severity": "high"}}
+    pred, prob = predict_block(event, "10.2.57.246", "imperva", True, "🛑 Malicious (95/100, 10 rep)", model_artifact=None)
+    # The heuristic fallback may still output pred=1, but the daemon now handles bypassing it.
+    assert pred == 1
+    assert prob == 0.95
+

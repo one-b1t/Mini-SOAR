@@ -324,7 +324,9 @@ def main() -> None:
                     is_permanent = rep_score >= 50
 
                     if minisoar_blocking_mode == "AUTO":
-                        if pred_label == 1:
+                        if whitelisted:
+                            msg = "🤖 *AI Action: ALLOW (Whitelisted)*\n" + msg
+                        elif pred_label == 1:
                             extended_any = False
                             blocked_any = False
                             block_targets = providers if (mapped and providers) else ["imperva"]
@@ -388,7 +390,9 @@ def main() -> None:
                         else:
                             msg = f"🤖 *AI Recommendation: ALLOW* (Confidence: {pred_prob:.0%})\n" + msg
                     elif minisoar_blocking_mode == "SEMI":
-                        if pred_label == 1:
+                        if whitelisted:
+                            msg = "🤖 *AI Recommendation: ALLOW (Whitelisted)*\n" + msg
+                        elif pred_label == 1:
                             if pred_prob > 0.70:
                                 extended_any = False
                                 blocked_any = False
