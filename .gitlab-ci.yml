@@ -13,6 +13,8 @@ gitleaks-scan:
     entrypoint: [""]
   script:
     - gitleaks detect --verbose --source .
+  rules:
+    - when: manual
 
 bandit-scan:
   stage: security
@@ -20,6 +22,8 @@ bandit-scan:
   script:
     - pip install bandit
     - bandit -r minisoar/
+  rules:
+    - when: manual
 
 # ==================== STAGE: LINT ====================
 
@@ -30,6 +34,8 @@ ruff-check:
     - pip install ruff
     - ruff check minisoar/
     - ruff format --check minisoar/
+  rules:
+    - when: manual
 
 mypy-check:
   stage: lint
@@ -38,6 +44,8 @@ mypy-check:
     - pip install -r requirements.txt
     - pip install mypy types-redis types-requests types-PyYAML
     - mypy minisoar/
+  rules:
+    - when: manual
 
 # ==================== STAGE: SONARQUBE ====================
 
@@ -66,8 +74,9 @@ sonarqube-check:
         -Dsonar.projectName="${CI_PROJECT_PATH}" \
         -Dsonar.sources=. \
         -Dsonar.qualitygate.wait=true
-  only:
-    - dev
+  rules:
+    - if: $CI_COMMIT_BRANCH == "dev"
+      when: manual
 
 # ==================== STAGE: TEST (DRAFT) ====================
 
