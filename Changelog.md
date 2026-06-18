@@ -4,6 +4,12 @@ Semua perubahan penting pada proyek **MiniSOAR** akan dicatat di dokumen ini.
 
 Format changelog berbasis pada [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 
+## [1.2.4] - 2026-06-18
+
+### Added
+- **Enhanced GitLab CI/CD Pipeline:** Menambahkan modular stages/jobs (`security`, `lint`, `test`) yang mencakup scanning kredensial (`gitleaks`), pemindaian kerentanan kode Python (`bandit`), pemeriksaan standard gaya kode (`ruff`), type checking statis (`mypy`), dan pengujian otomatis draft/non-blocking (`pytest`).
+- **GitHub Actions Workflow:** Membuat konfigurasi workflow `.github/workflows/ci.yml` yang setara dengan pipeline GitLab CI, menjalankan seluruh pemeriksaan kualitas dan keamanan secara otomatis saat ada push/PR pada branch `dev`.
+
 ## [1.2.3] - 2026-06-15
 
 ### Added
