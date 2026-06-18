@@ -1,5 +1,45 @@
 stages:
+  - security
+  - lint
   - sonarqube
+  - test
+
+# ==================== STAGE: SECURITY ====================
+
+gitleaks-scan:
+  stage: security
+  image:
+    name: zricethezav/gitleaks:latest
+    entrypoint: [""]
+  script:
+    - gitleaks detect --verbose --source .
+
+bandit-scan:
+  stage: security
+  image: python:3.10-slim
+  script:
+    - pip install bandit
+    - bandit -r minisoar/
+
+# ==================== STAGE: LINT ====================
+
+ruff-check:
+  stage: lint
+  image: python:3.10-slim
+  script:
+    - pip install ruff
+    - ruff check minisoar/
+    - ruff format --check minisoar/
+
+mypy-check:
+  stage: lint
+  image: python:3.10-slim
+  script:
+    - pip install -r requirements.txt
+    - pip install mypy types-redis types-requests types-PyYAML
+    - mypy minisoar/
+
+# ==================== STAGE: SONARQUBE ====================
 
 sonarqube-check:
   stage: sonarqube
@@ -28,3 +68,16 @@ sonarqube-check:
         -Dsonar.qualitygate.wait=true
   only:
     - dev
+
+# ==================== STAGE: TEST (DRAFT) ====================
+
+pytest-run:
+  stage: test
+  image: python:3.10-slim
+  script:
+    - pip install -r requirements.txt
+    - pip install pytest
+    - pytest
+  rules:
+    - when: manual
+      allow_failure: true
