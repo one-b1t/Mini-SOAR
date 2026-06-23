@@ -252,3 +252,110 @@ def parse_ts_epoch(event: dict) -> Optional[int]:
         return int(dt.timestamp())
     except Exception:
         return None
+
+
+def es_get_event_website_by_id(event_id: str) -> str | None:
+    host = es_host()
+    if not host or not event_id:
+        return None
+
+    es_user = os.getenv("ES_USER", "")
+    es_pass = os.getenv("ES_PASS", "")
+    es_timeout = int(os.getenv("ES_TIMEOUT", "6"))
+    auth = (es_user, es_pass) if es_user or es_pass else None
+
+    url = f"{host.rstrip('/')}/minisoar-events-*/_search"
+    query = {
+        "size": 1,
+        "query": {
+            "ids": {
+                "values": [event_id]
+            }
+        },
+        "_source": ["host.name", "host.hostname", "log.source", "alert.server_name", "server_name", "event.host.name", "event.host.hostname", "event.log.source", "event.alert.server_name", "event.server_name"]
+    }
+
+    try:
+        resp = requests.get(url, json=query, auth=auth, verify=es_verify_value(), timeout=es_timeout)
+        if resp.status_code == 200:
+            hits = resp.json().get("hits", {}).get("hits", [])
+            if hits:
+                src = hits[0].get("_source", {})
+                website = (
+                    src.get("server_name")
+                    or src.get("alert", {}).get("server_name")
+                    or src.get("host", {}).get("name")
+                    or src.get("host", {}).get("hostname")
+                    or src.get("log", {}).get("source")
+                )
+                if not website and "event" in src:
+                    ev = src["event"]
+                    website = (
+                        ev.get("server_name")
+                        or ev.get("alert", {}).get("server_name")
+                        or ev.get("host", {}).get("name")
+                        or ev.get("host", {}).get("hostname")
+                        or ev.get("log", {}).get("source")
+                    )
+                return website
+    except Exception as e:
+        logger.warning("Gagal mengambil website event %s dari ES: %s", event_id, e)
+    return None
+
+
+def es_get_latest_event_website_by_ip(ip: str) -> str | None:
+    host = es_host()
+    if not host or not ip:
+        return None
+
+    es_user = os.getenv("ES_USER", "")
+    es_pass = os.getenv("ES_PASS", "")
+    es_timeout = int(os.getenv("ES_TIMEOUT", "6"))
+    auth = (es_user, es_pass) if es_user or es_pass else None
+
+    url = f"{host.rstrip('/')}/minisoar-events-*/_search"
+
+    should = [
+        {"term": {"src.ip.keyword": ip}},
+        {"term": {"src.ip": ip}},
+        {"term": {"alert.src_ip.keyword": ip}},
+        {"term": {"alert.src_ip": ip}},
+        {"term": {"event.src.ip.keyword": ip}},
+        {"term": {"event.src.ip": ip}},
+        {"term": {"event.alert.src_ip.keyword": ip}},
+        {"term": {"event.alert.src_ip": ip}},
+    ]
+
+    query = {
+        "size": 1,
+        "sort": [{"@timestamp": "desc"}],
+        "_source": ["host.name", "host.hostname", "log.source", "alert.server_name", "server_name", "event.host.name", "event.host.hostname", "event.log.source", "event.alert.server_name", "event.server_name"],
+        "query": {"bool": {"should": should, "minimum_should_match": 1}},
+    }
+
+    try:
+        resp = requests.get(url, json=query, auth=auth, verify=es_verify_value(), timeout=es_timeout)
+        if resp.status_code == 200:
+            hits = resp.json().get("hits", {}).get("hits", [])
+            if hits:
+                src = hits[0].get("_source", {})
+                website = (
+                    src.get("server_name")
+                    or src.get("alert", {}).get("server_name")
+                    or src.get("host", {}).get("name")
+                    or src.get("host", {}).get("hostname")
+                    or src.get("log", {}).get("source")
+                )
+                if not website and "event" in src:
+                    ev = src["event"]
+                    website = (
+                        ev.get("server_name")
+                        or ev.get("alert", {}).get("server_name")
+                        or ev.get("host", {}).get("name")
+                        or ev.get("host", {}).get("hostname")
+                        or ev.get("log", {}).get("source")
+                    )
+                return website
+    except Exception as e:
+        logger.warning("Gagal mengambil website terbaru IP %s dari ES: %s", ip, e)
+    return None

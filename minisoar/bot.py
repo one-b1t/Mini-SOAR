@@ -18,7 +18,13 @@ from telegram.ext import (
 )
 
 from .config import load_env, parse_allowed_users, telegram_config
-from .database import es_find_latest_event_id_by_ip, store_label, redis_client
+from .database import (
+    es_find_latest_event_id_by_ip,
+    store_label,
+    redis_client,
+    es_get_event_website_by_id,
+    es_get_latest_event_website_by_ip,
+)
 from .mitigation import (
     akamai,
     imperva,
@@ -30,7 +36,7 @@ from .mitigation import (
     extend_block_state,
     remove_block_state,
 )
-from .utils import log_user_action, resolve_log_path, valid_ip
+from .utils import log_user_action, resolve_log_path, valid_ip, get_perimeter_info
 
 logger = logging.getLogger(__name__)
 
@@ -151,12 +157,30 @@ async def blockonpalo(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
     ip = context.args[0]
     logfile = resolve_log_path("LOGFILE", "/var/log/tele-soar-actions.log", "tele-soar-actions.log")
-    log_user_action("block_palo", user, ip=ip, target="PaloAlto", source="command", chat_id=update.effective_chat.id, logfile=logfile)
-
-    await update.message.reply_text(f"Menambah {ip} ke IP group Palo Alto...")
+    
+    # Check domain mapping
+    website = es_get_latest_event_website_by_ip(ip)
+    perimeter_map_path = resolve_log_path("PERIMETER_MAP_PATH", "/etc/logstash/minisoar-perimeter.yml", "logstash/minisoar-perimeter.yml")
+    _, mapped, _ = get_perimeter_info(website, perimeter_map_path) if website else ([], False, None)
 
     r = redis_client()
     duration = int(os.environ.get("MINISOAR_BLOCK_DURATION", "600"))
+
+    if website and not mapped:
+        await update.message.reply_text(
+            f"⚠️ Domain `{website}` untuk IP `{ip}` belum dimapping. Mengalihkan pemblokiran ke Imperva..."
+        )
+        log_user_action("block_imperva", user, ip=ip, target="Imperva", source="command", chat_id=update.effective_chat.id, note="redirect_unmapped", logfile=logfile)
+        ok, msg = trigger_auto_block(ip, "imperva")
+        if ok:
+            register_block_state(r, ip, "imperva", duration=duration)
+            msg += f"\nℹ️ IP terdaftar dalam pemblokiran sementara ({duration} detik) di Imperva."
+        await update.message.reply_text(msg)
+        return
+
+    log_user_action("block_palo", user, ip=ip, target="PaloAlto", source="command", chat_id=update.effective_chat.id, logfile=logfile)
+    await update.message.reply_text(f"Menambah {ip} ke IP group Palo Alto...")
+
     ok, msg = trigger_auto_block(ip, "paloalto", commit=False)
     if ok:
         register_block_state(r, ip, "paloalto", duration=duration)
@@ -176,11 +200,28 @@ async def unblockonpalo(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
     ip = context.args[0]
     logfile = resolve_log_path("LOGFILE", "/var/log/tele-soar-actions.log", "tele-soar-actions.log")
-    log_user_action("unblock_palo", user, ip=ip, target="PaloAlto", source="command", chat_id=update.effective_chat.id, logfile=logfile)
 
-    await update.message.reply_text(f"Menghapus {ip} dari IP group Palo Alto...")
+    # Check domain mapping
+    website = es_get_latest_event_website_by_ip(ip)
+    perimeter_map_path = resolve_log_path("PERIMETER_MAP_PATH", "/etc/logstash/minisoar-perimeter.yml", "logstash/minisoar-perimeter.yml")
+    _, mapped, _ = get_perimeter_info(website, perimeter_map_path) if website else ([], False, None)
 
     r = redis_client()
+
+    if website and not mapped:
+        await update.message.reply_text(
+            f"⚠️ Domain `{website}` untuk IP `{ip}` belum dimapping. Mengalihkan unblock ke Imperva..."
+        )
+        log_user_action("unblock_imperva", user, ip=ip, target="Imperva", source="command", chat_id=update.effective_chat.id, note="redirect_unmapped", logfile=logfile)
+        ok, msg = trigger_auto_unblock(ip, "imperva")
+        if ok:
+            remove_block_state(r, ip, "imperva")
+        await update.message.reply_text(msg)
+        return
+
+    log_user_action("unblock_palo", user, ip=ip, target="PaloAlto", source="command", chat_id=update.effective_chat.id, logfile=logfile)
+    await update.message.reply_text(f"Menghapus {ip} dari IP group Palo Alto...")
+
     ok, msg = trigger_auto_unblock(ip, "paloalto", commit=False)
     if ok:
         remove_block_state(r, ip, "paloalto")
@@ -218,12 +259,30 @@ async def blockonakamai(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
     ip = context.args[0]
     logfile = resolve_log_path("LOGFILE", "/var/log/tele-soar-actions.log", "tele-soar-actions.log")
-    log_user_action("block_akamai", user, ip=ip, target="Akamai", source="command", chat_id=update.effective_chat.id, logfile=logfile)
-
-    await update.message.reply_text(f"Menambah {ip} ke Akamai Client List...")
+    
+    # Check domain mapping
+    website = es_get_latest_event_website_by_ip(ip)
+    perimeter_map_path = resolve_log_path("PERIMETER_MAP_PATH", "/etc/logstash/minisoar-perimeter.yml", "logstash/minisoar-perimeter.yml")
+    _, mapped, _ = get_perimeter_info(website, perimeter_map_path) if website else ([], False, None)
 
     r = redis_client()
     duration = int(os.environ.get("MINISOAR_BLOCK_DURATION", "600"))
+
+    if website and not mapped:
+        await update.message.reply_text(
+            f"⚠️ Domain `{website}` untuk IP `{ip}` belum dimapping. Mengalihkan pemblokiran ke Imperva..."
+        )
+        log_user_action("block_imperva", user, ip=ip, target="Imperva", source="command", chat_id=update.effective_chat.id, note="redirect_unmapped", logfile=logfile)
+        ok, msg = trigger_auto_block(ip, "imperva")
+        if ok:
+            register_block_state(r, ip, "imperva", duration=duration)
+            msg += f"\nℹ️ IP terdaftar dalam pemblokiran sementara ({duration} detik) di Imperva."
+        await update.message.reply_text(msg)
+        return
+
+    log_user_action("block_akamai", user, ip=ip, target="Akamai", source="command", chat_id=update.effective_chat.id, logfile=logfile)
+    await update.message.reply_text(f"Menambah {ip} ke Akamai Client List...")
+
     ok, msg = trigger_auto_block(ip, "akamai", commit=False)
     if ok:
         register_block_state(r, ip, "akamai", duration=duration)
@@ -242,11 +301,28 @@ async def unblockonakamai(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
     ip = context.args[0]
     logfile = resolve_log_path("LOGFILE", "/var/log/tele-soar-actions.log", "tele-soar-actions.log")
-    log_user_action("unblock_akamai", user, ip=ip, target="Akamai", source="command", chat_id=update.effective_chat.id, logfile=logfile)
 
-    await update.message.reply_text(f"Menghapus {ip} dari Akamai Client List...")
+    # Check domain mapping
+    website = es_get_latest_event_website_by_ip(ip)
+    perimeter_map_path = resolve_log_path("PERIMETER_MAP_PATH", "/etc/logstash/minisoar-perimeter.yml", "logstash/minisoar-perimeter.yml")
+    _, mapped, _ = get_perimeter_info(website, perimeter_map_path) if website else ([], False, None)
 
     r = redis_client()
+
+    if website and not mapped:
+        await update.message.reply_text(
+            f"⚠️ Domain `{website}` untuk IP `{ip}` belum dimapping. Mengalihkan unblock ke Imperva..."
+        )
+        log_user_action("unblock_imperva", user, ip=ip, target="Imperva", source="command", chat_id=update.effective_chat.id, note="redirect_unmapped", logfile=logfile)
+        ok, msg = trigger_auto_unblock(ip, "imperva")
+        if ok:
+            remove_block_state(r, ip, "imperva")
+        await update.message.reply_text(msg)
+        return
+
+    log_user_action("unblock_akamai", user, ip=ip, target="Akamai", source="command", chat_id=update.effective_chat.id, logfile=logfile)
+    await update.message.reply_text(f"Menghapus {ip} dari Akamai Client List...")
+
     ok, msg = trigger_auto_unblock(ip, "akamai", commit=False)
     if ok:
         remove_block_state(r, ip, "akamai")
@@ -333,11 +409,40 @@ async def callback_query_handler(update: Update, context: ContextTypes.DEFAULT_T
         payload = data.split(":", 1)[1]
         ip_to_block, event_id = _parse_callback_payload(payload)
 
-        log_user_action("block_palo", user, ip=ip_to_block, target="PaloAlto", source="button", chat_id=update.effective_chat.id, note="inline_button", logfile=logfile)
-        await context.bot.send_message(chat_id=update.effective_chat.id, text=f"Menambah {ip_to_block} ke IP group Palo Alto ...", parse_mode="Markdown")
+        # Check domain mapping
+        website = None
+        if event_id:
+            website = es_get_event_website_by_id(event_id)
+        if not website:
+            website = es_get_latest_event_website_by_ip(ip_to_block)
+            
+        perimeter_map_path = resolve_log_path("PERIMETER_MAP_PATH", "/etc/logstash/minisoar-perimeter.yml", "logstash/minisoar-perimeter.yml")
+        _, mapped, _ = get_perimeter_info(website, perimeter_map_path) if website else ([], False, None)
 
         r = redis_client()
         duration = int(os.environ.get("MINISOAR_BLOCK_DURATION", "600"))
+
+        if website and not mapped:
+            await context.bot.send_message(
+                chat_id=update.effective_chat.id,
+                text=f"⚠️ Domain `{website}` belum dimapping. Mengalihkan pemblokiran ke Imperva...",
+            )
+            log_user_action("block_imperva", user, ip=ip_to_block, target="Imperva", source="button", chat_id=update.effective_chat.id, note="inline_button_redirect", logfile=logfile)
+            ok, msg = trigger_auto_block(ip_to_block, "imperva")
+            if ok:
+                register_block_state(r, ip_to_block, "imperva", duration=duration)
+                msg += f"\nℹ️ IP terdaftar dalam pemblokiran sementara ({duration} detik)."
+            await context.bot.send_message(chat_id=update.effective_chat.id, text=msg)
+
+            if not event_id:
+                event_id = es_find_latest_event_id_by_ip(ip_to_block, getattr(query.message, "date", None))
+            store_label(event_id, "block", user, "telegram_button", ip=ip_to_block, telegram_message_id=getattr(query.message, "message_id", None), chat_id=update.effective_chat.id)
+            await query.answer("Blokir di Imperva diproses!")
+            return
+
+        log_user_action("block_palo", user, ip=ip_to_block, target="PaloAlto", source="button", chat_id=update.effective_chat.id, note="inline_button", logfile=logfile)
+        await context.bot.send_message(chat_id=update.effective_chat.id, text=f"Menambah {ip_to_block} ke IP group Palo Alto ...", parse_mode="Markdown")
+
         ok, msg = trigger_auto_block(ip_to_block, "paloalto", commit=False)
         if ok:
             register_block_state(r, ip_to_block, "paloalto", duration=duration)
@@ -353,11 +458,40 @@ async def callback_query_handler(update: Update, context: ContextTypes.DEFAULT_T
         payload = data.split(":", 1)[1]
         ip_to_block, event_id = _parse_callback_payload(payload)
 
-        log_user_action("block_akamai", user, ip=ip_to_block, target="Akamai", source="button", chat_id=update.effective_chat.id, note="inline_button", logfile=logfile)
-        await context.bot.send_message(chat_id=update.effective_chat.id, text=f"Menambah {ip_to_block} ke Akamai Client List...")
+        # Check domain mapping
+        website = None
+        if event_id:
+            website = es_get_event_website_by_id(event_id)
+        if not website:
+            website = es_get_latest_event_website_by_ip(ip_to_block)
+            
+        perimeter_map_path = resolve_log_path("PERIMETER_MAP_PATH", "/etc/logstash/minisoar-perimeter.yml", "logstash/minisoar-perimeter.yml")
+        _, mapped, _ = get_perimeter_info(website, perimeter_map_path) if website else ([], False, None)
 
         r = redis_client()
         duration = int(os.environ.get("MINISOAR_BLOCK_DURATION", "600"))
+
+        if website and not mapped:
+            await context.bot.send_message(
+                chat_id=update.effective_chat.id,
+                text=f"⚠️ Domain `{website}` belum dimapping. Mengalihkan pemblokiran ke Imperva...",
+            )
+            log_user_action("block_imperva", user, ip=ip_to_block, target="Imperva", source="button", chat_id=update.effective_chat.id, note="inline_button_redirect", logfile=logfile)
+            ok, msg = trigger_auto_block(ip_to_block, "imperva")
+            if ok:
+                register_block_state(r, ip_to_block, "imperva", duration=duration)
+                msg += f"\nℹ️ IP terdaftar dalam pemblokiran sementara ({duration} detik)."
+            await context.bot.send_message(chat_id=update.effective_chat.id, text=msg)
+
+            if not event_id:
+                event_id = es_find_latest_event_id_by_ip(ip_to_block, getattr(query.message, "date", None))
+            store_label(event_id, "block", user, "telegram_button", ip=ip_to_block, telegram_message_id=getattr(query.message, "message_id", None), chat_id=update.effective_chat.id)
+            await query.answer("Blokir di Imperva diproses!")
+            return
+
+        log_user_action("block_akamai", user, ip=ip_to_block, target="Akamai", source="button", chat_id=update.effective_chat.id, note="inline_button", logfile=logfile)
+        await context.bot.send_message(chat_id=update.effective_chat.id, text=f"Menambah {ip_to_block} ke Akamai Client List...")
+
         ok, msg = trigger_auto_block(ip_to_block, "akamai", commit=False)
         if ok:
             register_block_state(r, ip_to_block, "akamai", duration=duration)

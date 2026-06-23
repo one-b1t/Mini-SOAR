@@ -227,3 +227,9 @@ MiniSOAR still works as an alert delivery and mitigation pipeline, but its imple
 - **Problem:** Codebase lacks automated security scans, formatting/linting checks, static typing analysis, and testing pipelines on GitLab CI, and there is no equivalent configuration for GitHub Actions.
 - **Solution:** Added a modular pipeline setup containing `security` (Gitleaks, Bandit), `lint` (Ruff, Mypy), and draft `test` (Pytest) stages to `.gitlab-ci.yml`. Concurrently, created an equivalent GitHub Actions workflow configuration in `.github/workflows/ci.yml`. All jobs and workflows are configured to run with manual triggers only (`when: manual` in GitLab, and `workflow_dispatch` in GitHub Actions) per user instructions.
 - **Rationale:** Separating scans into individual jobs provides parallelization, immediate and clear error reporting, and allows non-blocking verification for draft test suites. The manual triggering prevents runner resource wastage and aligns with development flow preferences.
+
+### 2026-06-23 23:27 WIB
+- **Problem:** For unmapped sites, the alert buttons are not displayed so analysts cannot block on Imperva via buttons, and analysts can still manually block on Palo Alto or Akamai using bot commands which is incorrect according to SOP.
+- **Solution:** Modified `daemon.py` to pass overridden `providers` (restricting to `["imperva"]`) when sending unmapped domain alerts to Telegram. Modified `bot.py` commands (`blockonpalo`/`blockonakamai`/`unblockonpalo`/`unblockonakamai`) and callback query handlers to query Elasticsearch for the site domain, and redirect unmapped domains to block/unblock on Imperva instead.
+- **Rationale:** Restricting blocking target selection and enforcing fallback behavior on both UI buttons and backend handlers guarantees unmapped perimeters are only mitigated on Imperva, preventing operational errors.
+

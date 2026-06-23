@@ -462,10 +462,10 @@ def main() -> None:
                     show_btn = (de_disable_buttons != "1" and not whitelisted)
                     if whitelisted:
                         logger.info("[WL] %s whitelisted — sending alert without action buttons.", ip)
-                    send_telegram(msg, ip=ip, show_buttons=show_btn, providers=providers, website=website, event_id=event_id)
+                    send_telegram(msg, ip=ip, show_buttons=show_btn, providers=providers if (mapped and providers) else ["imperva"], website=website, event_id=event_id)
                 else:
                     show_btn = (de_disable_buttons != "1" and not whitelisted)
-                    send_telegram(msg, ip=ip if ip else None, show_buttons=show_btn, providers=providers, website=website, event_id=event_id)
+                    send_telegram(msg, ip=ip if ip else None, show_buttons=show_btn, providers=providers if (mapped and providers) else ["imperva"], website=website, event_id=event_id)
 
             except Exception as e:
                 logger.error("Redis loop error: %s", e)

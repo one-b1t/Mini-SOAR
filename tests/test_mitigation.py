@@ -113,3 +113,59 @@ def test_redis_block_helpers():
     expired = get_expired_blocks(r)
     assert len(expired) == 1
     assert expired[0] == ("5.6.7.8", "akamai")
+
+
+def test_es_website_lookups():
+    import unittest.mock
+    from minisoar.database import es_get_event_website_by_id, es_get_latest_event_website_by_ip
+
+    with unittest.mock.patch("requests.get") as mock_get:
+        # Mock search response by ID
+        mock_resp_id = unittest.mock.Mock()
+        mock_resp_id.status_code = 200
+        mock_resp_id.json.return_value = {
+            "hits": {
+                "hits": [
+                    {
+                        "_source": {
+                            "server_name": "test-site.com"
+                        }
+                    }
+                ]
+            }
+        }
+        
+        # Mock search response by IP
+        mock_resp_ip = unittest.mock.Mock()
+        mock_resp_ip.status_code = 200
+        mock_resp_ip.json.return_value = {
+            "hits": {
+                "hits": [
+                    {
+                        "_source": {
+                            "event": {
+                                "alert": {
+                                    "server_name": "another-site.com"
+                                }
+                            }
+                        }
+                    }
+                ]
+            }
+        }
+        
+        mock_get.side_effect = [mock_resp_id, mock_resp_ip]
+        os.environ["ES_HOSTS"] = "http://localhost:9200"
+        
+        website_id = es_get_event_website_by_id("some-id")
+        assert website_id == "test-site.com"
+        
+        website_ip = es_get_latest_event_website_by_ip("8.8.8.8")
+        assert website_ip == "another-site.com"
+
+
+def test_get_perimeter_info_unmapped():
+    from minisoar.utils import get_perimeter_info
+    providers, mapped, match_key = get_perimeter_info("unmapped-site.com", "logstash/minisoar-perimeter.yml")
+    assert mapped is False
+    assert providers == ["none"]
