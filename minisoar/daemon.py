@@ -329,7 +329,7 @@ def main() -> None:
                         elif pred_label == 1:
                             extended_any = False
                             blocked_any = False
-                            block_targets = providers if (mapped and providers) else ["imperva"]
+                            block_targets = providers if (mapped and providers and providers != ["none"]) else ["imperva"]
                             for p in block_targets:
                                 p_norm = norm_provider(p)
                                 if is_ip_blocked(r, ip, p_norm):
@@ -363,16 +363,18 @@ def main() -> None:
                                         blocked_any = True
                                         if p_norm in pending_commits:
                                             pending_commits[p_norm] = True
-                                    act_type = "AUTO_BLOCK_PERMANENT" if is_permanent else "AUTO_BLOCK"
-                                    act_note = "Permanent" if is_permanent else f"Temporary {minisoar_block_duration}s"
-                                    log_user_action(
-                                        act_type,
-                                        {"username": "system"},
-                                        ip=ip,
-                                        target=p,
-                                        note=f"ML prediction {pred_prob:.2%} ({act_note})",
-                                        logfile=logfile,
-                                    )
+                                        act_type = "AUTO_BLOCK_PERMANENT" if is_permanent else "AUTO_BLOCK"
+                                        act_note = "Permanent" if is_permanent else f"Temporary {minisoar_block_duration}s"
+                                        log_user_action(
+                                            act_type,
+                                            {"username": "system"},
+                                            ip=ip,
+                                            target=p,
+                                            note=f"ML prediction {pred_prob:.2%} ({act_note})",
+                                            logfile=logfile,
+                                        )
+                                    else:
+                                        logger.error("Failed to auto-block %s on %s: %s", ip, p, blk_msg)
                             if extended_any and not blocked_any:
                                 if is_permanent:
                                     msg = f"🤖 *AI Action: PERMANENT BLOCK* (Confidence: {pred_prob:.0%} - Rep: {rep_score}%)\n" + msg
@@ -396,7 +398,7 @@ def main() -> None:
                             if pred_prob > 0.70:
                                 extended_any = False
                                 blocked_any = False
-                                block_targets = providers if (mapped and providers) else ["imperva"]
+                                block_targets = providers if (mapped and providers and providers != ["none"]) else ["imperva"]
                                 for p in block_targets:
                                     p_norm = norm_provider(p)
                                     if is_ip_blocked(r, ip, p_norm):
@@ -430,16 +432,18 @@ def main() -> None:
                                             blocked_any = True
                                             if p_norm in pending_commits:
                                                 pending_commits[p_norm] = True
-                                        act_type = "SEMI_AUTO_BLOCK_PERMANENT" if is_permanent else "SEMI_AUTO_BLOCK"
-                                        act_note = "Permanent" if is_permanent else f"Temporary {minisoar_block_duration}s"
-                                        log_user_action(
-                                            act_type,
-                                            {"username": "system"},
-                                            ip=ip,
-                                            target=p,
-                                            note=f"ML prediction {pred_prob:.2%} (>70%) ({act_note})",
-                                            logfile=logfile,
-                                        )
+                                            act_type = "SEMI_AUTO_BLOCK_PERMANENT" if is_permanent else "SEMI_AUTO_BLOCK"
+                                            act_note = "Permanent" if is_permanent else f"Temporary {minisoar_block_duration}s"
+                                            log_user_action(
+                                                act_type,
+                                                {"username": "system"},
+                                                ip=ip,
+                                                target=p,
+                                                note=f"ML prediction {pred_prob:.2%} (>70%) ({act_note})",
+                                                logfile=logfile,
+                                            )
+                                        else:
+                                            logger.error("Failed to semi-auto-block %s on %s: %s", ip, p, blk_msg)
                                 if extended_any and not blocked_any:
                                     if is_permanent:
                                         msg = f"🤖 *AI Action: PERMANENT BLOCK* (Confidence: {pred_prob:.0%} > 70% in SEMI Mode - Rep: {rep_score}%)\n" + msg
@@ -462,10 +466,10 @@ def main() -> None:
                     show_btn = (de_disable_buttons != "1" and not whitelisted)
                     if whitelisted:
                         logger.info("[WL] %s whitelisted — sending alert without action buttons.", ip)
-                    send_telegram(msg, ip=ip, show_buttons=show_btn, providers=providers if (mapped and providers) else ["imperva"], website=website, event_id=event_id)
+                    send_telegram(msg, ip=ip, show_buttons=show_btn, providers=providers if (mapped and providers and providers != ["none"]) else ["imperva"], website=website, event_id=event_id)
                 else:
                     show_btn = (de_disable_buttons != "1" and not whitelisted)
-                    send_telegram(msg, ip=ip if ip else None, show_buttons=show_btn, providers=providers if (mapped and providers) else ["imperva"], website=website, event_id=event_id)
+                    send_telegram(msg, ip=ip if ip else None, show_buttons=show_btn, providers=providers if (mapped and providers and providers != ["none"]) else ["imperva"], website=website, event_id=event_id)
 
             except Exception as e:
                 logger.error("Redis loop error: %s", e)

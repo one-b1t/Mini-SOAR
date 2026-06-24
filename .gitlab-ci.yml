@@ -6,6 +6,16 @@ stages:
 
 # ==================== STAGE: SECURITY ====================
 
+trivy-scan:
+  stage: security
+  image:
+    name: aquasec/trivy:latest
+    entrypoint: [""]
+  script:
+    - trivy fs --no-progress .
+  rules:
+    - when: manual
+
 gitleaks-scan:
   stage: security
   image:
