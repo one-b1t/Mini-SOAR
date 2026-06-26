@@ -233,3 +233,9 @@ MiniSOAR still works as an alert delivery and mitigation pipeline, but its imple
 - **Solution:** Modified `daemon.py` to pass overridden `providers` (restricting to `["imperva"]`) when sending unmapped domain alerts to Telegram. Modified `bot.py` commands (`blockonpalo`/`blockonakamai`/`unblockonpalo`/`unblockonakamai`) and callback query handlers to query Elasticsearch for the site domain, and redirect unmapped domains to block/unblock on Imperva instead.
 - **Rationale:** Restricting blocking target selection and enforcing fallback behavior on both UI buttons and backend handlers guarantees unmapped perimeters are only mitigated on Imperva, preventing operational errors.
 
+### 2026-06-26 15:05 WIB
+- **Problem:** Operational decisions for manual bot commands and automated daemon blocking were not saved to Elasticsearch, leading to inconsistencies when exporting datasets via `minisoar/ml/export.py`.
+- **Solution:** Integrated `store_label` inside manual commands in `minisoar/bot.py` (fetching the closest `event_id` via `es_find_latest_event_id_by_ip`) and inside auto/semi-auto modes in `minisoar/daemon.py`.
+- **Rationale:** Writing all blocking decisions to the labels index prefixed with `minisoar-labels` ensures the dataset extraction queries run by `export.py` capture the full decision-making history of the SOAR platform.
+
+

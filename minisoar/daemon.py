@@ -22,6 +22,7 @@ from .database import (
     parse_ts_epoch,
     redis_client,
     sig_hash,
+    store_label,
 )
 from .mitigation.core import (
     trigger_auto_block,
@@ -375,6 +376,8 @@ def main() -> None:
                                         )
                                     else:
                                         logger.error("Failed to auto-block %s on %s: %s", ip, p, blk_msg)
+                            if blocked_any or extended_any:
+                                store_label(event_id, "block", "system", "auto_block", ip=ip)
                             if extended_any and not blocked_any:
                                 if is_permanent:
                                     msg = f"🤖 *AI Action: PERMANENT BLOCK* (Confidence: {pred_prob:.0%} - Rep: {rep_score}%)\n" + msg
@@ -444,6 +447,8 @@ def main() -> None:
                                             )
                                         else:
                                             logger.error("Failed to semi-auto-block %s on %s: %s", ip, p, blk_msg)
+                                if blocked_any or extended_any:
+                                    store_label(event_id, "block", "system", "semi_auto_block", ip=ip)
                                 if extended_any and not blocked_any:
                                     if is_permanent:
                                         msg = f"🤖 *AI Action: PERMANENT BLOCK* (Confidence: {pred_prob:.0%} > 70% in SEMI Mode - Rep: {rep_score}%)\n" + msg

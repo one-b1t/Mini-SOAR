@@ -77,6 +77,8 @@ async def blockonimperva(update: Update, context: ContextTypes.DEFAULT_TYPE):
     ok, msg = trigger_auto_block(ip, "imperva")
     if ok:
         register_block_state(r, ip, "imperva", duration=duration)
+        event_id = es_find_latest_event_id_by_ip(ip, approx_dt=update.message.date)
+        store_label(event_id, "block", user, "telegram_command", ip=ip, telegram_message_id=str(update.message.message_id), chat_id=update.effective_chat.id)
         msg += f"\nℹ️ IP terdaftar dalam pemblokiran sementara ({duration} detik)."
     await update.message.reply_text(msg)
 
@@ -174,6 +176,8 @@ async def blockonpalo(update: Update, context: ContextTypes.DEFAULT_TYPE):
         ok, msg = trigger_auto_block(ip, "imperva")
         if ok:
             register_block_state(r, ip, "imperva", duration=duration)
+            event_id = es_find_latest_event_id_by_ip(ip, approx_dt=update.message.date)
+            store_label(event_id, "block", user, "telegram_command", ip=ip, telegram_message_id=str(update.message.message_id), chat_id=update.effective_chat.id)
             msg += f"\nℹ️ IP terdaftar dalam pemblokiran sementara ({duration} detik) di Imperva."
         await update.message.reply_text(msg)
         return
@@ -184,6 +188,8 @@ async def blockonpalo(update: Update, context: ContextTypes.DEFAULT_TYPE):
     ok, msg = trigger_auto_block(ip, "paloalto", commit=False)
     if ok:
         register_block_state(r, ip, "paloalto", duration=duration)
+        event_id = es_find_latest_event_id_by_ip(ip, approx_dt=update.message.date)
+        store_label(event_id, "block", user, "telegram_command", ip=ip, telegram_message_id=str(update.message.message_id), chat_id=update.effective_chat.id)
         msg += f"\nJangan lupa jalankan /commitpalo.\nℹ️ IP terdaftar dalam pemblokiran sementara ({duration} detik)."
     await update.message.reply_text(msg)
 
@@ -276,6 +282,8 @@ async def blockonakamai(update: Update, context: ContextTypes.DEFAULT_TYPE):
         ok, msg = trigger_auto_block(ip, "imperva")
         if ok:
             register_block_state(r, ip, "imperva", duration=duration)
+            event_id = es_find_latest_event_id_by_ip(ip, approx_dt=update.message.date)
+            store_label(event_id, "block", user, "telegram_command", ip=ip, telegram_message_id=str(update.message.message_id), chat_id=update.effective_chat.id)
             msg += f"\nℹ️ IP terdaftar dalam pemblokiran sementara ({duration} detik) di Imperva."
         await update.message.reply_text(msg)
         return
@@ -286,6 +294,8 @@ async def blockonakamai(update: Update, context: ContextTypes.DEFAULT_TYPE):
     ok, msg = trigger_auto_block(ip, "akamai", commit=False)
     if ok:
         register_block_state(r, ip, "akamai", duration=duration)
+        event_id = es_find_latest_event_id_by_ip(ip, approx_dt=update.message.date)
+        store_label(event_id, "block", user, "telegram_command", ip=ip, telegram_message_id=str(update.message.message_id), chat_id=update.effective_chat.id)
         msg += f"\nJangan lupa jalankan /activateakamai.\nℹ️ IP terdaftar dalam pemblokiran sementara ({duration} detik)."
     await update.message.reply_text(msg)
 
