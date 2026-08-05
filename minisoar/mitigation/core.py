@@ -5,6 +5,7 @@ from __future__ import annotations
 import logging
 import os
 import time
+import traceback
 
 from ..config import norm_provider
 
@@ -271,4 +272,97 @@ def remove_block_state(r, ip: str, provider: str) -> bool:
     except Exception as e:
         logger.error("Redis zrem failed: %s", e)
         return False
+
+
+# ---------------------------------------------
+# Perimeter connectivity check (startup diagnostics)
+# ---------------------------------------------
+
+def check_perimeter_connectivity() -> list[dict]:
+    """Probe every perimeter provider that has credentials configured in env.
+
+    Each result dict has: provider, configured, ok, error, hint, and
+    (only on unexpected exceptions) traceback — so callers can log the
+    root cause and a fix suggestion without re-deriving them.
+    """
+    results: list[dict] = []
+
+    # Palo Alto
+    pa_host = os.getenv("PA_HOST", "")
+    pa_api_key = os.getenv("PA_API_KEY", "")
+    if pa_host and pa_api_key:
+        entry = {"provider": "paloalto", "configured": True, "ok": False, "error": None, "hint": None}
+        try:
+            resp = paloalto.palo_api_request(
+                pa_host,
+                {"type": "op", "cmd": "<show><system><info></info></system></show>", "key": pa_api_key},
+            )
+            if "error" in resp:
+                entry["error"] = resp["error"]
+                entry["hint"] = "Periksa PA_HOST bisa dijangkau (jaringan/firewall) dan port HTTPS terbuka."
+            elif resp.get("response", {}).get("@status") == "success":
+                entry["ok"] = True
+            else:
+                entry["error"] = resp.get("response", {}).get("msg", "Unknown error")
+                entry["hint"] = "Periksa PA_API_KEY masih valid (belum revoked/expired)."
+        except Exception as e:
+            entry["error"] = str(e)
+            entry["hint"] = "Exception saat menghubungi Palo Alto API. Periksa PA_HOST dan konektivitas jaringan."
+            entry["traceback"] = traceback.format_exc()
+        results.append(entry)
+    else:
+        results.append({"provider": "paloalto", "configured": False, "ok": None, "error": None, "hint": None})
+
+    # Imperva
+    imperva_base = os.getenv("IMPERVA_BASE_URL", "")
+    imperva_user = os.getenv("IMPERVA_USERNAME", "")
+    imperva_pass = os.getenv("IMPERVA_PASSWORD", "")
+    if imperva_base and imperva_user and imperva_pass:
+        entry = {"provider": "imperva", "configured": True, "ok": False, "error": None, "hint": None}
+        try:
+            cookies = imperva.login_via_api(imperva_base, imperva_user, imperva_pass)
+            if cookies:
+                entry["ok"] = True
+            else:
+                entry["error"] = "Login gagal (kredensial ditolak atau endpoint tidak terjangkau)."
+                entry["hint"] = "Periksa IMPERVA_BASE_URL, IMPERVA_USERNAME, IMPERVA_PASSWORD, dan konektivitas jaringan."
+        except Exception as e:
+            entry["error"] = str(e)
+            entry["hint"] = "Exception saat login ke Imperva API. Periksa IMPERVA_BASE_URL dan konektivitas jaringan."
+            entry["traceback"] = traceback.format_exc()
+        results.append(entry)
+    else:
+        results.append({"provider": "imperva", "configured": False, "ok": None, "error": None, "hint": None})
+
+    # Akamai
+    akamai_baseurl = os.getenv("AKAMAI_BASEURL", "")
+    akamai_list_id = os.getenv("AKAMAI_LIST_ID", "")
+    akamai_client_token = os.getenv("AKAMAI_CLIENT_TOKEN", "")
+    akamai_client_secret = os.getenv("AKAMAI_CLIENT_SECRET", "")
+    akamai_access_token = os.getenv("AKAMAI_ACCESS_TOKEN", "")
+    if akamai_baseurl and akamai_list_id and akamai_client_token and akamai_client_secret and akamai_access_token:
+        entry = {"provider": "akamai", "configured": True, "ok": False, "error": None, "hint": None}
+        try:
+            session = akamai.akamai_session(
+                client_token=akamai_client_token,
+                client_secret=akamai_client_secret,
+                access_token=akamai_access_token,
+            )
+            account_switch = os.getenv("AKAMAI_ACCOUNT_SWITCH") or None
+            url = akamai.akamai_url(akamai_baseurl, f"/client-list/v1/lists/{akamai_list_id}", account_switch=account_switch)
+            resp = session.get(url, headers={"accept": "application/json"}, timeout=10)
+            if resp.status_code == 200:
+                entry["ok"] = True
+            else:
+                entry["error"] = f"HTTP {resp.status_code}: {resp.text[:200]}"
+                entry["hint"] = "Periksa AKAMAI_LIST_ID valid dan kredensial EdgeGrid (CLIENT_TOKEN/SECRET/ACCESS_TOKEN) belum expired."
+        except Exception as e:
+            entry["error"] = str(e)
+            entry["hint"] = "Exception saat menghubungi Akamai API. Periksa AKAMAI_BASEURL dan konektivitas jaringan."
+            entry["traceback"] = traceback.format_exc()
+        results.append(entry)
+    else:
+        results.append({"provider": "akamai", "configured": False, "ok": None, "error": None, "hint": None})
+
+    return results
 

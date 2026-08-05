@@ -668,6 +668,15 @@ def send_telegram(
         logger.error("Failed to send alert: %s", e)
 
 
+def notify_action_log(msg: str) -> None:
+    """Send a message to the dedicated Action Log channel (TELEGRAM_PROCESS_CHAT_ID)."""
+    proc_chat_id = os.environ.get("TELEGRAM_PROCESS_CHAT_ID")
+    if not proc_chat_id:
+        logger.warning("[WARN] TELEGRAM_PROCESS_CHAT_ID not set — skipping action-log notification.")
+        return
+    send_telegram(msg, show_buttons=False, chat_id=proc_chat_id)
+
+
 def log_user_action(
     action: str,
     user: Any,
@@ -700,18 +709,16 @@ def log_user_action(
             "note": note
         }
         
-        proc_chat_id = os.environ.get("TELEGRAM_PROCESS_CHAT_ID")
-        if proc_chat_id:
-            msg_log = (
-                f"📝 *SYSTEM LOG*\n"
-                f"• *Action:* `{action}`\n"
-                f"• *User:* `{username}`\n"
-                f"• *IP:* `{ip or '-'}`\n"
-                f"• *Target:* `{target or '-'}`\n"
-                f"• *Source:* `{source or '-'}`\n"
-                f"• *Note:* `{note or '-'}`"
-            )
-            send_telegram(msg_log, show_buttons=False, chat_id=proc_chat_id)
+        msg_log = (
+            f"📝 *SYSTEM LOG*\n"
+            f"• *Action:* `{action}`\n"
+            f"• *User:* `{username}`\n"
+            f"• *IP:* `{ip or '-'}`\n"
+            f"• *Target:* `{target or '-'}`\n"
+            f"• *Source:* `{source or '-'}`\n"
+            f"• *Note:* `{note or '-'}`"
+        )
+        notify_action_log(msg_log)
         
         log_dir = os.path.dirname(logfile)
         if log_dir:

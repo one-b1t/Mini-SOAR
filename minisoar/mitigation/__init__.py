@@ -9,6 +9,7 @@ from .core import (
     extend_block_state,
     get_expired_blocks,
     remove_block_state,
+    check_perimeter_connectivity,
 )
 
 __all__ = [
@@ -20,5 +21,6 @@ __all__ = [
     "extend_block_state",
     "get_expired_blocks",
     "remove_block_state",
+    "check_perimeter_connectivity",
 ]
 

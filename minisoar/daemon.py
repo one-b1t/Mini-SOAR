@@ -33,6 +33,7 @@ from .mitigation.core import (
     extend_block_state,
     get_expired_blocks,
     remove_block_state,
+    check_perimeter_connectivity,
 )
 from .ml.inference import load_model_artifact, predict_block
 from .utils import (
@@ -46,6 +47,7 @@ from .utils import (
     load_cidr_list_from_env_and_file,
     log_unmapped_site_once_per_day,
     log_user_action,
+    notify_action_log,
     provider_badge,
     resolve_log_path,
     send_telegram,
@@ -136,6 +138,29 @@ def main() -> None:
     print(f"• Telegram Bot Token: {bot_masked} ({bot_status})")
     print(f"• Telegram Chat ID  : {telegram_chat_id} ({chat_status})")
     print(f"• Telegram Proc Chat: {telegram_proc_chat_id} ({proc_chat_status})")
+    print("=" * 60)
+
+    # Perimeter connectivity check — verify every configured provider is reachable
+    # before entering the main loop, so misconfiguration surfaces at startup instead
+    # of silently failing on the first real auto-block attempt.
+    print("• Perimeter Connectivity Check:")
+    perimeter_results = check_perimeter_connectivity()
+    for res in perimeter_results:
+        provider = res["provider"].upper()
+        if not res["configured"]:
+            print(f"   - {provider:<10}: SKIPPED (not configured)")
+            continue
+        if res["ok"]:
+            print(f"   - {provider:<10}: OK (reachable)")
+            logger.info("Perimeter check OK: %s", res["provider"])
+        else:
+            print(f"   - {provider:<10}: FAILED - {res['error']}")
+            logger.error(
+                "Perimeter check FAILED: provider=%s error=%s hint=%s",
+                res["provider"], res["error"], res["hint"],
+            )
+            if res.get("traceback"):
+                logger.error("Traceback for %s:\n%s", res["provider"], res["traceback"])
     print("=" * 60)
 
     try:
@@ -330,6 +355,7 @@ def main() -> None:
                         elif pred_label == 1:
                             extended_any = False
                             blocked_any = False
+                            failed_providers = []
                             block_targets = providers if (mapped and providers and providers != ["none"]) else ["imperva"]
                             for p in block_targets:
                                 p_norm = norm_provider(p)
@@ -376,20 +402,32 @@ def main() -> None:
                                         )
                                     else:
                                         logger.error("Failed to auto-block %s on %s: %s", ip, p, blk_msg)
+                                        failed_providers.append((p_norm, blk_msg))
                             if blocked_any or extended_any:
                                 store_label(event_id, "block", "system", "auto_block", ip=ip)
+                            if failed_providers:
+                                fail_lines = "\n".join(f"• `{fp}`: {fm}" for fp, fm in failed_providers)
+                                notify_action_log(
+                                    f"⚠️ *AUTO-BLOCK FAILED*\n"
+                                    f"• IP: `{ip}`\n"
+                                    f"• Website: `{website or '-'}`\n"
+                                    f"• Mode: `AUTO`\n"
+                                    f"• Failed provider(s):\n{fail_lines}"
+                                )
                             if extended_any and not blocked_any:
                                 if is_permanent:
                                     msg = f"🤖 *AI Action: PERMANENT BLOCK* (Confidence: {pred_prob:.0%} - Rep: {rep_score}%)\n" + msg
                                 else:
                                     msg = f"🤖 *AI Action: BLOCK EXTENDED* (Confidence: {pred_prob:.0%} - IP already blocked, extended +{minisoar_block_duration}s)\n" + msg
-                            else:
+                            elif blocked_any:
                                 needs_commit = any(norm_provider(t) in {"paloalto", "akamai"} for t in block_targets)
                                 if is_permanent:
                                     status_str = "Commit pending, permanent block" if needs_commit else "Permanent block"
                                 else:
                                     status_str = f"Commit pending, temporary block {minisoar_block_duration}s" if needs_commit else f"Temporary block {minisoar_block_duration}s"
                                 msg = f"🤖 *AI Action: AUTO-BLOCKED* (Confidence: {pred_prob:.0%} - Rep: {rep_score}% - {status_str})\n" + msg
+                            else:
+                                msg = f"❌ *AI Action: AUTO-BLOCK FAILED* (Confidence: {pred_prob:.0%} - Rep: {rep_score}% - all providers failed, see Action Log)\n" + msg
                             send_telegram(msg, ip=ip, show_buttons=False, providers=block_targets, website=website, event_id=event_id)
                             continue
                         else:
@@ -401,6 +439,7 @@ def main() -> None:
                             if pred_prob > 0.70:
                                 extended_any = False
                                 blocked_any = False
+                                failed_providers = []
                                 block_targets = providers if (mapped and providers and providers != ["none"]) else ["imperva"]
                                 for p in block_targets:
                                     p_norm = norm_provider(p)
@@ -447,20 +486,32 @@ def main() -> None:
                                             )
                                         else:
                                             logger.error("Failed to semi-auto-block %s on %s: %s", ip, p, blk_msg)
+                                            failed_providers.append((p_norm, blk_msg))
                                 if blocked_any or extended_any:
                                     store_label(event_id, "block", "system", "semi_auto_block", ip=ip)
+                                if failed_providers:
+                                    fail_lines = "\n".join(f"• `{fp}`: {fm}" for fp, fm in failed_providers)
+                                    notify_action_log(
+                                        f"⚠️ *AUTO-BLOCK FAILED*\n"
+                                        f"• IP: `{ip}`\n"
+                                        f"• Website: `{website or '-'}`\n"
+                                        f"• Mode: `SEMI`\n"
+                                        f"• Failed provider(s):\n{fail_lines}"
+                                    )
                                 if extended_any and not blocked_any:
                                     if is_permanent:
                                         msg = f"🤖 *AI Action: PERMANENT BLOCK* (Confidence: {pred_prob:.0%} > 70% in SEMI Mode - Rep: {rep_score}%)\n" + msg
                                     else:
                                         msg = f"🤖 *AI Action: BLOCK EXTENDED* (Confidence: {pred_prob:.0%} > 70% in SEMI Mode - IP already blocked, extended +{minisoar_block_duration}s)\n" + msg
-                                else:
+                                elif blocked_any:
                                     needs_commit = any(norm_provider(t) in {"paloalto", "akamai"} for t in block_targets)
                                     if is_permanent:
                                         status_str = "Commit pending, permanent block" if needs_commit else "Permanent block"
                                     else:
                                         status_str = f"Commit pending, temporary block {minisoar_block_duration}s" if needs_commit else f"Temporary block {minisoar_block_duration}s"
                                     msg = f"🤖 *AI Action: AUTO-BLOCKED* (Confidence: {pred_prob:.0%} > 70% in SEMI Mode - Rep: {rep_score}% - {status_str})\n" + msg
+                                else:
+                                    msg = f"❌ *AI Action: AUTO-BLOCK FAILED* (Confidence: {pred_prob:.0%} > 70% in SEMI Mode - Rep: {rep_score}% - all providers failed, see Action Log)\n" + msg
                                 send_telegram(msg, ip=ip, show_buttons=False, providers=block_targets, website=website, event_id=event_id)
                                 continue
                             else:
