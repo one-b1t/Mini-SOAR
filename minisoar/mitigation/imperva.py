@@ -1,8 +1,8 @@
 from __future__ import annotations
 
-import os
 import logging
-from typing import Any, Optional
+import os
+from typing import Any
 
 import requests
 import urllib3
@@ -13,7 +13,11 @@ urllib3.disable_warnings(urllib3.exceptions.InsecureRequestWarning)
 logger = logging.getLogger(__name__)
 
 
-def login_via_api(base_url: str, username: str, password: str) -> Optional[dict]:
+def _get_verify_ssl() -> bool:
+    return os.getenv("IMPERVA_VERIFY_SSL", "0").lower() in {"1", "true", "yes"}
+
+
+def login_via_api(base_url: str, username: str, password: str) -> dict | None:
     if os.getenv("MINISOAR_MOCK", "").lower() in {"1", "true", "yes"}:
         return {"mock-session": "1"}
 
@@ -24,7 +28,7 @@ def login_via_api(base_url: str, username: str, password: str) -> Optional[dict]
             login_url,
             auth=HTTPBasicAuth(username, password),
             headers=headers,
-            verify=False,
+            verify=_get_verify_ssl(),  # nosec B501 (Configurable via IMPERVA_VERIFY_SSL)
             timeout=10,
         )
         if response.status_code == 200:
@@ -98,7 +102,7 @@ def ip_blocklist_api(base_url: str, group_name: str, api_cookies: dict, ip_addre
             json=payload,
             headers=headers,
             cookies=api_cookies,
-            verify=False,
+            verify=_get_verify_ssl(),  # nosec B501 (Configurable via IMPERVA_VERIFY_SSL)
             timeout=15,
         )
         if response.status_code == 200:
@@ -112,7 +116,13 @@ def get_blocked_ip_list(base_url: str, group_name: str, api_cookies: dict) -> li
     api_url = f"{base_url}/SecureSphere/api/v1/conf/ipGroups/{group_name}/data"
     headers = {"Content-Type": "application/json", "Accept": "application/json"}
     try:
-        response = requests.get(api_url, headers=headers, cookies=api_cookies, verify=False, timeout=15)
+        response = requests.get(
+            api_url,
+            headers=headers,
+            cookies=api_cookies,
+            verify=_get_verify_ssl(),  # nosec B501 (Configurable via IMPERVA_VERIFY_SSL)
+            timeout=15,
+        )
         if response.status_code == 200:
             data = response.json()
             return [

@@ -52,50 +52,51 @@ def write_synthetic_dataset(csv_path: Path):
     perimeters = ["imperva", "akamai", "paloalto", "none"]
 
     rows = []
+    rng = random.Random(42)  # nosec B311 (Non-cryptographic PRNG for ML bootstrap simulation)
     for i in range(10000):
-        detector = random.choice(detector_types)
-        perimeter = random.choice(perimeters)
-        is_whitelisted = 1 if random.random() < 0.05 else 0
+        detector = rng.choice(detector_types)
+        perimeter = rng.choice(perimeters)
+        is_whitelisted = 1 if rng.random() < 0.05 else 0
 
         if is_whitelisted == 1:
-            reputation = random.randint(0, 10)
-            hit_count = random.randint(1, 10)
+            reputation = rng.randint(0, 10)
+            hit_count = rng.randint(1, 10)
             severity = "low"
             label = 0
         else:
             if detector == "alert_webshell_immediate":
-                reputation = random.randint(80, 100)
-                hit_count = random.randint(10, 150)
+                reputation = rng.randint(80, 100)
+                hit_count = rng.randint(10, 150)
                 severity = "high"
-                label = 1 if random.random() < 0.98 else 0
+                label = 1 if rng.random() < 0.98 else 0
             elif detector in ["alert_webshell_name", "alert_webshell_heur"]:
-                reputation = random.randint(50, 95)
-                hit_count = random.randint(5, 80)
-                severity = random.choice(["high", "medium"])
-                label = 1 if random.random() < 0.85 else 0
+                reputation = rng.randint(50, 95)
+                hit_count = rng.randint(5, 80)
+                severity = rng.choice(["high", "medium"])
+                label = 1 if rng.random() < 0.85 else 0
             elif detector == "alert_gambling_slot":
-                reputation = random.randint(40, 90)
-                hit_count = random.randint(50, 1000)
+                reputation = rng.randint(40, 90)
+                hit_count = rng.randint(50, 1000)
                 severity = "high"
-                label = 1 if random.random() < 0.90 else 0
+                label = 1 if rng.random() < 0.90 else 0
             elif detector == "alert_distributed_error":
-                reputation = random.randint(10, 60)
-                hit_count = random.randint(100, 5000)
+                reputation = rng.randint(10, 60)
+                hit_count = rng.randint(100, 5000)
                 severity = "medium"
-                label = 0 if random.random() < 0.80 else 1
+                label = 0 if rng.random() < 0.80 else 1
             else:
-                reputation = random.randint(20, 85)
-                hit_count = random.randint(1, 50)
-                severity = random.choice(["medium", "low"])
-                label = 1 if random.random() < 0.40 else 0
+                reputation = rng.randint(20, 85)
+                hit_count = rng.randint(1, 50)
+                severity = rng.choice(["medium", "low"])
+                label = 1 if rng.random() < 0.40 else 0
 
-        event_id = f"evt_{i:04d}_{random.randint(1000, 9999)}"
-        src_ip = f"{random.randint(1,255)}.{random.randint(1,255)}.{random.randint(1,255)}.{random.randint(1,255)}"
-        dst_ip = f"10.0.{random.randint(1,5)}.{random.randint(1,255)}"
-        domain = random.choice(["api.target.com", "staging.target.com", "target.com", "internal.local"])
-        url_path = random.choice(["/login", "/api/v1/data", "/admin/config", "/wp-login.php", "/?id=1'"])
-        src_port = random.randint(1024, 65535)
-        dst_port = random.choice([80, 443, 8080])
+        event_id = f"evt_{i:04d}_{rng.randint(1000, 9999)}"
+        src_ip = f"{rng.randint(1,255)}.{rng.randint(1,255)}.{rng.randint(1,255)}.{rng.randint(1,255)}"
+        dst_ip = f"10.0.{rng.randint(1,5)}.{rng.randint(1,255)}"
+        domain = rng.choice(["api.target.com", "staging.target.com", "target.com", "internal.local"])
+        url_path = rng.choice(["/login", "/api/v1/data", "/admin/config", "/wp-login.php", "/?id=1'"])
+        src_port = rng.randint(1024, 65535)
+        dst_port = rng.choice([80, 443, 8080])
 
         rows.append([
             event_id, detector, severity, reputation, hit_count, perimeter, is_whitelisted,

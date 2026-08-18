@@ -1,0 +1,82 @@
+# ==============================================================================
+# MiniSOAR .dockerignore
+# ==============================================================================
+
+# Git
+.git
+.gitignore
+.gitattributes
+
+# Docker configs
+Dockerfile*
+docker-compose*.yml
+
+# Environment & Secrets
+.env
+.env.*
+!.env.example
+*.pem
+*.key
+*.crt
+*.secret
+secrets
+credentials
+
+# Python & Dependencies
+__pycache__
+*.pyc
+*.pyo
+*.pyd
+.venv
+venv
+ENV
+env
+*.egg-info
+dist
+build
+.eggs
+
+# Logs & PIDs
+*.log
+logs
+.pids
+tele-soar-actions.log
+minisoar-unmapped-sites.log
+
+# Temporary & Local
+tmp
+temp
+.DS_Store
+Thumbs.db
+.idea
+.vscode
+
+# Testing & Artifacts
+.pytest_cache
+.coverage
+htmlcov
+test-results
+coverage.xml
+
+# Graphify & Analysis
+graphify
+.graphify
+graphify-out
+*.graph.json
+*.graph.svg
+*.graph.html
+
+# AI & IDE Assistants
+.agents
+.claude
+.gemini
+.antigravitycli
+.obsidian
+.codex
+.cursor
+
+# Reports & Datasets
+Reports
+dataset.csv
+minisoar-bypass.txt
+minisoar-whitelist.txt

@@ -8,8 +8,7 @@ import time
 import traceback
 
 from ..config import norm_provider
-
-from . import imperva, paloalto, akamai, cloudflare, fortigate
+from . import akamai, cloudflare, fortigate, imperva, paloalto
 
 logger = logging.getLogger(__name__)
 

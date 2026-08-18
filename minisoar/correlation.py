@@ -3,7 +3,6 @@ from __future__ import annotations
 """Alert Correlation, Aggregation, and Anti-Alert Storm Engine for MiniSOAR."""
 
 import logging
-import time
 from typing import Any
 
 logger = logging.getLogger(__name__)

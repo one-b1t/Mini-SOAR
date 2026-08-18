@@ -2,11 +2,11 @@ from __future__ import annotations
 
 """Data models for MiniSOAR Incident Case Management."""
 
+import uuid
 from dataclasses import asdict, dataclass, field
 from datetime import datetime, timezone
 from enum import Enum
 from typing import Any
-import uuid
 
 
 class CaseStatus(str, Enum):
@@ -120,8 +120,8 @@ class IncidentCase:
                 try:
                     created_dt = datetime.fromisoformat(self.created_at)
                     self.mttr_seconds = max(0.0, (now - created_dt).total_seconds())
-                except Exception:
-                    pass
+                except (ValueError, TypeError):
+                    self.mttr_seconds = 0.0
 
         self.add_timeline(actor, "status_change", f"Status changed from {old_status} to {self.status}. {note}".strip())
 

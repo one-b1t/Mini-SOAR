@@ -8,9 +8,9 @@ As part of the refactor, we consolidate common parsing logic here.
 This module is intentionally light-weight and side-effect free.
 """
 
+import os
 from dataclasses import dataclass
 from pathlib import Path
-import os
 
 from dotenv import load_dotenv
 
@@ -27,8 +27,7 @@ def load_env(*, linux_fallback: str = "/root/tele-soar/.env") -> None:
 
     try:
         load_dotenv(linux_fallback, override=False)
-    except Exception:
-        # If path does not exist / unreadable, ignore.
+    except OSError:
         pass
 
     pkg_root = Path(__file__).resolve().parent.parent
@@ -57,7 +56,7 @@ def resolve_path(env_key: str, default_linux_path: str, default_win_filename: st
         parent = os.path.dirname(default_linux_path)
         if parent and os.path.exists(parent):
             return default_linux_path
-    except Exception:
+    except OSError:
         pass
 
     return str(script_dir / default_win_filename)

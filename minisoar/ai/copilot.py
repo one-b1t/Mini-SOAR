@@ -19,7 +19,6 @@ import json
 import logging
 import os
 from pathlib import Path
-import re
 from typing import Any
 
 import requests
@@ -59,8 +58,8 @@ def _read_file_token(filepath: str | Path) -> str | None:
                 for k in ["api_key", "apiKey", "token", "auth_token", "key", "access_token", "secret_key"]:
                     if data.get(k) and isinstance(data[k], str):
                         return data[k].strip()
-        except Exception:
-            pass
+        except (json.JSONDecodeError, ValueError):
+            logger.debug("Auth file %s is not in JSON format, treating as raw string.", filepath)
 
         # Fallback to plain text string token
         return content.strip()

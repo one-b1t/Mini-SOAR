@@ -3,7 +3,8 @@ from __future__ import annotations
 """Action handlers registry for MiniSOAR Playbook Engine."""
 
 import logging
-from typing import Any, Callable
+from collections.abc import Callable
+from typing import Any
 
 from ..config import norm_provider
 from ..database import store_label
@@ -141,7 +142,7 @@ def action_auto_unblock(ctx: ExecutionContext, params: dict[str, Any]) -> tuple[
     unblocked_any = False
     for p in target_providers:
         p_norm = norm_provider(p)
-        ok, msg = trigger_auto_unblock(ip, p, commit=commit)
+        ok, _msg = trigger_auto_unblock(ip, p, commit=commit)
         if ok:
             if r:
                 remove_block_state(r, ip, p_norm)
@@ -310,7 +311,7 @@ def action_update_case(ctx: ExecutionContext, params: dict[str, Any]) -> tuple[b
     if not case_id:
         return False, "Missing case_id parameter"
 
-    ok, msg, case = update_case_status(case_id, status, actor="playbook", notes=notes)
+    ok, msg, _case = update_case_status(case_id, status, actor="playbook", notes=notes)
     return ok, {"message": msg, "case_id": case_id}
 
 

@@ -15,6 +15,7 @@ import time
 from pathlib import Path
 
 from .config import load_env, norm_provider
+from .correlation import CorrelationEngine
 from .database import (
     es_index,
     extract_top_paths,
@@ -24,23 +25,25 @@ from .database import (
     sig_hash,
     store_label,
 )
+from .ecs_normalizer import normalize_to_ecs
+from .edr import check_all_edr_connectivity
 from .mitigation.core import (
+    check_perimeter_connectivity,
+    extend_block_state,
+    get_expired_blocks,
+    is_ip_blocked,
+    register_block_state,
+    remove_block_state,
     trigger_auto_block,
     trigger_auto_unblock,
     trigger_commit,
-    is_ip_blocked,
-    register_block_state,
-    extend_block_state,
-    get_expired_blocks,
-    remove_block_state,
-    check_perimeter_connectivity,
 )
 from .ml.inference import load_model_artifact, predict_block
+from .playbook import ExecutionContext, PlaybookEngine
 from .utils import (
     abuseipdb_lookup,
     build_message,
-    enrich_ip,
-    enrich_multi_ip,
+    extract_reputation_score,
     get_perimeter_info,
     inject_perimeter_line,
     is_ip_whitelisted,
@@ -51,12 +54,7 @@ from .utils import (
     provider_badge,
     resolve_log_path,
     send_telegram,
-    extract_reputation_score,
 )
-from .ecs_normalizer import normalize_to_ecs
-from .correlation import CorrelationEngine
-from .edr import check_all_edr_connectivity
-from .playbook import ExecutionContext, PlaybookEngine
 
 logger = logging.getLogger(__name__)
 
@@ -139,6 +137,9 @@ def main() -> None:
     proc_chat_status = "SET" if os.environ.get("TELEGRAM_PROCESS_CHAT_ID") else "NOT SET (FALLBACK)"
 
     print(f"• Telegram Bot Token: {bot_masked} ({bot_status})")
+    print(f"• Telegram Chat ID  : {telegram_chat_id} ({chat_status})")
+    print(f"• Process Chat ID   : {telegram_proc_chat_id} ({proc_chat_status})")
+    print(f"• Elasticsearch     : {es_hosts or 'Default'}")
     # 5. Playbook & Correlation Engines Setup
     playbooks_dir = Path(__file__).parent / "playbooks"
     playbook_engine = PlaybookEngine(playbooks_dir=playbooks_dir)
@@ -374,7 +375,7 @@ def main() -> None:
                     is_permanent = rep_score >= 50
 
                     # Correlation aggregation & Campaign detection
-                    corr_data = correlation_engine.aggregate_event(
+                    _corr_data = correlation_engine.aggregate_event(
                         ip=ip,
                         website=website,
                         detector_type=alert_type or "generic",

@@ -15,7 +15,7 @@ import os
 import re
 from collections import Counter
 from pathlib import Path
-from typing import Any, Dict, List, Optional
+from typing import Any
 
 import requests
 import yaml
@@ -50,7 +50,7 @@ def resolve_log_path(env_key: str, default_linux_path: str, default_win_filename
         parent = os.path.dirname(default_linux_path)
         if parent and os.path.exists(parent):
             return default_linux_path
-    except Exception:
+    except OSError:
         pass
 
     return str(base / default_win_filename)
@@ -60,7 +60,7 @@ def valid_ip(ip: str) -> bool:
     try:
         ipaddress.ip_address(ip)
         return True
-    except Exception:
+    except (ValueError, TypeError):
         return False
 
 
@@ -100,7 +100,7 @@ def extract_reputation_score(rep_str: str) -> int:
 
 
 
-def load_cidr_list_from_env_and_file(env_key: str, file_path: str) -> List[str]:
+def load_cidr_list_from_env_and_file(env_key: str, file_path: str) -> list[str]:
     nets = []
     raw = os.environ.get(env_key, "").strip()
     if raw:
@@ -128,7 +128,7 @@ def load_cidr_list_from_env_and_file(env_key: str, file_path: str) -> List[str]:
     return out
 
 
-def ip_in_nets(ip: str, nets: List[str]) -> bool:
+def ip_in_nets(ip: str, nets: list[str]) -> bool:
     try:
         ip_addr = ipaddress.ip_address(ip)
         for net in nets:
@@ -143,7 +143,7 @@ def ip_in_nets(ip: str, nets: List[str]) -> bool:
         return False
 
 
-def is_ip_whitelisted(ip: str, nets: List[str]) -> bool:
+def is_ip_whitelisted(ip: str, nets: list[str]) -> bool:
     return ip_in_nets(ip, nets)
 
 
@@ -300,7 +300,7 @@ def provider_badge(providers: list[str], mapped: bool) -> str:
     return " | ".join(badges)
 
 
-def log_unmapped_site_once_per_day(server_name: str, event: Dict[str, Any], unmapped_log_path: str, unmapped_log_ttl: int) -> None:
+def log_unmapped_site_once_per_day(server_name: str, event: dict[str, Any], unmapped_log_path: str, unmapped_log_ttl: int) -> None:
     host = (server_name or "").strip().lower()
     if not host or host == "(unknown)":
         return
@@ -340,7 +340,7 @@ def log_unmapped_site_once_per_day(server_name: str, event: Dict[str, Any], unma
 # Message Formatters
 # -----------------
 
-def _fmt_last_seen(event: dict) -> Optional[str]:
+def _fmt_last_seen(event: dict) -> str | None:
     # find timestamp field
     for k in ("last_seen", "last_ts", "lastSeen", "event_ts", "end_ts", "@timestamp", "timestamp", "ts"):
         v = event.get(k)
@@ -405,12 +405,12 @@ def _bullet_last_seen(event) -> str:
         if dt is not None:
             ago = (datetime.datetime.now(LOCAL_TZ) - dt.astimezone(LOCAL_TZ)).total_seconds()
             return f"• *Last Seen:* {s} ({_humanize_ago(int(ago))} ago)\n"
-    except Exception:
-        pass
+    except (ValueError, TypeError, OverflowError) as e:
+        logger.debug("Failed to calculate last seen duration: %s", e)
     return f"• *Last Seen:* {s}\n"
 
 
-def _gx(d: Dict[str, Any], *keys, default=None):
+def _gx(d: dict[str, Any], *keys, default=None):
     cur = d
     for k in keys:
         if not isinstance(cur, dict):
@@ -421,7 +421,7 @@ def _gx(d: Dict[str, Any], *keys, default=None):
     return cur
 
 
-def _normalize_ip_list(ip_list: Any) -> List[Dict[str, Any]]:
+def _normalize_ip_list(ip_list: Any) -> list[dict[str, Any]]:
     if not ip_list:
         return []
     if isinstance(ip_list, list) and all(isinstance(x, dict) and "ip" in x for x in ip_list):
@@ -449,7 +449,7 @@ def inject_perimeter_line(msg: str, perimeter: str) -> str:
     return msg + "\n" + per_line
 
 
-def build_message(event: Dict[str, Any]) -> str:
+def build_message(event: dict[str, Any]) -> str:
     a = event.get("alert") or {}
 
     tags = event.get("tags") or a.get("tags") or []
@@ -691,7 +691,7 @@ def log_user_action(
         return
     try:
         if hasattr(user, "username"):
-            username = getattr(user, "username") or getattr(user, "full_name", str(user))
+            username = user.username or getattr(user, "full_name", str(user))
         elif isinstance(user, dict):
             username = user.get("username", str(user))
         else:

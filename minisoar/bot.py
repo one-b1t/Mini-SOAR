@@ -17,13 +17,14 @@ from telegram.ext import (
     ContextTypes,
 )
 
+from . import ai, cases, edr
 from .config import load_env, parse_allowed_users, telegram_config
 from .database import (
     es_find_latest_event_id_by_ip,
-    store_label,
-    redis_client,
     es_get_event_website_by_id,
     es_get_latest_event_website_by_ip,
+    redis_client,
+    store_label,
 )
 from .mitigation import (
     akamai,
@@ -31,15 +32,12 @@ from .mitigation import (
     fortigate,
     imperva,
     paloalto,
+    register_block_state,
+    remove_block_state,
     trigger_auto_block,
     trigger_auto_unblock,
-    is_ip_blocked,
-    register_block_state,
-    extend_block_state,
-    remove_block_state,
 )
-from .utils import log_user_action, resolve_log_path, valid_ip, get_perimeter_info
-from . import ai, cases, edr
+from .utils import get_perimeter_info, log_user_action, resolve_log_path, valid_ip
 
 logger = logging.getLogger(__name__)
 

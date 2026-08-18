@@ -156,8 +156,8 @@ class PlaybookEngine:
                     logger.warning("[PLAYBOOK] Step '%s' (%s) reported failure: %s", step.name, step.action, res)
                     if step.on_failure == "stop":
                         return False, pb.id
-            except Exception as e:
-                logger.exception("[PLAYBOOK] Exception executing step '%s': %s", step.name, e)
+            except Exception:
+                logger.exception("[PLAYBOOK] Exception executing step '%s'", step.name)
                 if step.on_failure == "stop":
                     return False, pb.id
 

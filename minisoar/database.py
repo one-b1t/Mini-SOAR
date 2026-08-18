@@ -5,8 +5,7 @@ import hashlib
 import json
 import logging
 import os
-from collections import Counter
-from typing import Any, Dict, Iterable, List, Optional
+from typing import Any
 
 import redis
 import requests
@@ -79,8 +78,8 @@ def es_find_latest_event_id_by_ip(ip: str, approx_dt: datetime.datetime | None =
         try:
             if getattr(approx_dt, "tzinfo", None) is not None:
                 approx_dt = approx_dt.astimezone(datetime.timezone.utc).replace(tzinfo=None)
-        except Exception:
-            pass
+        except (ValueError, TypeError) as e:
+            logger.debug("Failed to normalize approx_dt timezone: %s", e)
         start = (approx_dt - datetime.timedelta(minutes=window_minutes)).replace(microsecond=0).isoformat() + "Z"
         end = (approx_dt + datetime.timedelta(minutes=window_minutes)).replace(microsecond=0).isoformat() + "Z"
         must.append({"range": {"@timestamp": {"gte": start, "lte": end}}})
@@ -135,7 +134,7 @@ def store_label(
     index_name = f"{labels_prefix}-{now_utc.strftime('%Y.%m.%d')}"
 
     if hasattr(user, "id"):
-        user_id = getattr(user, "id")
+        user_id = user.id
         username = getattr(user, "username", None) or getattr(user, "full_name", None)
     elif isinstance(user, dict):
         user_id = user.get("id")
@@ -169,13 +168,13 @@ def store_label(
 # Event ID helpers
 # -----------------
 
-def extract_top_paths(event: Dict[str, Any]) -> List[str]:
+def extract_top_paths(event: dict[str, Any]) -> list[str]:
     a = event.get("alert") or {}
     samples = a.get("samples") or event.get("samples") or []
     top_urls = a.get("top_urls") or event.get("top_urls") or []
     url_list = a.get("url_list") or event.get("url_list") or []
 
-    out: List[str] = []
+    out: list[str] = []
     if isinstance(samples, list):
         for s in samples:
             if isinstance(s, dict):
@@ -200,20 +199,21 @@ def extract_top_paths(event: Dict[str, Any]) -> List[str]:
     return [u.strip() for u in out if u][:5]
 
 
-def sig_hash(parts: List[str]) -> str:
+def sig_hash(parts: list[str]) -> str:
     base = "|".join([p.lower().strip() for p in parts if p])
     if not base:
         return "na"
-    return hashlib.sha1(base.encode("utf-8")).hexdigest()[:12]
+    return hashlib.sha256(base.encode("utf-8")).hexdigest()[:12]
 
 
-def make_event_id(detector_type: str, asset_id: str, src_ip: str, ts_epoch: int, window_seconds: int, top_paths: List[str]) -> str:
+
+def make_event_id(detector_type: str, asset_id: str, src_ip: str, ts_epoch: int, window_seconds: int, top_paths: list[str]) -> str:
     bucket = int(ts_epoch // window_seconds) * window_seconds
     sig = sig_hash(top_paths)
     return f"{detector_type}|{asset_id}|{src_ip}|{bucket}|{sig}"
 
 
-def parse_ts_epoch(event: dict) -> Optional[int]:
+def parse_ts_epoch(event: dict) -> int | None:
     # find timestamp field
     for k in ("last_seen", "last_ts", "lastSeen", "event_ts", "end_ts", "@timestamp", "timestamp", "ts"):
         v = event.get(k)
@@ -245,8 +245,8 @@ def parse_ts_epoch(event: dict) -> Optional[int]:
                     try:
                         dt = parse_iso8601_relaxed(token.strip('" ,'))
                         return int(dt.timestamp())
-                    except Exception:
-                        pass
+                    except (ValueError, TypeError):
+                        logger.debug("Failed parsing token timestamp: %s", token)
             return None
 
         dt = parse_iso8601_relaxed(str(ts))

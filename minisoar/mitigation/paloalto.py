@@ -1,9 +1,6 @@
-from __future__ import annotations
-
+from datetime import datetime, timezone
 import logging
 import os
-import time
-from typing import Any
 
 import requests
 import urllib3
@@ -14,51 +11,55 @@ urllib3.disable_warnings(urllib3.exceptions.InsecureRequestWarning)
 logger = logging.getLogger(__name__)
 
 
+def _get_verify_ssl() -> bool:
+    return os.getenv("PALOALTO_VERIFY_SSL", "0").lower() in {"1", "true", "yes"}
+
+
 def build_object_name(ip: str) -> str:
     return f"{ip}minisoar"
 
 
 def palo_api_request(pa_host: str, params: dict) -> dict:
     if os.getenv("MINISOAR_MOCK", "").lower() in {"1", "true", "yes"}:
-        logger.info("[MOCK] Palo Alto API request: params=%s", params)
-        action = params.get("action")
-        if action == "commit":
-            return {
-                "response": {
-                    "@status": "success",
-                    "result": {"job": "1234", "msg": "Commit job started"},
-                }
-            }
-        if params.get("type") == "log":
-            now = time.strftime("%Y/%m/%d %H:%M:%S")
+        cmd_type = params.get("type", "")
+        if cmd_type == "log":
+            now = datetime.now(timezone.utc).strftime("%Y/%m/%d %H:%M:%S")
             return {
                 "response": {
                     "@status": "success",
                     "result": {
-                        "@count": "1",
                         "log": {
-                            "entry": {
-                                "time_generated": now,
-                                "src": "203.0.113.10",
-                                "dst": "198.51.100.20",
-                                "app": "ssl",
-                                "action": "alert",
-                                "threatid": params.get("query", "40001"),
-                                "severity": "critical",
-                                "category": "info-leak",
-                                "serial": "MOCK0000001",
-                                "sessionid": "12345",
-                                "repeat": "1",
-                            }
+                            "logs": {
+                                "@count": "1",
+                                "@progress": "100",
+                                "entry": {
+                                    "time_generated": now,
+                                    "src": "203.0.113.10",
+                                    "dst": "198.51.100.20",
+                                    "app": "ssl",
+                                    "action": "alert",
+                                    "threatid": params.get("query", "40001"),
+                                    "severity": "critical",
+                                    "category": "info-leak",
+                                    "serial": "MOCK0000001",
+                                    "sessionid": "12345",
+                                    "repeat": "1",
+                                }
+                            },
                         },
-                    },
+                    }
                 }
             }
         return {"response": {"@status": "success", "result": "Mocked configuration command successful"}}
 
     try:
         url = f"{pa_host}/api/"
-        r = requests.get(url, params=params, verify=False, timeout=10)
+        r = requests.get(
+            url,
+            params=params,
+            verify=_get_verify_ssl(),  # nosec B501 (Configurable via PALOALTO_VERIFY_SSL)
+            timeout=10,
+        )
         r.raise_for_status()
         return xmltodict.parse(r.text)
     except Exception as e:

@@ -1,71 +1,110 @@
-# Byte-compiled / optimized / DLL files
+# ==============================================================================
+# MiniSOAR .gitignore
+# ==============================================================================
+
+# --- Secrets & Sensitive Files ---
+.env
+.env.*
+!.env.example
+*.pem
+*.key
+*.crt
+*.secret
+*.p12
+*.kdbx
+secrets/
+credentials/
+config/local.*
+
+# --- Python & Dependencies ---
 __pycache__/
 *.py[cod]
 *$py.class
-
-# C extensions
 *.so
-
-# Distribution / packaging
+.Python
 build/
+develop-eggs/
 dist/
+downloads/
+eggs/
+.eggs/
+lib/
+lib64/
+parts/
+sdist/
+var/
+wheels/
 *.egg-info/
+.installed.cfg
 *.egg
 
-# Virtual environment
+# --- Virtual Environments ---
 .venv/
 venv/
 ENV/
 env/
-.env
+ENV*/
+venv*/
 
-# Local configuration files
-*.local
-
-# Logs
+# --- Logs & PID Tracking ---
 *.log
+logs/
+.pids/
+tele-soar-actions.log
+minisoar-unmapped-sites.log
 
-# OS-specific files
+# --- OS Specific Files ---
 .DS_Store
+.DS_Store?
+._*
+.Spotlight-V100
+.Trashes
+ehthumbs.db
 Thumbs.db
 
-# IDE / editor directories
-.vscode/
+# --- IDE & Editor Configs ---
 .idea/
+.vscode/
+*.swp
+*.swo
+*~
 *.iml
+*.sublime-project
+*.sublime-workspace
 
-# Cache files
-*.cache
+# --- Testing & Quality Gate Artifacts ---
+.pytest_cache/
+.coverage
+.coverage.*
+htmlcov/
+test-results/
+coverage.xml
+*.test-output.*
 
-# AI tool directories
-.antigravitycli/
-.claude/
-.obsidian/
+# --- AI & IDE Assistants ---
 .agents/
+.claude/
 .gemini/
+.antigravitycli/
+.obsidian/
 .codex/
 .cursor/
 
-# graphify temporary/intermediate files
+# --- Graphify & Codebase Analysis ---
+graphify/
+.graphify/
 .graphify_*
 graphify-out/
+*.graph.json
+*.graph.svg
+*.graph.html
 
-# MiniSOAR generated artifacts and logs
+# --- Temporary & Dataset Files ---
+tmp/
+temp/
 dataset.csv
-baseline_model.joblib
-*.log
 minisoar-bypass.txt
 minisoar-whitelist.txt
-minisoar-unmapped-sites.log
-tele-soar-actions.log
-
-# Additional AI-related directories and files to ignore
-.minisoar/
-minisoar-*/
-*.joblib
-
-# Reports folder
 Reports/
-
-# Internal documentation
-Context.md
+*.joblib
+!baseline_model.joblib

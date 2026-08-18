@@ -2,6 +2,7 @@ from __future__ import annotations
 
 """MiniSOAR Endpoint Detection & Response (EDR) package."""
 
+from . import kaspersky, trendmicro
 from .core import (
     add_edr_ioc,
     check_all_edr_connectivity,
@@ -11,7 +12,6 @@ from .core import (
     query_endpoint,
     restore_endpoint,
 )
-from . import kaspersky, trendmicro
 
 __all__ = [
     "add_edr_ioc",

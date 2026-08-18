@@ -41,7 +41,6 @@ class MockAkamaiSession:
     def get(self, url, headers=None, timeout=None):
         logger.info("[MOCK] Akamai session GET: url=%s", url)
         if "/siem/" in url:
-            import time
             resp = requests.Response()
             resp.status_code = 200
             resp._content = bytes(

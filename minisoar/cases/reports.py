@@ -2,9 +2,8 @@ from __future__ import annotations
 
 """Automated Incident & Executive SOC Report Generator (Markdown & HTML)."""
 
-from datetime import datetime, timezone
 import html
-from typing import Any
+from datetime import datetime, timezone
 
 from .models import IncidentCase
 

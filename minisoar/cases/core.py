@@ -2,10 +2,8 @@ from __future__ import annotations
 
 """Core controller for MiniSOAR Incident Case Management and SLA Metrics."""
 
-import json
 import logging
 import os
-from datetime import datetime, timezone
 from typing import Any
 
 import requests

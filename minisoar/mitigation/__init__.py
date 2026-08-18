@@ -14,20 +14,20 @@ from .core import (
 )
 
 __all__ = [
-    "imperva",
-    "paloalto",
     "akamai",
+    "check_perimeter_connectivity",
     "cloudflare",
+    "extend_block_state",
     "fortigate",
+    "get_expired_blocks",
+    "imperva",
+    "is_ip_blocked",
+    "paloalto",
+    "register_block_state",
+    "remove_block_state",
     "trigger_auto_block",
     "trigger_auto_unblock",
     "trigger_commit",
-    "is_ip_blocked",
-    "register_block_state",
-    "extend_block_state",
-    "get_expired_blocks",
-    "remove_block_state",
-    "check_perimeter_connectivity",
 ]
 
 

@@ -1,5 +1,5 @@
 """MiniSOAR ML utilities."""
 
-from .inference import predict_block, load_model_artifact
+from .inference import load_model_artifact, predict_block
 
-__all__ = ["predict_block", "load_model_artifact"]
+__all__ = ["load_model_artifact", "predict_block"]
