@@ -108,3 +108,4 @@ minisoar-whitelist.txt
 Reports/
 *.joblib
 !baseline_model.joblib
+baseline_model.joblib

@@ -267,13 +267,16 @@ MiniSOAR still works as an alert delivery and mitigation pipeline, but its imple
   1. Multi-Provider Copilot Router (`minisoar/ai/copilot.py`) supporting Google Antigravity / Gemini SDK, Anthropic Claude SDK, OpenAI / Codex SDK, and Local Ollama for air-gapped environments, exposing `/askai` and `/rca`.
   2. Dual-Engine Architecture: Ultra-fast local ML inference (`.joblib`) for real-time Redis traffic processing, complemented by LLM Copilot for contextual investigation.
   3. Continuous Retraining Pipeline (`minisoar/ml/autotrain.py`): Periodically extracts ground-truth decisions from `minisoar-labels`, trains Challenger models, validates via Champion-Challenger Quality Gate (ROC-AUC $\ge 0.85$), and dynamically hot-reloads model weights in memory without daemon restart.
-### 2026-08-18 14:40 WIB
-- **Problem:** Default CLI headless execution required strict alignment with installed CLI tools (`codex`, `agy`, `claude`) using `flag-prompt` and `--output-format json`.
-- **Solution:** Standardized Headless CLI Invocation in [`minisoar/ai/copilot.py`](file:///f:/Kantor/Program/MiniSOAR/minisoar/ai/copilot.py):
-  - **OpenAI Codex CLI (Primary Default):** `codex -p "<prompt>" --output-format json`
-  - **Google Antigravity CLI:** `agy -p "<prompt>" --output-format json`
-  - **Anthropic Claude CLI:** `claude -p "<prompt>" --output-format json`
-- **Rationale:** Aligns with pre-installed enterprise CLI binaries and ensures raw structured JSON output streamable into SOC pipelines.
+### 2026-08-18 15:30 WIB
+- **Problem:** SOC Analysts lacked real-time threat intelligence lookup, system health monitoring, live whitelist management, and interactive incident case management directly from Telegram.
+- **Solution:** Added **Enterprise Telegram Bot Enhancements**:
+  1. **Threat Intel Lookup (`/intel <ip>`)**: Displays complete IP summary card combining Whitelist status, total Elasticsearch security hit count, latest attack classification, associated website domain, and EDR managed host count.
+  2. **SOAR Health Dashboard (`/health`)**: Real-time diagnostic collector for Redis queue length (`LLEN logstash_alert_queue`), Elasticsearch cluster health, active AI Copilot model, and EDR server connectivity.
+  3. **Live Whitelist Management (`/whitelist_add`, `/whitelist_remove`, `/whitelists`)**: Add, remove, and list IP/CIDR entries in `minisoar-whitelist.txt` on the fly via Telegram.
+  4. **Interactive Case Action Buttons**: Attached inline buttons (`[✅ Resolve Case]`, `[🎟️ Sync Ticket]`, `[📄 Export MD]`) to `/case <id>` outputs.
+- **Rationale:** Expanding Telegram bot management capabilities enables remote SOC operations without requiring server SSH access or multiple web dashboards.
+
+
 
 
 

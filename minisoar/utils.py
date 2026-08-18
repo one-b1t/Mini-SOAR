@@ -8,6 +8,7 @@ This module consolidates helper functions that were duplicated across
 
 import concurrent.futures
 import datetime
+import html
 import ipaddress
 import json
 import logging
@@ -628,7 +629,7 @@ def send_telegram(
     data = {
         "chat_id": target_chat,
         "text": msg,
-        "parse_mode": "Markdown",
+        "parse_mode": "HTML",
         "disable_web_page_preview": True,
     }
 
@@ -639,17 +640,17 @@ def send_telegram(
                 p = norm_provider(p)
                 if p == "akamai":
                     txt = f"🚫 Block di Akamai {ip}"
-                    cb = _build_callback_data("blockonakamai", ip, event_id)
+                    cb = _build_callback_data("block_akamai", ip, event_id)
                     if website: txt += f" ({website})"
                     buttons.append([{"text": txt, "callback_data": cb}])
                 elif p == "imperva":
                     txt = f"🚫 Block di Imperva {ip}"
-                    cb = _build_callback_data("blockonimperva", ip, event_id)
+                    cb = _build_callback_data("block_imperva", ip, event_id)
                     if website: txt += f" ({website})"
                     buttons.append([{"text": txt, "callback_data": cb}])
                 elif p == "paloalto":
                     txt = f"🛡️ Block di Palo Alto {ip}"
-                    cb = _build_callback_data("blockonpalo", ip, event_id)
+                    cb = _build_callback_data("block_palo", ip, event_id)
                     if website: txt += f" ({website})"
                     buttons.append([{"text": txt, "callback_data": cb}])
         
@@ -728,3 +729,66 @@ def log_user_action(
             f.write(json.dumps(payload) + "\n")
     except Exception as e:
         logger.warning("Failed to write log_user_action to %s: %s", logfile, e)
+
+
+def resolve_whitelist_path() -> str:
+    return resolve_log_path("WHITELIST_PATH", "/etc/logstash/minisoar-whitelist.txt", "minisoar-whitelist.txt")
+
+
+def get_whitelist_entries() -> list[str]:
+    filepath = resolve_whitelist_path()
+    if not os.path.exists(filepath):
+        return []
+    try:
+        with open(filepath, "r", encoding="utf-8") as f:
+            lines = [line.strip() for line in f if line.strip() and not line.strip().startswith("#")]
+        return lines
+    except Exception as e:
+        logger.warning("Gagal membaca whitelist %s: %s", filepath, e)
+        return []
+
+
+def add_to_whitelist(ip: str, reason: str = "") -> tuple[bool, str]:
+    filepath = resolve_whitelist_path()
+    try:
+        entries = get_whitelist_entries()
+        if ip in entries:
+            return True, f"IP/CIDR <code>{html.escape(ip)}</code> sudah ada dalam whitelist."
+        
+        entry = f"{ip}  # {reason}".strip() if reason else ip
+        log_dir = os.path.dirname(filepath)
+        if log_dir:
+            os.makedirs(log_dir, exist_ok=True)
+        with open(filepath, "a", encoding="utf-8") as f:
+            f.write(entry + "\n")
+        return True, f"✅ IP/CIDR <code>{html.escape(ip)}</code> berhasil ditambahkan ke whitelist."
+    except Exception as e:
+        return False, f"❌ Gagal memperbarui whitelist: {e}"
+
+
+def remove_from_whitelist(ip: str) -> tuple[bool, str]:
+    filepath = resolve_whitelist_path()
+    if not os.path.exists(filepath):
+        return False, "❌ File whitelist tidak ditemukan."
+    try:
+        with open(filepath, "r", encoding="utf-8") as f:
+            lines = f.readlines()
+        
+        new_lines = []
+        removed = False
+        for line in lines:
+            clean_ip = line.strip().split("#")[0].strip()
+            if clean_ip == ip:
+                removed = True
+            else:
+                new_lines.append(line)
+        
+        if not removed:
+            return False, f"❌ IP/CIDR <code>{html.escape(ip)}</code> tidak ditemukan dalam whitelist."
+        
+        with open(filepath, "w", encoding="utf-8") as f:
+            f.writelines(new_lines)
+        return True, f"✅ IP/CIDR <code>{html.escape(ip)}</code> berhasil dihapus dari whitelist."
+    except Exception as e:
+        return False, f"❌ Gagal memperbarui whitelist: {e}"
+

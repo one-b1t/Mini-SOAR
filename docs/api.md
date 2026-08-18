@@ -4,55 +4,81 @@
 
 MiniSOAR Telegram Bot menyediakan antarmuka interaktif yang aman untuk analis SOC. Hanya pengguna yang terdaftar pada variabel `ALLOWED_USER_IDS` di `.env` yang dapat mengeksekusi aksi mitigasi.
 
-### A. Investigasi & Mitigasi Perimeter
+### A. Threat Intel & System Diagnostics
 
-| Command | Argumen | Deskripsi |
-| :--- | :--- | :--- |
-| `/block` | `<ip> [alasan]` | Memblokir IP pada semua perimeter yang terkonfigurasi (Palo Alto, Imperva, Akamai, Cloudflare, FortiGate). |
-| `/unblock` | `<ip>` | Membuka blokir IP dari semua perimeter. |
-| `/blockoncf` | `<ip> [alasan]` | Memblokir IP spesifik pada Cloudflare Edge WAF. |
-| `/unblockoncf` | `<ip>` | Membuka blokir IP spesifik pada Cloudflare Edge WAF. |
-| `/blockonforti` | `<ip> [alasan]` | Memblokir IP spesifik pada firewall Fortinet FortiGate. |
-| `/unblockonforti` | `<ip>` | Membuka blokir IP spesifik pada firewall Fortinet FortiGate. |
-| `/status` | `<ip>` | Memeriksa status blokir, reputation score, dan riwayat alert IP. |
-| `/commit` | - | Melakukan commit manual konfigurasi policy pada firewall Palo Alto. |
+| Command Standard | Alias Singkat | Argumen | Deskripsi |
+| :--- | :--- | :--- | :--- |
+| `/intel` | `/lookup`, `/ip` | `<ip>` | Ringkasan kartu intelijen IP (Whitelist, ES hit count, event terbaru, host EDR). |
+| `/health` | `/soar_status`, `/hp` | - | Dashboard diagnostik real-time Redis, Elasticsearch, EDR, dan AI Copilot. |
+
+---
+
+### B. Whitelist Management
+
+| Command Standard | Alias Singkat | Argumen | Deskripsi |
+| :--- | :--- | :--- | :--- |
+| `/whitelist_add` | `/wa` | `<ip/cidr> [alasan]` | Menambahkan IP/CIDR ke daftar `minisoar-whitelist.txt` secara live. |
+| `/whitelist_remove` | `/wr` | `<ip/cidr>` | Menghapus IP/CIDR dari daftar whitelist. |
+| `/whitelists` | `/wl` | - | Menampilkan daftar seluruh IP/CIDR whitelist aktif. |
+
+---
+
+### C. Investigasi & Mitigasi Perimeter
+
+| Command Standard | Alias Singkat | Argumen | Deskripsi |
+| :--- | :--- | :--- | :--- |
+| `/block_imperva` | `/bi` | `<ip>` | Memblokir IP pada Imperva WAF. |
+| `/unblock_imperva` | `/ubi` | `<ip>` | Membuka blokir IP pada Imperva WAF. |
+| `/trace_imperva` | `/ti` | `<event_id> [days]` | Trace violation log Imperva berdasarkan Event ID. |
+| `/block_palo` | `/bp` | `<ip>` | Menambahkan IP ke dynamic block group Palo Alto. |
+| `/unblock_palo` | `/ubp` | `<ip>` | Menghapus IP dari dynamic block group Palo Alto. |
+| `/commit_palo` | `/cp` | - | Partial commit konfigurasi pada firewall Palo Alto. |
+| `/trace_palo` | `/tp` | `<threat_id>` | Trace threat log Palo Alto berdasarkan threat ID, session, atau IP. |
+| `/block_akamai` | `/ba` | `<ip>` | Menambahkan IP ke Client List Akamai. |
+| `/unblock_akamai` | `/uba` | `<ip>` | Menghapus IP dari Client List Akamai. |
+| `/activate_akamai` | `/aa` | - | Mengaktivasi daftar IP pada jaringan Staging & Production Akamai. |
+| `/trace_akamai` | `/ta` | `<event_id>` | Trace SIEM security event Akamai berdasarkan Event ID. |
+| `/block_cf` | `/bcf` | `<ip>` | Memblokir IP spesifik pada Cloudflare Edge WAF. |
+| `/unblock_cf` | `/ubcf` | `<ip>` | Membuka blokir IP spesifik pada Cloudflare Edge WAF. |
+| `/block_forti` | `/bforti` | `<ip>` | Memblokir IP spesifik pada firewall Fortinet FortiGate. |
+| `/unblock_forti` | `/ubforti` | `<ip>` | Membuka blokir IP spesifik pada firewall Fortinet FortiGate. |
 
 ---
 
 ### B. Endpoint Detection & Response (EDR)
 
-| Command | Argumen | Deskripsi |
-| :--- | :--- | :--- |
-| `/isolatehost` | `<ip_or_host_id> [provider]` | Mengisolasi endpoint terinfeksi pada Kaspersky KSC atau TrendMicro Vision One. |
-| `/restorehost` | `<ip_or_host_id> [provider]` | Memulihkan konektivitas jaringan endpoint yang terisolasi. |
-| `/queryhost` | `<ip_or_host_id> [provider]` | Menampilkan detail status kesehatan dan versi agen EDR pada endpoint. |
-| `/addedrioc` | `<type> <value> [desc]` | Mendaftarkan IoC baru (IP, MD5, SHA256) ke repository EDR. |
-| `/edrstatus` | - | Menampilkan diagnostik konektivitas ke server KSC dan TrendMicro. |
+| Command Standard | Alias Singkat | Argumen | Deskripsi |
+| :--- | :--- | :--- | :--- |
+| `/isolate_host` | `/ih` | `<ip_or_host_id> [provider]` | Mengisolasi endpoint terinfeksi pada Kaspersky KSC atau TrendMicro Vision One. |
+| `/restore_host` | `/rh` | `<ip_or_host_id> [provider]` | Memulihkan konektivitas jaringan endpoint yang terisolasi. |
+| `/query_host` | `/qh` | `<ip>` | Menampilkan detail inventory dan status kesehatan endpoint EDR. |
+| `/add_edr_ioc` | `/aei` | `<ioc_value> [provider]` | Mendaftarkan IoC baru (IP, SHA256, Domain) ke repository EDR. |
+| `/edr_status` | `/es` | - | Menampilkan diagnostik konektivitas server KSC dan TrendMicro. |
 
 ---
 
 ### C. Case Management & 3rd-Party Ticketing
 
-| Command | Argumen | Deskripsi |
-| :--- | :--- | :--- |
-| `/cases` | `[limit]` | Menampilkan daftar insiden aktif yang sedang ditangani. |
-| `/case` | `<case_id>` | Menampilkan detail investigasi insiden, timeline audit, dan SLA timer. |
-| `/updatecase` | `<case_id> <status>` | Memperbarui status kasus (`INVESTIGATING`, `CONTAINED`, `RESOLVED`, `CLOSED`, `FALSE_POSITIVE`). |
-| `/syncticket` | `<case_id>` | Mengekspor/sinkronisasi insiden ke ticketing pihak ke-3 (TheHive, Jira, ServiceNow, Webhook). |
-| `/socmetrics` | - | Menampilkan statistik metrik SOC: MTTD, MTTR, jumlah insiden aktif, dan kepatuhan SLA. |
-| `/exportcase` | `<case_id> [md\|html]` | Mengunduh laporan investigasi kasus dalam format Markdown atau Standalone HTML. |
+| Command Standard | Alias Singkat | Argumen | Deskripsi |
+| :--- | :--- | :--- | :--- |
+| `/cases` | `/cs` | `[status]` | Menampilkan daftar insiden aktif (misal `NEW`, `RESOLVED`). |
+| `/case` | `/c` | `<case_id>` | Menampilkan detail laporan insiden, timeline audit, dan SLA timer. |
+| `/update_case` | `/uc` | `<case_id> <status> [notes]` | Memperbarui status kasus (`NEW`, `INVESTIGATING`, `CONTAINED`, `RESOLVED`, `CLOSED`, `FALSE_POSITIVE`). |
+| `/sync_ticket` | `/st` | `<case_id>` | Mendispatch insiden ke ticketing pihak ke-3 (TheHive, Jira, ServiceNow, Webhook). |
+| `/soc_metrics` | `/sm` | - | Menampilkan statistik metrik SOC: MTTD, MTTR, insiden aktif, dan SLA. |
+| `/export_case` | `/ec` | `<case_id>` | Mengekspor laporan kasus dalam format Markdown. |
 
 ---
 
 ### D. AI SOC Copilot & MLOps
 
-| Command | Argumen | Deskripsi |
-| :--- | :--- | :--- |
-| `/askai` | `<pertanyaan>` | Mengajukan pertanyaan analisis ancaman ke AI SOC Copilot (Gemini, Claude, OpenAI, Ollama). |
-| `/rca` | `<event_id_or_ip>` | Menghasilkan Root Cause Analysis (RCA) lengkap berbasis riwayat log. |
-| `/aimodel` | `[nama_model]` | Melihat atau mengganti model AI yang aktif secara live (runtime) tanpa edit kode. |
-| `/aiprovider` | `[gemini\|claude\|openai\|ollama]` | Melihat atau mengganti AI provider aktif secara live (runtime). |
-| `/retrainmodel` | - | Memicu training model Challenger secara on-demand dan memverifikasi skor ROC-AUC. |
+| Command Standard | Alias Singkat | Argumen | Deskripsi |
+| :--- | :--- | :--- | :--- |
+| `/ask_ai` | `/ai` | `<pertanyaan>` | Mengajukan pertanyaan analisis ancaman ke AI SOC Copilot (Gemini, Claude, OpenAI, Ollama). |
+| `/rca` | `/rca` | `<ip_or_event_id>` | Menghasilkan Root Cause Analysis (RCA) lengkap berbasis riwayat log. |
+| `/ai_model` | `/aim` | `[nama_model]` | Melihat atau mengganti model AI yang aktif secara live (runtime) tanpa edit kode. |
+| `/ai_provider` | `/aip` | `[gemini\|claude\|openai\|ollama]` | Melihat atau mengganti AI provider aktif secara live (runtime). |
+| `/retrain_model` | `/rm` | - | Memicu training model Challenger secara on-demand dan memverifikasi skor ROC-AUC. |
 
 ---
 

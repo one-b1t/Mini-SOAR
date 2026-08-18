@@ -360,3 +360,88 @@ def es_get_latest_event_website_by_ip(ip: str) -> str | None:
     except Exception as e:
         logger.warning("Gagal mengambil website terbaru IP %s dari ES: %s", ip, e)
     return None
+
+
+def es_count_hits_by_ip(ip: str) -> tuple[int, str | None]:
+    """Query total incident count and latest attack description for an IP in Elasticsearch."""
+    host = es_host()
+    if not host or not ip:
+        return 0, None
+
+    es_user = os.getenv("ES_USER", "")
+    es_pass = os.getenv("ES_PASS", "")
+    es_timeout = int(os.getenv("ES_TIMEOUT", "6"))
+    auth = (es_user, es_pass) if es_user or es_pass else None
+
+    url = f"{host.rstrip('/')}/minisoar-events-*/_search"
+    should = [
+        {"term": {"src.ip.keyword": ip}},
+        {"term": {"src.ip": ip}},
+        {"term": {"alert.src_ip.keyword": ip}},
+        {"term": {"alert.src_ip": ip}},
+        {"term": {"event.src.ip.keyword": ip}},
+        {"term": {"event.src.ip": ip}},
+    ]
+    query = {
+        "size": 1,
+        "sort": [{"@timestamp": "desc"}],
+        "query": {"bool": {"should": should, "minimum_should_match": 1}},
+    }
+
+    try:
+        resp = requests.get(url, json=query, auth=auth, verify=es_verify_value(), timeout=es_timeout)
+        if resp.status_code == 200:
+            data = resp.json()
+            total = data.get("hits", {}).get("total", {}).get("value", 0)
+            hits = data.get("hits", {}).get("hits", [])
+            latest_action = None
+            if hits:
+                src = hits[0].get("_source", {})
+                latest_action = src.get("alert", {}).get("signature") or src.get("rule", {}).get("name") or src.get("event", {}).get("action")
+            return total, latest_action
+    except Exception as e:
+        logger.warning("Gagal menanyakan hit count IP %s dari ES: %s", ip, e)
+    return 0, None
+
+
+def get_system_health() -> dict[str, Any]:
+    """Collect real-time health diagnostic metrics across Redis, Elasticsearch, and AI Copilot."""
+    health: dict[str, Any] = {
+        "redis": {"status": "OFFLINE", "queue_len": 0},
+        "elasticsearch": {"status": "OFFLINE", "indices": 0},
+        "ai": {"provider": "none", "model": "none"},
+    }
+
+    # 1. Redis
+    try:
+        r = redis_client()
+        if r.ping():
+            q_len = r.llen("logstash_alert_queue")
+            health["redis"] = {"status": "OK", "queue_len": q_len}
+    except Exception as e:
+        health["redis"] = {"status": "ERROR", "error": str(e), "queue_len": 0}
+
+    # 2. Elasticsearch
+    host = es_host()
+    if host:
+        try:
+            es_user = os.getenv("ES_USER", "")
+            es_pass = os.getenv("ES_PASS", "")
+            auth = (es_user, es_pass) if es_user or es_pass else None
+            resp = requests.get(f"{host.rstrip('/')}/_cluster/health", auth=auth, verify=es_verify_value(), timeout=4)
+            if resp.status_code == 200:
+                cluster_status = resp.json().get("status", "unknown").upper()
+                health["elasticsearch"] = {"status": cluster_status, "host": host}
+        except Exception as e:
+            health["elasticsearch"] = {"status": "ERROR", "error": str(e)}
+
+    # 3. AI Copilot
+    try:
+        from .ai import copilot
+        info = copilot.get_auth_info()
+        health["ai"] = {"provider": info.get("provider", "none"), "model": info.get("model", "none")}
+    except Exception:
+        pass
+
+    return health
+

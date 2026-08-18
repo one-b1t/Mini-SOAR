@@ -4,6 +4,23 @@ Semua perubahan penting pada proyek **MiniSOAR** akan dicatat di dokumen ini.
 
 Format changelog berbasis pada [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 
+## [1.3.2] - 2026-08-18
+
+### Added
+- **Threat Intelligence Summary (`/intel <ip>`)**: Perintah Telegram bot untuk menampilkan rangkuman intelijen IP (status Whitelist, total hit keamanan ES, event serangan terbaru, website terkait, dan jumlah host EDR).
+- **SOAR Health Dashboard (`/health`)**: Perintah Telegram bot untuk mendiagnosa kesehatan sistem secara real-time (status antrean Redis, Elasticsearch cluster health, AI Copilot model, dan konektivitas EDR).
+- **Live Whitelist Management (`/whitelist_add`, `/whitelist_remove`, `/whitelists`)**: Fitur pengelolaan berkas whitelist IP/CIDR secara langsung melalui Telegram tanpa perlu edit file server manual.
+- **Interactive Case Action Buttons**: Tombol interaksi cepat (`[✅ Resolve Case]`, `[🎟️ Sync Ticket]`, `[📄 Export MD]`) pada laporan insiden `/case <case_id>`.
+
+## [1.3.1] - 2026-08-18
+
+### Changed
+- **Telegram Bot Command Standardization**: Mengubah seluruh perintah Telegram bot menjadi format `snake_case` yang rapi dan konsisten (misal `/block_imperva`, `/unblock_imperva`, `/trace_imperva`, `/block_palo`, `/isolate_host`, `/ask_ai`).
+- **Telegram Command Aliases**: Menambahkan alias singkatan untuk mengeksekusi perintah lebih cepat dari Telegram (misal `/bi`, `/ti`, `/bp`, `/cp`, `/ih`, `/ai`). Alias terdaftar di sistem dan didokumentasikan di `docs/api.md`, namun disembunyikan dari `/help` agar tampilan menu utama tetap bersih.
+- **Telegram HTML Parse Mode**: Mengubah `parse_mode` pesan notifikasi dan balasan bot menjadi **Telegram HTML (`parse_mode="HTML"`)**, mencegah error parsing karakter khusus pada IP address, hash, log trace, atau payload URL.
+- **Easy Copyable Syntax**: Memperbarui pesan error/penggunaan format perintah dengan template `<code>` dan contoh konkret yang dapat disalin dengan 1 ketukan (*1-tap copy*) di aplikasi Telegram.
+- **Unit Test Expansion**: Menambahkan `tests/test_bot.py` untuk menguji generator format HTML usage dan validasi pengguna bot.
+
 ## [1.3.0] - 2026-08-18
 
 ### Added
