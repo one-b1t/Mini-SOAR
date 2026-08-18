@@ -29,16 +29,16 @@ logger = logging.getLogger(__name__)
 
 
 def _get_provider() -> str:
-    prov = os.getenv("AI_PROVIDER", "gemini").lower().strip()
-    if prov in {"google", "gemini", "antigravity"}:
+    prov = os.getenv("AI_PROVIDER", "codex").lower().strip()
+    if prov in {"openai", "codex", "gpt"}:
+        return "openai"
+    if prov in {"google", "gemini", "antigravity", "agy"}:
         return "gemini"
     if prov in {"anthropic", "claude"}:
         return "claude"
-    if prov in {"openai", "codex", "gpt"}:
-        return "openai"
     if prov in {"ollama", "local"}:
         return "ollama"
-    return "gemini"
+    return "openai"
 
 
 def _read_file_token(filepath: str | Path) -> str | None:
@@ -343,44 +343,76 @@ def _get_exec_mode() -> str:
 
 
 def _call_headless_cli(provider: str, prompt: str, system_instruction: str = "") -> str | None:
-    """Executes Headless CLI for Google Antigravity, Anthropic Claude, or OpenAI Codex.
+    """Executes Headless CLI for OpenAI Codex (codex), Google Antigravity (agy), or Anthropic Claude (claude).
 
-    CLI Headless Specifications:
-    - Google Antigravity CLI (`antigravity run --headless --json` / `agy exec --json`)
-    - Anthropic Claude Code CLI (`claude -p --output-format json`)
-    - OpenAI Codex CLI (`codex exec --format json`)
+    CLI Headless Invocations with JSON Output:
+    - Google Antigravity CLI: `agy -p "<prompt>" --output-format json` (atau `antigravity -p ...`)
+    - OpenAI Codex CLI: `codex -p "<prompt>" --output-format json`
+    - Anthropic Claude Code CLI: `claude -p "<prompt>" --output-format json`
     """
     combined_prompt = f"{system_instruction}\n\n{prompt}".strip() if system_instruction else prompt
     model_name = os.getenv("AI_MODEL", "")
 
-    # 1. Antigravity / Gemini CLI Headless Mode
-    if provider == "gemini":
-        cli_bin = (
-            os.getenv("ANTIGRAVITY_CLI_PATH")
-            or os.getenv("AGY_CLI_PATH")
-            or shutil.which("antigravity")
-            or shutil.which("agy")
-        )
+    # 1. OpenAI / Codex CLI Headless Mode (Primary)
+    if provider in {"openai", "codex", "gpt"}:
+        cli_bin = os.getenv("CODEX_CLI_PATH") or shutil.which("codex")
         if not cli_bin:
             return None
-        cmd = [cli_bin, "run", "--headless", "--json", combined_prompt]
+        cmd = [cli_bin, "-p", combined_prompt, "--output-format", "json"]
         if model_name:
             cmd.extend(["--model", model_name])
         try:
             res = subprocess.run(cmd, capture_output=True, text=True, timeout=60, check=False)
             if res.returncode == 0 and res.stdout.strip():
                 return res.stdout.strip()
-            logger.debug("Antigravity Headless CLI returned code %s: %s", res.returncode, res.stderr)
+            # Fallback syntax if codex uses subcommand exec
+            cmd_alt = [cli_bin, "exec", "--format", "json", combined_prompt]
+            if model_name:
+                cmd_alt.extend(["--model", model_name])
+            res_alt = subprocess.run(cmd_alt, capture_output=True, text=True, timeout=60, check=False)
+            if res_alt.returncode == 0 and res_alt.stdout.strip():
+                return res_alt.stdout.strip()
+            logger.debug("Codex Headless CLI returned code %s: %s", res.returncode, res.stderr)
         except Exception as e:
-            logger.debug("Antigravity Headless CLI execution error: %s", e)
+            logger.debug("Codex Headless CLI execution error: %s", e)
         return None
 
-    # 2. Anthropic Claude Code CLI Headless Mode
-    if provider == "claude":
+    # 2. Google Antigravity / Gemini CLI Headless Mode (agy / antigravity)
+    if provider in {"gemini", "antigravity", "agy", "google"}:
+        cli_bin = (
+            os.getenv("AGY_CLI_PATH")
+            or os.getenv("ANTIGRAVITY_CLI_PATH")
+            or shutil.which("agy")
+            or shutil.which("antigravity")
+        )
+        if not cli_bin:
+            return None
+        # Format: agy -p "<prompt>" --output-format json
+        cmd = [cli_bin, "-p", combined_prompt, "--output-format", "json"]
+        if model_name:
+            cmd.extend(["--model", model_name])
+        try:
+            res = subprocess.run(cmd, capture_output=True, text=True, timeout=60, check=False)
+            if res.returncode == 0 and res.stdout.strip():
+                return res.stdout.strip()
+            # Fallback syntax: agy run --headless --json
+            cmd_alt = [cli_bin, "run", "--headless", "--json", combined_prompt]
+            if model_name:
+                cmd_alt.extend(["--model", model_name])
+            res_alt = subprocess.run(cmd_alt, capture_output=True, text=True, timeout=60, check=False)
+            if res_alt.returncode == 0 and res_alt.stdout.strip():
+                return res_alt.stdout.strip()
+            logger.debug("Antigravity (agy) Headless CLI returned code %s: %s", res.returncode, res.stderr)
+        except Exception as e:
+            logger.debug("Antigravity (agy) Headless CLI execution error: %s", e)
+        return None
+
+    # 3. Anthropic Claude Code CLI Headless Mode (claude)
+    if provider in {"claude", "anthropic"}:
         cli_bin = os.getenv("CLAUDE_CLI_PATH") or shutil.which("claude")
         if not cli_bin:
             return None
-        cmd = [cli_bin, "-p", "--output-format", "json", combined_prompt]
+        cmd = [cli_bin, "-p", combined_prompt, "--output-format", "json"]
         if model_name:
             cmd.extend(["--model", model_name])
         try:
@@ -390,23 +422,6 @@ def _call_headless_cli(provider: str, prompt: str, system_instruction: str = "")
             logger.debug("Claude Headless CLI returned code %s: %s", res.returncode, res.stderr)
         except Exception as e:
             logger.debug("Claude Headless CLI execution error: %s", e)
-        return None
-
-    # 3. OpenAI / Codex CLI Headless Mode
-    if provider == "openai":
-        cli_bin = os.getenv("CODEX_CLI_PATH") or shutil.which("codex")
-        if not cli_bin:
-            return None
-        cmd = [cli_bin, "exec", "--format", "json", combined_prompt]
-        if model_name:
-            cmd.extend(["--model", model_name])
-        try:
-            res = subprocess.run(cmd, capture_output=True, text=True, timeout=60, check=False)
-            if res.returncode == 0 and res.stdout.strip():
-                return res.stdout.strip()
-            logger.debug("Codex Headless CLI returned code %s: %s", res.returncode, res.stderr)
-        except Exception as e:
-            logger.debug("Codex Headless CLI execution error: %s", e)
         return None
 
     return None

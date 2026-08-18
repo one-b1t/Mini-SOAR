@@ -267,14 +267,14 @@ MiniSOAR still works as an alert delivery and mitigation pipeline, but its imple
   1. Multi-Provider Copilot Router (`minisoar/ai/copilot.py`) supporting Google Antigravity / Gemini SDK, Anthropic Claude SDK, OpenAI / Codex SDK, and Local Ollama for air-gapped environments, exposing `/askai` and `/rca`.
   2. Dual-Engine Architecture: Ultra-fast local ML inference (`.joblib`) for real-time Redis traffic processing, complemented by LLM Copilot for contextual investigation.
   3. Continuous Retraining Pipeline (`minisoar/ml/autotrain.py`): Periodically extracts ground-truth decisions from `minisoar-labels`, trains Challenger models, validates via Champion-Challenger Quality Gate (ROC-AUC $\ge 0.85$), and dynamically hot-reloads model weights in memory without daemon restart.
-### 2026-08-18 14:08 WIB
-- **Problem:** Managing separate remotes (`origin` for RKS and `github` for GitHub) increased cognitive overhead and the risk of desynchronized branch states across team repositories.
-- **Solution:** Consolidated both remotes into a unified **Multi-Push `origin` Target**:
-  - `origin (fetch)`: `https://rks.komdigi.go.id/oneb1t/mini-soar.git`
-  - `origin (push)`: `https://rks.komdigi.go.id/oneb1t/mini-soar.git`
-  - `origin (push)`: `https://github.com/one-b1t/Mini-SOAR.git`
-  - Configured `dev` and `main` branches to track `origin/dev` and `origin/main` upstream directly.
-- **Rationale:** A single `git push origin dev` command atomically synchronizes changes to both RKS GitLab and GitHub simultaneously, ensuring zero drift.
+### 2026-08-18 14:40 WIB
+- **Problem:** Default CLI headless execution required strict alignment with installed CLI tools (`codex`, `agy`, `claude`) using `flag-prompt` and `--output-format json`.
+- **Solution:** Standardized Headless CLI Invocation in [`minisoar/ai/copilot.py`](file:///f:/Kantor/Program/MiniSOAR/minisoar/ai/copilot.py):
+  - **OpenAI Codex CLI (Primary Default):** `codex -p "<prompt>" --output-format json`
+  - **Google Antigravity CLI:** `agy -p "<prompt>" --output-format json`
+  - **Anthropic Claude CLI:** `claude -p "<prompt>" --output-format json`
+- **Rationale:** Aligns with pre-installed enterprise CLI binaries and ensures raw structured JSON output streamable into SOC pipelines.
+
 
 
 
