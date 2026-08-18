@@ -196,3 +196,40 @@ def test_ai_copilot_mock():
     ans = ai.ask_copilot("Bagaimana cara menganalisis serangan SQL Injection?")
     assert len(ans) > 50
 
+
+def test_ai_auth_file_resolution():
+    import json
+    import os
+    from pathlib import Path
+    import tempfile
+    from minisoar import ai
+
+    with tempfile.TemporaryDirectory() as tmp_dir:
+        # Test 1: JSON auth file
+        json_file = Path(tmp_dir) / "gemini_auth.json"
+        json_file.write_text(json.dumps({"api_key": "ai-secret-key-123456", "provider": "gemini"}))
+
+        os.environ["GEMINI_AUTH_FILE"] = str(json_file)
+        os.environ.pop("GEMINI_API_KEY", None)
+
+        tok, source = ai.resolve_auth_credential("gemini")
+        assert tok == "ai-secret-key-123456"
+        assert "file:" in source
+
+        # Test 2: Raw text file for Claude
+        claude_file = Path(tmp_dir) / "claude_token.txt"
+        claude_file.write_text("sk-ant-test-token-789")
+
+        os.environ["CLAUDE_AUTH_FILE"] = str(claude_file)
+        os.environ.pop("ANTHROPIC_API_KEY", None)
+
+        tok_c, source_c = ai.resolve_auth_credential("claude")
+        assert tok_c == "sk-ant-test-token-789"
+        assert "file:" in source_c
+
+        # Test 3: Check auth info metadata
+        info = ai.get_auth_info()
+        assert "provider" in info
+        assert "configured" in info
+
+

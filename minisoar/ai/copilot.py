@@ -8,11 +8,17 @@ Multi-Provider Router supporting:
 3. OpenAI / Codex SDK (openai)
 4. Local Ollama Air-Gapped API (requests to local endpoint)
 5. Offline Mock fallback
+
+AUTHENTICATION FLEXIBILITY:
+- Direct Environment Variables (GEMINI_API_KEY, ANTHROPIC_API_KEY, OPENAI_API_KEY)
+- User-Saved Auth Files (JSON or raw key) via AI_AUTH_FILE, GOOGLE_APPLICATION_CREDENTIALS,
+  CLAUDE_AUTH_FILE, OPENAI_AUTH_FILE, or standard user ~/.config paths.
 """
 
 import json
 import logging
 import os
+from pathlib import Path
 import re
 from typing import Any
 
@@ -34,15 +40,113 @@ def _get_provider() -> str:
     return "gemini"
 
 
-def _get_api_key() -> str:
-    prov = _get_provider()
+def _read_file_token(filepath: str | Path) -> str | None:
+    """Safely extracts an API key or token from a user auth file (JSON or raw text)."""
+    try:
+        path = Path(filepath).expanduser().resolve()
+        if not path.exists() or not path.is_file():
+            return None
+
+        content = path.read_text(encoding="utf-8").strip()
+        if not content:
+            return None
+
+        # Try parsing as JSON first
+        try:
+            data = json.loads(content)
+            if isinstance(data, dict):
+                # Common JSON key names used by various SDKs/tools
+                for k in ["api_key", "apiKey", "token", "auth_token", "key", "access_token", "secret_key"]:
+                    if data.get(k) and isinstance(data[k], str):
+                        return data[k].strip()
+        except Exception:
+            pass
+
+        # Fallback to plain text string token
+        return content.strip()
+    except Exception as e:
+        logger.debug("Failed to read auth file %s: %s", filepath, e)
+        return None
+
+
+def resolve_auth_credential(provider: str | None = None) -> tuple[str, str | None]:
+    """Resolves API Key / Token and returns (token, auth_source_description).
+
+    Checks both environment variables and user-stored auth files.
+    """
+    prov = (provider or _get_provider()).lower().strip()
+
+    # 1. Google / Gemini / Antigravity
     if prov == "gemini":
-        return os.getenv("GEMINI_API_KEY") or os.getenv("GOOGLE_API_KEY") or os.getenv("ANTIGRAVITY_API_KEY", "")
-    if prov == "claude":
-        return os.getenv("ANTHROPIC_API_KEY") or os.getenv("CLAUDE_API_KEY", "")
-    if prov == "openai":
-        return os.getenv("OPENAI_API_KEY") or os.getenv("CODEX_API_KEY", "")
-    return ""
+        # Env vars
+        env_key = os.getenv("GEMINI_API_KEY") or os.getenv("GOOGLE_API_KEY") or os.getenv("ANTIGRAVITY_API_KEY")
+        if env_key:
+            return env_key.strip(), "env:GEMINI_API_KEY"
+
+        # Explicit Auth Files
+        file_candidates = [
+            os.getenv("GEMINI_AUTH_FILE"),
+            os.getenv("ANTIGRAVITY_AUTH_FILE"),
+            os.getenv("GOOGLE_APPLICATION_CREDENTIALS"),
+            os.getenv("AI_AUTH_FILE"),
+            os.getenv("AI_CREDENTIALS_FILE"),
+            Path.home() / ".gemini" / "credentials.json",
+            Path.home() / ".gemini" / "api_key",
+            Path.home() / ".config" / "gcloud" / "application_default_credentials.json",
+        ]
+        for f in file_candidates:
+            if f:
+                tok = _read_file_token(f)
+                if tok:
+                    return tok, f"file:{f}"
+
+    # 2. Anthropic / Claude
+    elif prov == "claude":
+        env_key = os.getenv("ANTHROPIC_API_KEY") or os.getenv("CLAUDE_API_KEY")
+        if env_key:
+            return env_key.strip(), "env:ANTHROPIC_API_KEY"
+
+        file_candidates = [
+            os.getenv("CLAUDE_AUTH_FILE"),
+            os.getenv("ANTHROPIC_AUTH_FILE"),
+            os.getenv("AI_AUTH_FILE"),
+            os.getenv("AI_CREDENTIALS_FILE"),
+            Path.home() / ".anthropic" / "config.json",
+            Path.home() / ".claude" / "credentials.json",
+            Path.home() / ".claude" / "api_key",
+        ]
+        for f in file_candidates:
+            if f:
+                tok = _read_file_token(f)
+                if tok:
+                    return tok, f"file:{f}"
+
+    # 3. OpenAI / Codex
+    elif prov == "openai":
+        env_key = os.getenv("OPENAI_API_KEY") or os.getenv("CODEX_API_KEY")
+        if env_key:
+            return env_key.strip(), "env:OPENAI_API_KEY"
+
+        file_candidates = [
+            os.getenv("OPENAI_AUTH_FILE"),
+            os.getenv("CODEX_AUTH_FILE"),
+            os.getenv("AI_AUTH_FILE"),
+            os.getenv("AI_CREDENTIALS_FILE"),
+            Path.home() / ".openai" / "api_key",
+            Path.home() / ".config" / "openai" / "credentials.json",
+        ]
+        for f in file_candidates:
+            if f:
+                tok = _read_file_token(f)
+                if tok:
+                    return tok, f"file:{f}"
+
+    return "", None
+
+
+def _get_api_key() -> str:
+    token, _ = resolve_auth_credential(_get_provider())
+    return token
 
 
 def is_configured() -> bool:
@@ -54,18 +158,49 @@ def is_configured() -> bool:
     return bool(_get_api_key())
 
 
+def get_auth_info() -> dict[str, Any]:
+    """Returns metadata about the active AI configuration and auth method."""
+    prov = _get_provider()
+    token, source = resolve_auth_credential(prov)
+    model = os.getenv("AI_MODEL", "default")
+    is_mock = os.getenv("MINISOAR_MOCK", "").lower() in {"1", "true", "yes"}
+
+    return {
+        "provider": prov,
+        "model": model,
+        "is_mock": is_mock,
+        "configured": is_mock or (prov == "ollama") or bool(token),
+        "auth_source": source or ("mock" if is_mock else "none"),
+        "key_masked": f"{token[:6]}...{token[-4:]}" if len(token) > 10 else ("***" if token else None),
+    }
+
+
 # ---------------------------------------------------------
 # Provider Dispatchers
 # ---------------------------------------------------------
 
 def _call_gemini(prompt: str, system_instruction: str = "") -> str:
     """Calls Google Gemini API using google.generativeai or REST API."""
-    api_key = _get_api_key()
+    api_key, auth_source = resolve_auth_credential("gemini")
     model_name = os.getenv("AI_MODEL", "gemini-1.5-flash")
+
+    # If user provided a Google Service Account JSON file path
+    service_account_file = os.getenv("GOOGLE_APPLICATION_CREDENTIALS") or os.getenv("GEMINI_AUTH_FILE")
 
     try:
         import google.generativeai as genai
-        genai.configure(api_key=api_key)
+
+        if api_key:
+            genai.configure(api_key=api_key)
+        elif service_account_file and Path(service_account_file).exists():
+            # Support service account credentials via google.auth if google-auth installed
+            try:
+                from google.oauth2 import service_account
+                creds = service_account.Credentials.from_service_account_file(service_account_file)
+                genai.configure(credentials=creds)
+            except Exception as e_sa:
+                logger.debug("Failed to load service account: %s", e_sa)
+
         model = genai.GenerativeModel(
             model_name=model_name,
             system_instruction=system_instruction if system_instruction else None,
@@ -74,6 +209,9 @@ def _call_gemini(prompt: str, system_instruction: str = "") -> str:
         return response.text.strip()
     except Exception as e:
         logger.debug("google.generativeai SDK call failed, falling back to REST: %s", e)
+        if not api_key:
+            raise RuntimeError(f"Gemini API key not found in environment or auth file: {e}")
+
         # Fallback to direct REST call
         url = f"https://generativelanguage.googleapis.com/v1beta/models/{model_name}:generateContent?key={api_key}"
         payload = {
@@ -89,8 +227,11 @@ def _call_gemini(prompt: str, system_instruction: str = "") -> str:
 
 def _call_claude(prompt: str, system_instruction: str = "") -> str:
     """Calls Anthropic Claude API using anthropic SDK or REST."""
-    api_key = _get_api_key()
+    api_key, auth_source = resolve_auth_credential("claude")
     model_name = os.getenv("AI_MODEL", "claude-3-5-sonnet-20241022")
+
+    if not api_key:
+        raise RuntimeError("Claude API key/token not found in environment (ANTHROPIC_API_KEY) or auth file (CLAUDE_AUTH_FILE).")
 
     try:
         import anthropic
@@ -124,8 +265,11 @@ def _call_claude(prompt: str, system_instruction: str = "") -> str:
 
 def _call_openai(prompt: str, system_instruction: str = "") -> str:
     """Calls OpenAI / Codex API using openai SDK or REST."""
-    api_key = _get_api_key()
+    api_key, auth_source = resolve_auth_credential("openai")
     model_name = os.getenv("AI_MODEL", "gpt-4o")
+
+    if not api_key:
+        raise RuntimeError("OpenAI API key not found in environment (OPENAI_API_KEY) or auth file (OPENAI_AUTH_FILE).")
 
     try:
         import openai
@@ -185,7 +329,7 @@ def call_llm(prompt: str, system_instruction: str = "") -> str:
             "🤖 **[AI SOC Copilot - Mock Analysis]**\n\n"
             "• **Threat Classification:** High Severity Web Attack / Remote Code Execution (RCE)\n"
             "• **MITRE ATT&CK:** `T1059.004` (Command and Scripting Interpreter: Unix Shell), `T1190` (Exploit Public-Facing Application)\n"
-            "• **Attack Mechanism:** Penyerang mencoba mengunggah webshell terselubung dan mengeksekusi perintah sistem.\n"
+            "• **Attack Mechanism:** Penyerang mencoba mengunggah payload terselubung dan mengeksekusi perintah sistem.\n"
             "• **Rekomendasi Respon:**\n"
             "  1. Segera blokir IP sumber pada perimeter WAF (Imperva/Cloudflare/Palo Alto).\n"
             "  2. Isolasi endpoint terdampak pada EDR (Kaspersky KSC / TrendMicro Vision One).\n"

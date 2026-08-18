@@ -30,6 +30,9 @@ def check_all_edr_connectivity() -> list[dict[str, Any]]:
     return results
 
 
+check_edr_connectivity = check_all_edr_connectivity
+
+
 def isolate_endpoint(
     target: str,
     *,

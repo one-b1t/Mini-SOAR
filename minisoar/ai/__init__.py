@@ -7,8 +7,10 @@ from .copilot import (
     ask_copilot,
     call_llm,
     generate_rca,
+    get_auth_info,
     is_configured,
     recommend_mitigation,
+    resolve_auth_credential,
 )
 
 __all__ = [
@@ -18,4 +20,7 @@ __all__ = [
     "ask_copilot",
     "call_llm",
     "is_configured",
+    "resolve_auth_credential",
+    "get_auth_info",
 ]
+
