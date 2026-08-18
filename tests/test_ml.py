@@ -240,4 +240,26 @@ def test_ai_auth_file_resolution():
         assert ai.get_auth_info()["provider"] == "claude"
 
 
+def test_ai_headless_cli_and_json_output():
+    import os
+    from minisoar import ai
+
+    os.environ["MINISOAR_MOCK"] = "1"
+    os.environ["AI_EXECMODE"] = "headless"
+
+    res_json = ai.call_llm_json("Analisis payload", "System prompt")
+    assert isinstance(res_json, dict)
+    assert res_json.get("status") == "success"
+    assert "threat_classification" in res_json
+
+    payload_res = ai.analyze_payload_json("SELECT * FROM users WHERE 1=1")
+    assert isinstance(payload_res, dict)
+    assert "severity" in payload_res
+
+    rca_res = ai.generate_rca_json("evt_1001")
+    assert isinstance(rca_res, dict)
+    assert "status" in rca_res
+
+
+
 

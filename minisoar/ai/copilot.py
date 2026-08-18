@@ -19,6 +19,8 @@ import json
 import logging
 import os
 from pathlib import Path
+import shutil
+import subprocess
 from typing import Any
 
 import requests
@@ -336,8 +338,82 @@ def _call_ollama(prompt: str, system_instruction: str = "") -> str:
     raise RuntimeError(f"Ollama API error: HTTP {resp.status_code}")
 
 
+def _get_exec_mode() -> str:
+    return os.getenv("AI_EXECMODE", "auto").lower().strip()
+
+
+def _call_headless_cli(provider: str, prompt: str, system_instruction: str = "") -> str | None:
+    """Executes Headless CLI for Google Antigravity, Anthropic Claude, or OpenAI Codex.
+
+    CLI Headless Specifications:
+    - Google Antigravity CLI (`antigravity run --headless --json` / `agy exec --json`)
+    - Anthropic Claude Code CLI (`claude -p --output-format json`)
+    - OpenAI Codex CLI (`codex exec --format json`)
+    """
+    combined_prompt = f"{system_instruction}\n\n{prompt}".strip() if system_instruction else prompt
+    model_name = os.getenv("AI_MODEL", "")
+
+    # 1. Antigravity / Gemini CLI Headless Mode
+    if provider == "gemini":
+        cli_bin = (
+            os.getenv("ANTIGRAVITY_CLI_PATH")
+            or os.getenv("AGY_CLI_PATH")
+            or shutil.which("antigravity")
+            or shutil.which("agy")
+        )
+        if not cli_bin:
+            return None
+        cmd = [cli_bin, "run", "--headless", "--json", combined_prompt]
+        if model_name:
+            cmd.extend(["--model", model_name])
+        try:
+            res = subprocess.run(cmd, capture_output=True, text=True, timeout=60, check=False)
+            if res.returncode == 0 and res.stdout.strip():
+                return res.stdout.strip()
+            logger.debug("Antigravity Headless CLI returned code %s: %s", res.returncode, res.stderr)
+        except Exception as e:
+            logger.debug("Antigravity Headless CLI execution error: %s", e)
+        return None
+
+    # 2. Anthropic Claude Code CLI Headless Mode
+    if provider == "claude":
+        cli_bin = os.getenv("CLAUDE_CLI_PATH") or shutil.which("claude")
+        if not cli_bin:
+            return None
+        cmd = [cli_bin, "-p", "--output-format", "json", combined_prompt]
+        if model_name:
+            cmd.extend(["--model", model_name])
+        try:
+            res = subprocess.run(cmd, capture_output=True, text=True, timeout=60, check=False)
+            if res.returncode == 0 and res.stdout.strip():
+                return res.stdout.strip()
+            logger.debug("Claude Headless CLI returned code %s: %s", res.returncode, res.stderr)
+        except Exception as e:
+            logger.debug("Claude Headless CLI execution error: %s", e)
+        return None
+
+    # 3. OpenAI / Codex CLI Headless Mode
+    if provider == "openai":
+        cli_bin = os.getenv("CODEX_CLI_PATH") or shutil.which("codex")
+        if not cli_bin:
+            return None
+        cmd = [cli_bin, "exec", "--format", "json", combined_prompt]
+        if model_name:
+            cmd.extend(["--model", model_name])
+        try:
+            res = subprocess.run(cmd, capture_output=True, text=True, timeout=60, check=False)
+            if res.returncode == 0 and res.stdout.strip():
+                return res.stdout.strip()
+            logger.debug("Codex Headless CLI returned code %s: %s", res.returncode, res.stderr)
+        except Exception as e:
+            logger.debug("Codex Headless CLI execution error: %s", e)
+        return None
+
+    return None
+
+
 def call_llm(prompt: str, system_instruction: str = "") -> str:
-    """Dispatches prompt to configured AI LLM provider with graceful fallbacks."""
+    """Dispatches prompt to configured AI LLM provider with Headless CLI & SDK fallbacks."""
     if os.getenv("MINISOAR_MOCK", "").lower() in {"1", "true", "yes"}:
         return (
             "🤖 **[AI SOC Copilot - Mock Analysis]**\n\n"
@@ -351,6 +427,17 @@ def call_llm(prompt: str, system_instruction: str = "") -> str:
         )
 
     provider = _get_provider()
+    exec_mode = _get_exec_mode()
+
+    # Try Headless CLI execution if mode is headless, cli, or auto
+    if exec_mode in {"headless", "auto", "cli"}:
+        cli_output = _call_headless_cli(provider, prompt, system_instruction)
+        if cli_output:
+            return cli_output
+        if exec_mode == "headless":
+            raise RuntimeError(f"Headless CLI execution failed for provider '{provider}'. Ensure CLI binary is on PATH.")
+
+    # Fallback to SDK or REST API
     try:
         if provider == "gemini":
             return _call_gemini(prompt, system_instruction)
@@ -441,3 +528,105 @@ Konteks Tambahan:
 {context[:2000] if context else 'Tidak ada konteks tambahan.'}"""
 
     return call_llm(prompt, SYSTEM_SOC_INSTRUCTION)
+
+
+# ---------------------------------------------------------
+# Structured JSON Output & Headless CLI Capabilities
+# ---------------------------------------------------------
+
+def _safe_parse_json(text: str) -> dict[str, Any]:
+    """Safely extracts JSON dictionary from raw response string or markdown codeblocks."""
+    if not text:
+        return {"status": "error", "error": "Empty response"}
+
+    s = text.strip()
+    if "```" in s:
+        lines = s.splitlines()
+        json_lines = []
+        inside = False
+        for line in lines:
+            if line.strip().startswith("```"):
+                inside = not inside
+                continue
+            if inside:
+                json_lines.append(line)
+        if json_lines:
+            s = "\n".join(json_lines).strip()
+
+    try:
+        parsed = json.loads(s)
+        if isinstance(parsed, dict):
+            return parsed
+        return {"status": "success", "data": parsed}
+    except Exception:
+        return {
+            "status": "raw_text",
+            "content": text.strip(),
+        }
+
+
+def call_llm_json(prompt: str, system_instruction: str = "") -> dict[str, Any]:
+    """Calls LLM (Headless CLI, SDK, or REST) with strict JSON response formatting."""
+    if os.getenv("MINISOAR_MOCK", "").lower() in {"1", "true", "yes"}:
+        return {
+            "status": "success",
+            "provider": _get_provider(),
+            "model": os.getenv("AI_MODEL", "mock"),
+            "exec_mode": _get_exec_mode(),
+            "threat_classification": "High Severity Web Attack / Remote Code Execution (RCE)",
+            "severity": "HIGH",
+            "mitre_attack": ["T1059.004", "T1190"],
+            "summary": "Penyerang mencoba mengunggah payload terselubung dan mengeksekusi perintah sistem.",
+            "recommendations": [
+                "Blokir IP sumber pada WAF (Imperva/Cloudflare/Palo Alto).",
+                "Isolasi endpoint terdampak pada EDR (Kaspersky KSC / TrendMicro).",
+                "Review direktori uploads web server."
+            ]
+        }
+
+    json_instruction = (
+        (system_instruction or SYSTEM_SOC_INSTRUCTION)
+        + "\n\nCRITICAL MANDATE: Anda HARUS SELALU menjawab HANYA dalam format JSON valid (RFC 8259) tanpa ada kata-kata atau penjelasan di luar objek JSON."
+    )
+    res_str = call_llm(prompt, json_instruction)
+    return _safe_parse_json(res_str)
+
+
+def analyze_payload_json(payload_str: str) -> dict[str, Any]:
+    """Deobfuscates and analyzes a payload, returning a structured JSON object."""
+    prompt = f"""Analisis payload keamanan berikut dan kembalikan HANYA JSON valid dengan struktur:
+{{
+  "threat_classification": "...",
+  "severity": "HIGH|MEDIUM|LOW",
+  "mitre_attack": ["T1059.004", "T1190"],
+  "deobfuscated_payload": "...",
+  "explanation": "...",
+  "recommendations": ["..."]
+}}
+
+Payload:
+```
+{payload_str[:4000]}
+```"""
+    return call_llm_json(prompt)
+
+
+def generate_rca_json(event_id_or_ip: str, logs: list[dict[str, Any]] | None = None) -> dict[str, Any]:
+    """Generates structured Root Cause Analysis (RCA) in JSON format."""
+    logs_summary = json.dumps(logs[:15], indent=2) if logs else f"Target Asset / Attacker IP: {event_id_or_ip}"
+    prompt = f"""Buatkan Root Cause Analysis (RCA) dalam format JSON valid dengan struktur:
+{{
+  "event_target": "{event_id_or_ip}",
+  "executive_summary": "...",
+  "attack_vector": "...",
+  "timeline": ["..."],
+  "impact": "...",
+  "remediation": ["..."]
+}}
+
+Log Terkait:
+```json
+{logs_summary[:3500]}
+```"""
+    return call_llm_json(prompt)
+

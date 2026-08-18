@@ -4,9 +4,12 @@ from __future__ import annotations
 
 from .copilot import (
     analyze_payload,
+    analyze_payload_json,
     ask_copilot,
     call_llm,
+    call_llm_json,
     generate_rca,
+    generate_rca_json,
     get_auth_info,
     is_configured,
     recommend_mitigation,
@@ -17,9 +20,12 @@ from .copilot import (
 
 __all__ = [
     "analyze_payload",
+    "analyze_payload_json",
     "ask_copilot",
     "call_llm",
+    "call_llm_json",
     "generate_rca",
+    "generate_rca_json",
     "get_auth_info",
     "is_configured",
     "recommend_mitigation",
