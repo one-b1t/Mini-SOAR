@@ -232,4 +232,12 @@ def test_ai_auth_file_resolution():
         assert "provider" in info
         assert "configured" in info
 
+        # Test 4: Dynamic model & provider switching
+        ai.set_active_model("gemini-2.0-flash")
+        assert os.environ.get("AI_MODEL") == "gemini-2.0-flash"
+
+        ai.set_active_provider("claude")
+        assert ai.get_auth_info()["provider"] == "claude"
+
+
 

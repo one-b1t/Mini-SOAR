@@ -1061,6 +1061,69 @@ async def retrainmodel_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE):
     await update.message.reply_text(f"{prefix} *Hasil Auto-Retraining:*\n{msg}{details}", parse_mode="Markdown")
 
 
+async def aimodel_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    user = update.effective_user
+    if not is_user_allowed(user.id):
+        await update.message.reply_text("❌ Maaf, kamu tidak punya akses ke bot ini.")
+        return
+
+    from .ai import copilot
+    info = copilot.get_auth_info()
+
+    if not context.args:
+        await update.message.reply_text(
+            f"🤖 *AI SOC Copilot Model Status:*\n"
+            f"• *Provider:* `{info['provider']}`\n"
+            f"• *Model Aktif:* `{info['model']}`\n"
+            f"• *Auth Source:* `{info['auth_source']}`\n"
+            f"• *Key:* `{info['key_masked'] or 'none'}`\n\n"
+            f"💡 _Untuk mengubah model aktif secara live:_\n"
+            f"`/aimodel <nama_model>` (contoh: `/aimodel gemini-1.5-pro` atau `/aimodel claude-3-7-sonnet`)\n"
+            f"_Anda juga dapat mengganti default permanen melalui variabel `AI_MODEL` di file `.env`._",
+            parse_mode="Markdown",
+        )
+        return
+
+    new_model = context.args[0].strip()
+    set_model = copilot.set_active_model(new_model)
+    await update.message.reply_text(
+        f"✅ *Model AI Copilot Berhasil Diubah!*\n"
+        f"• *Provider:* `{info['provider']}`\n"
+        f"• *Model Baru:* `{set_model}`\n\n"
+        f"_Seluruh query `/askai` dan `/rca` berikutnya akan langsung menggunakan model ini._",
+        parse_mode="Markdown",
+    )
+
+
+async def aiprovider_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    user = update.effective_user
+    if not is_user_allowed(user.id):
+        await update.message.reply_text("❌ Maaf, kamu tidak punya akses ke bot ini.")
+        return
+
+    from .ai import copilot
+    info = copilot.get_auth_info()
+
+    if not context.args:
+        await update.message.reply_text(
+            f"🤖 *AI SOC Copilot Provider:*\n"
+            f"• *Provider Aktif:* `{info['provider']}`\n"
+            f"• *Pilihan:* `gemini` (Google Antigravity) | `claude` (Anthropic) | `openai` (Codex/GPT) | `ollama` (Local)\n\n"
+            f"💡 _Gunakan `/aiprovider <nama_provider>` untuk beralih provider live._",
+            parse_mode="Markdown",
+        )
+        return
+
+    new_prov = context.args[0].strip().lower()
+    set_prov = copilot.set_active_provider(new_prov)
+    await update.message.reply_text(
+        f"✅ *AI Provider Berhasil Dialihkan!*\n"
+        f"• *Provider Baru:* `{set_prov}`\n"
+        f"• *Model:* `{copilot.get_auth_info()['model']}`",
+        parse_mode="Markdown",
+    )
+
+
 # -----------------
 # HELP & ERROR
 # -----------------
@@ -1088,6 +1151,8 @@ async def help_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE):
         "🤖 AI SOC Copilot & MLOps (Tier 5)\n"
         "/askai <pertanyaan> : Konsultasi investigasi AI Copilot\n"
         "/rca <ip/event_id> : Generate Root Cause Analysis otomatis\n"
+        "/aimodel [model] : Cek atau ganti model AI live\n"
+        "/aiprovider [provider] : Cek atau ganti AI provider live\n"
         "/retrainmodel : Trigger auto-retraining model ML trafik\n"
     )
 
@@ -1146,6 +1211,8 @@ def main() -> None:
         # Tier 5: AI SOC Copilot & MLOps Handlers
         app.add_handler(CommandHandler("askai", askai_cmd))
         app.add_handler(CommandHandler("rca", rca_cmd))
+        app.add_handler(CommandHandler("aimodel", aimodel_cmd))
+        app.add_handler(CommandHandler("aiprovider", aiprovider_cmd))
         app.add_handler(CommandHandler("retrainmodel", retrainmodel_cmd))
 
         app.add_handler(CallbackQueryHandler(callback_query_handler))

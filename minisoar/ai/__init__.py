@@ -11,6 +11,8 @@ from .copilot import (
     is_configured,
     recommend_mitigation,
     resolve_auth_credential,
+    set_active_model,
+    set_active_provider,
 )
 
 __all__ = [
@@ -22,5 +24,7 @@ __all__ = [
     "is_configured",
     "recommend_mitigation",
     "resolve_auth_credential",
+    "set_active_model",
+    "set_active_provider",
 ]
 

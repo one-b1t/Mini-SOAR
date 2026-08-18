@@ -174,6 +174,21 @@ def get_auth_info() -> dict[str, Any]:
     }
 
 
+def set_active_model(model_name: str) -> str:
+    """Dynamically sets the active AI model in runtime without modifying source code."""
+    model = model_name.strip()
+    os.environ["AI_MODEL"] = model
+    return model
+
+
+def set_active_provider(provider_name: str) -> str:
+    """Dynamically switches the active AI provider in runtime."""
+    prov = provider_name.strip().lower()
+    os.environ["AI_PROVIDER"] = prov
+    return _get_provider()
+
+
+
 # ---------------------------------------------------------
 # Provider Dispatchers
 # ---------------------------------------------------------

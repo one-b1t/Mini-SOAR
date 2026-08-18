@@ -50,6 +50,8 @@ MiniSOAR Telegram Bot menyediakan antarmuka interaktif yang aman untuk analis SO
 | :--- | :--- | :--- |
 | `/askai` | `<pertanyaan>` | Mengajukan pertanyaan analisis ancaman ke AI SOC Copilot (Gemini, Claude, OpenAI, Ollama). |
 | `/rca` | `<event_id_or_ip>` | Menghasilkan Root Cause Analysis (RCA) lengkap berbasis riwayat log. |
+| `/aimodel` | `[nama_model]` | Melihat atau mengganti model AI yang aktif secara live (runtime) tanpa edit kode. |
+| `/aiprovider` | `[gemini\|claude\|openai\|ollama]` | Melihat atau mengganti AI provider aktif secara live (runtime). |
 | `/retrainmodel` | - | Memicu training model Challenger secara on-demand dan memverifikasi skor ROC-AUC. |
 
 ---
