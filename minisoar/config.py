@@ -71,6 +71,10 @@ def norm_provider(provider: str | None) -> str:
         return "akamai"
     if s in {"imperva", "imp"}:
         return "imperva"
+    if s in {"cloudflare", "cf"}:
+        return "cloudflare"
+    if s in {"fortigate", "forti", "fg", "fortios"}:
+        return "fortigate"
     if s in {"none", "external", "eksternal", "outside", "off"}:
         return "none"
     return s or "none"

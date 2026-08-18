@@ -1,0 +1,41 @@
+name: "Bruteforce & Probing Mitigation Playbook"
+id: "pb-bruteforce-probing"
+description: "Mitigasi otomatis untuk serangan brute-force, random URL scanner, dan path probing masif."
+enabled: true
+priority: 20
+
+trigger:
+  alert_types:
+    - "alert_url_probe"
+    - "alert_random_url"
+    - "alert_url_major"
+    - "alert_gambling_slot"
+
+conditions:
+  - "not whitelisted"
+  - "not bypassed"
+  - "ml_prob >= 0.70 or reputation_score >= 30"
+
+steps:
+  - id: "step_block_perimeter"
+    name: "Auto Block Perimeter"
+    action: "mitigation.auto_block"
+    params:
+      duration: 600
+      commit: false
+    on_failure: "continue"
+
+  - id: "step_notify_telegram"
+    name: "Broadcast Alert to Telegram"
+    action: "notification.telegram"
+    params:
+      show_buttons: true
+    on_failure: "continue"
+
+  - id: "step_audit_label"
+    name: "Record Audit Label in Elasticsearch"
+    action: "database.store_label"
+    params:
+      decision: "block"
+      actor: "playbook:pb-bruteforce-probing"
+    on_failure: "continue"

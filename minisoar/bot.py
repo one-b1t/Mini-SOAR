@@ -27,6 +27,8 @@ from .database import (
 )
 from .mitigation import (
     akamai,
+    cloudflare,
+    fortigate,
     imperva,
     paloalto,
     trigger_auto_block,
@@ -37,6 +39,7 @@ from .mitigation import (
     remove_block_state,
 )
 from .utils import log_user_action, resolve_log_path, valid_ip, get_perimeter_info
+from . import ai, cases, edr
 
 logger = logging.getLogger(__name__)
 
@@ -141,6 +144,90 @@ async def tracev(update: Update, context: ContextTypes.DEFAULT_TYPE):
     # A simple formatter for the violation since legacy format_violation had many specifics
     # Using a reduced, clean Markdown representation.
     msg = f"*Imperva Violation Trace*\n• Event ID: `{violation.get('eventNumber', '-')}`\n• Time: `{violation.get('time', '-')}`\n• ViolationType: `{violation.get('violationType', '-')}`\n• Source IP: `{violation.get('sourceIp', '-')}`\n• Dest IP: `{violation.get('destIp', '-')}`\n• Desc: `{violation.get('description', '-')}`"
+    await update.message.reply_text(msg, parse_mode="Markdown")
+
+
+# -----------------
+# PALO ALTO THREAT TRACE
+# -----------------
+async def tracevpalo(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    """Query threat logs by Violation ID (threatid), session ID, or source IP on Palo Alto.
+
+    Format:
+      /tracevpalo <violation_id>          — threatid filter
+      /tracevpalo sid <session_id>        — session ID filter
+      /tracevpalo src <ip>                — source IP filter
+    """
+    user = update.effective_user
+    if not is_user_allowed(user.id):
+        await update.message.reply_text("❌ Maaf, kamu tidak punya akses ke bot ini.")
+        return
+
+    if not context.args:
+        await update.message.reply_text(
+            "Format:\n"
+            "  /tracevpalo <threat_id>       — cari by threat ID\n"
+            "  /tracevpalo sid <session_id>  — cari by session ID\n"
+            "  /tracevpalo src <ip>          — cari by source IP"
+        )
+        return
+
+    logfile = resolve_log_path("LOGFILE", "/var/log/tele-soar-actions.log", "tele-soar-actions.log")
+    pa_host = os.getenv("PA_HOST", "")
+    pa_api_key = os.getenv("PA_API_KEY", "")
+
+    if not pa_host or not pa_api_key:
+        await update.message.reply_text("❌ PA_HOST atau PA_API_KEY belum dikonfigurasi di env.")
+        return
+
+    if len(context.args) == 2 and context.args[0].lower() in ("sid", "session", "sessionid", "src", "src_ip", "srcip"):
+        filter_type = context.args[0].lower()
+        value = context.args[1].strip()
+        if filter_type in ("sid", "session", "sessionid"):
+            field_label = "Session ID"
+            await update.message.reply_text(f"Mencari threat log Palo Alto by Session ID `{value}` ...", parse_mode="Markdown")
+            log_user_action("trace_palo_violation", user, ip=None, target="PaloAlto", source="command", chat_id=update.effective_chat.id, note=f"sid={value}", logfile=logfile)
+            resp = paloalto.query_threat_log(pa_host, pa_api_key, session_id=value)
+        else:
+            field_label = "Source IP"
+            await update.message.reply_text(f"Mencari threat log Palo Alto by Source IP `{value}` ...", parse_mode="Markdown")
+            log_user_action("trace_palo_violation", user, ip=value, target="PaloAlto", source="command", chat_id=update.effective_chat.id, note=f"src={value}", logfile=logfile)
+            resp = paloalto.query_threat_log(pa_host, pa_api_key, src_ip=value)
+    else:
+        value = context.args[0].strip()
+        field_label = "Violation/Threat ID"
+        await update.message.reply_text(f"Mencari threat log Palo Alto by Violation ID `{value}` ...", parse_mode="Markdown")
+        log_user_action("trace_palo_violation", user, ip=None, target="PaloAlto", source="command", chat_id=update.effective_chat.id, note=f"threatid={value}", logfile=logfile)
+        resp = paloalto.query_threat_log(pa_host, pa_api_key, threat_id=value)
+
+    entries, err = paloalto.parse_threat_logs(resp)
+    if err:
+        await update.message.reply_text(f"❌ Query gagal: {err}")
+        return
+    if not entries:
+        await update.message.reply_text(f"❌ Tidak ditemukan threat log untuk {field_label} `{value}`.", parse_mode="Markdown")
+        return
+
+    # Format results — show up to 5 entries
+    header = f"*Palo Alto Threat Log Trace*\n• {field_label}: `{value}`\n• Jumlah: {len(entries)}\n"
+    body_parts = [header]
+    for i, e in enumerate(entries[:5]):
+        body_parts.append(
+            f"*#{i+1}*\n"
+            f"• Time   : `{e.get('time_generated', '-')}`\n"
+            f"• Src    : `{e.get('src', '-')}`\n"
+            f"• Dst    : `{e.get('dst', '-')}`\n"
+            f"• App    : `{e.get('app', '-')}`\n"
+            f"• Action : `{e.get('action', '-')}`\n"
+            f"• Threat : `{e.get('threatid', '-')}`\n"
+            f"• Name   : `{e.get('name', '-')}`\n"
+            f"• Severity: `{e.get('severity', '-')}`\n"
+            f"• Category: `{e.get('category', '-')}`\n"
+            f"• Session: `{e.get('sessionid', '-')}`"
+        )
+    msg = "\n\n".join(body_parts)
+    if len(entries) > 5:
+        msg += f"\n\n_...dan {len(entries)-5} entry lainnya._"
     await update.message.reply_text(msg, parse_mode="Markdown")
 
 
@@ -381,6 +468,81 @@ async def activateakamai(update: Update, context: ContextTypes.DEFAULT_TYPE):
     await update.message.reply_text(msg, parse_mode="Markdown")
 
 
+async def tracevakamai(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    """Trace an Akamai security event/violation by event ID via SIEM API.
+
+    Format: /tracevakamai <event_id>
+    Requires env: AKAMAI_BASEURL, AKAMAI_CLIENT_TOKEN, AKAMAI_CLIENT_SECRET,
+    AKAMAI_ACCESS_TOKEN, AKAMAI_SIEM_CONFIG_ID
+    """
+    user = update.effective_user
+    if not is_user_allowed(user.id):
+        await update.message.reply_text("❌ Maaf, kamu tidak punya akses ke bot ini.")
+        return
+
+    if len(context.args) != 1:
+        await update.message.reply_text("Format: /tracevakamai <event_id>")
+        return
+
+    event_id = context.args[0].strip()
+    logfile = resolve_log_path("LOGFILE", "/var/log/tele-soar-actions.log", "tele-soar-actions.log")
+
+    baseurl = os.getenv("AKAMAI_BASEURL", "")
+    config_id = os.getenv("AKAMAI_SIEM_CONFIG_ID", "")
+    client_token = os.getenv("AKAMAI_CLIENT_TOKEN", "")
+    client_secret = os.getenv("AKAMAI_CLIENT_SECRET", "")
+    access_token = os.getenv("AKAMAI_ACCESS_TOKEN", "")
+
+    if not all([baseurl, config_id, client_token, client_secret, access_token]):
+        await update.message.reply_text(
+            "❌ Konfigurasi Akamai SIEM belum lengkap. "
+            "Periksa AKAMAI_BASEURL, AKAMAI_SIEM_CONFIG_ID, dan kredensial EdgeGrid."
+        )
+        return
+
+    log_user_action("trace_akamai_violation", user, ip=None, target="Akamai", source="command", chat_id=update.effective_chat.id, note=f"event_id={event_id}", logfile=logfile)
+    await update.message.reply_text(f"Mencari Akamai security event `{event_id}` ...", parse_mode="Markdown")
+
+    events, err = akamai.query_siem_events(
+        baseurl,
+        client_token=client_token,
+        client_secret=client_secret,
+        access_token=access_token,
+        config_id=config_id,
+        event_id=event_id,
+    )
+    if err:
+        await update.message.reply_text(f"❌ Query gagal: {err}")
+        return
+    if not events:
+        await update.message.reply_text(f"❌ Tidak ditemukan event untuk ID `{event_id}`.", parse_mode="Markdown")
+        return
+
+    parts = [f"*Akamai Security Event Trace*\n• Event ID: `{event_id}`\n• Total: {len(events)}"]
+    for i, ev in enumerate(events[:5]):
+        attack = ev.get("attackData") or {}
+        http_msg = ev.get("httpMessage") or {}
+        geo = ev.get("geo") or {}
+        parts.append(
+            f"*#{i+1}*\n"
+            f"• _id        : `{ev.get('_id', '-')}`\n"
+            f"• Attack ID  : `{attack.get('attackID', '-')}`\n"
+            f"• Rule ID    : `{attack.get('ruleID', '-')}`\n"
+            f"• Rule Msg   : `{attack.get('ruleMessage', '-')}`\n"
+            f"• Rule Name  : `{attack.get('policy', '-')}`\n"
+            f"• Client IP  : `{http_msg.get('clientIP', '-')}`\n"
+            f"• Host       : `{http_msg.get('host', '-')}`\n"
+            f"• Path       : `{http_msg.get('path', '-')}`\n"
+            f"• Method     : `{http_msg.get('request', '-')}`\n"
+            f"• Status     : `{http_msg.get('statusCode', '-')}`\n"
+            f"• Country    : `{geo.get('country', '-')}`"
+        )
+    msg = "\n\n".join(parts)
+    if len(events) > 5:
+        msg += f"\n\n_...dan {len(events)-5} event lainnya._"
+    await update.message.reply_text(msg, parse_mode="Markdown")
+
+
 # -----------------
 # INLINE CALLBACKS
 # -----------------
@@ -531,23 +693,404 @@ async def callback_query_handler(update: Update, context: ContextTypes.DEFAULT_T
 
 
 # -----------------
+# EDR (KASPERSKY KSC & TRENDMICRO VISION ONE)
+# -----------------
+async def isolatehost(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    user = update.effective_user
+    if not is_user_allowed(user.id):
+        await update.message.reply_text("❌ Maaf, kamu tidak punya akses ke bot ini.")
+        return
+
+    if len(context.args) < 1:
+        await update.message.reply_text("Format: /isolatehost <ip/host_id> [ksc|trendmicro|all]")
+        return
+
+    target = context.args[0].strip()
+    provider = context.args[1].strip() if len(context.args) > 1 else "all"
+    logfile = resolve_log_path("LOGFILE", "/var/log/tele-soar-actions.log", "tele-soar-actions.log")
+    log_user_action("isolate_host", user, ip=target if valid_ip(target) else None, target=f"EDR-{provider.upper()}", source="command", chat_id=update.effective_chat.id, note=f"target={target}", logfile=logfile)
+
+    await update.message.reply_text(f"Memproses isolasi host `{target}` pada EDR ({provider.upper()}) ...", parse_mode="Markdown")
+    ok, msg, _ = edr.isolate_endpoint(target=target, provider=provider, reason=f"Manual isolation by @{user.username or user.id}")
+    prefix = "✅" if ok else "❌"
+    await update.message.reply_text(f"{prefix} *Hasil Isolasi EDR:*\n{msg}", parse_mode="Markdown")
+
+
+async def restorehost(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    user = update.effective_user
+    if not is_user_allowed(user.id):
+        await update.message.reply_text("❌ Maaf, kamu tidak punya akses ke bot ini.")
+        return
+
+    if len(context.args) < 1:
+        await update.message.reply_text("Format: /restorehost <ip/host_id> [ksc|trendmicro|all]")
+        return
+
+    target = context.args[0].strip()
+    provider = context.args[1].strip() if len(context.args) > 1 else "all"
+    logfile = resolve_log_path("LOGFILE", "/var/log/tele-soar-actions.log", "tele-soar-actions.log")
+    log_user_action("restore_host", user, ip=target if valid_ip(target) else None, target=f"EDR-{provider.upper()}", source="command", chat_id=update.effective_chat.id, note=f"target={target}", logfile=logfile)
+
+    await update.message.reply_text(f"Memproses pemulihan host `{target}` pada EDR ({provider.upper()}) ...", parse_mode="Markdown")
+    ok, msg, _ = edr.restore_endpoint(target=target, provider=provider)
+    prefix = "✅" if ok else "❌"
+    await update.message.reply_text(f"{prefix} *Hasil Pemulihan EDR:*\n{msg}", parse_mode="Markdown")
+
+
+async def queryhost(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    user = update.effective_user
+    if not is_user_allowed(user.id):
+        await update.message.reply_text("❌ Maaf, kamu tidak punya akses ke bot ini.")
+        return
+
+    if len(context.args) != 1:
+        await update.message.reply_text("Format: /queryhost <ip>")
+        return
+
+    ip = context.args[0].strip()
+    await update.message.reply_text(f"Mencari inventory endpoint untuk IP `{ip}` di Kaspersky KSC & TrendMicro Vision One ...", parse_mode="Markdown")
+    res = edr.query_endpoint(ip, provider="all")
+    msg_parts = [f"*EDR Host Query: `{ip}`*"]
+
+    if res.get("trendmicro"):
+        msg_parts.append("\n*🔵 TrendMicro Vision One:*")
+        for h in res["trendmicro"]:
+            msg_parts.append(f"• ID: `{h.get('endpointId', '-')}`\n• Host: `{h.get('endpointName', '-')}`\n• OS: `{h.get('osName', '-')}`\n• Isolation: `{h.get('isolationStatus', 'normal')}`")
+    else:
+        msg_parts.append("\n*🔵 TrendMicro:* Tidak ditemukan endpoint")
+
+    if res.get("kaspersky"):
+        msg_parts.append("\n*🟢 Kaspersky Security Center (KSC):*")
+        for h in res["kaspersky"]:
+            msg_parts.append(f"• ID: `{h.get('hostId', '-')}`\n• Host: `{h.get('hostName', '-') or h.get('KLHST_WKS_HOSTNAME', '-')}`\n• OS: `{h.get('osName', '-') or h.get('KLHST_WKS_OS_NAME', '-')}`\n• Isolated: `{h.get('networkIsolated', False)}`")
+    else:
+        msg_parts.append("\n*🟢 Kaspersky KSC:* Tidak ditemukan host")
+
+    if res.get("errors"):
+        msg_parts.append(f"\n⚠️ *Errors:* {'; '.join(res['errors'])}")
+
+    await update.message.reply_text("\n".join(msg_parts), parse_mode="Markdown")
+
+
+async def addedrioc(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    user = update.effective_user
+    if not is_user_allowed(user.id):
+        await update.message.reply_text("❌ Maaf, kamu tidak punya akses ke bot ini.")
+        return
+
+    if len(context.args) < 1:
+        await update.message.reply_text("Format: /addedrioc <ip/sha256/domain> [ksc|trendmicro|all]")
+        return
+
+    val = context.args[0].strip()
+    provider = context.args[1].strip() if len(context.args) > 1 else "all"
+    ioc_type = "ip" if valid_ip(val) else ("sha256" if len(val) == 64 else "domain")
+    ok, msg = edr.add_edr_ioc(ioc_type=ioc_type, ioc_value=val, provider=provider, comment=f"Manual IoC by @{user.username or user.id}")
+    prefix = "✅" if ok else "❌"
+    await update.message.reply_text(f"{prefix} *Pendaftaran IoC EDR ({ioc_type.upper()}):*\n{msg}", parse_mode="Markdown")
+
+
+async def edrstatus(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    user = update.effective_user
+    if not is_user_allowed(user.id):
+        await update.message.reply_text("❌ Maaf, kamu tidak punya akses ke bot ini.")
+        return
+
+    results = edr.check_all_edr_connectivity()
+    parts = ["*🛡️ Status Konektivitas EDR Server:*\n"]
+    for r in results:
+        prov = r.get("provider", "unknown").upper()
+        if r.get("ok"):
+            parts.append(f"• *{prov}:* ✅ Terhubung (OK)")
+        elif not r.get("configured"):
+            parts.append(f"• *{prov}:* ⚪ Belum Dikonfigurasi")
+        else:
+            parts.append(f"• *{prov}:* ❌ Gagal - `{r.get('error')}`")
+    await update.message.reply_text("\n".join(parts), parse_mode="Markdown")
+
+
+# -----------------
+# TIER 3: CASE MANAGEMENT COMMANDS
+# -----------------
+async def cases_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    user = update.effective_user
+    if not is_user_allowed(user.id):
+        await update.message.reply_text("❌ Maaf, kamu tidak punya akses ke bot ini.")
+        return
+
+    status_filter = context.args[0].upper() if context.args else None
+    case_list = cases.list_cases(status=status_filter, limit=10)
+    if not case_list:
+        await update.message.reply_text(f"Tidak ada incident case aktif{' dengan status ' + status_filter if status_filter else ''}.")
+        return
+
+    parts = [f"*📋 Daftar Incident Cases ({len(case_list)} Terakhir):*\n"]
+    for c in case_list:
+        parts.append(
+            f"• *{c.case_id}* | `[{c.severity.upper()}]` | `{c.status}`\n"
+            f"  Title: {c.title}\n"
+            f"  Attacker: `{c.attacker_ip or 'N/A'}` | Target: `{c.target_asset or 'N/A'}`"
+        )
+    parts.append("\n_Gunakan `/case <id>` untuk melihat detail atau `/updatecase <id> <status>` untuk update._")
+    await update.message.reply_text("\n".join(parts), parse_mode="Markdown")
+
+
+async def case_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    user = update.effective_user
+    if not is_user_allowed(user.id):
+        await update.message.reply_text("❌ Maaf, kamu tidak punya akses ke bot ini.")
+        return
+
+    if not context.args:
+        await update.message.reply_text("Format: /case <case_id>")
+        return
+
+    cid = context.args[0].strip()
+    c = cases.get_case(cid)
+    if not c:
+        await update.message.reply_text(f"❌ Case `{cid}` tidak ditemukan.", parse_mode="Markdown")
+        return
+
+    report_md = cases.generate_case_markdown_report(c)
+    await update.message.reply_text(report_md[:4000], parse_mode="Markdown")
+
+
+async def updatecase_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    user = update.effective_user
+    if not is_user_allowed(user.id):
+        await update.message.reply_text("❌ Maaf, kamu tidak punya akses ke bot ini.")
+        return
+
+    if len(context.args) < 2:
+        await update.message.reply_text("Format: /updatecase <case_id> <NEW|INVESTIGATING|CONTAINED|RESOLVED|CLOSED|FALSE_POSITIVE> [notes]")
+        return
+
+    cid = context.args[0].strip()
+    new_status = context.args[1].strip()
+    notes = " ".join(context.args[2:]) if len(context.args) > 2 else ""
+
+    ok, msg, c = cases.update_case_status(cid, new_status, actor=f"@{user.username or user.id}", notes=notes)
+    prefix = "✅" if ok else "❌"
+    await update.message.reply_text(f"{prefix} {msg}")
+
+
+async def socmetrics_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    user = update.effective_user
+    if not is_user_allowed(user.id):
+        await update.message.reply_text("❌ Maaf, kamu tidak punya akses ke bot ini.")
+        return
+
+    m = cases.get_soc_metrics()
+    parts = [
+        "📊 *SOC Operational & SLA Metrics:*",
+        f"• *Total Cases:* `{m['total_cases']}`",
+        f"• *Avg MTTD (Time to Detect):* `{m['avg_mttd_seconds']}s`",
+        f"• *Avg MTTR (Time to Resolve):* `{m['avg_mttr_minutes']} mins` (`{m['avg_mttr_seconds']}s`)\n",
+        "*Status Distribution:*",
+    ]
+    for st, count in m["status_distribution"].items():
+        if count > 0:
+            parts.append(f"  - `{st}`: {count}")
+
+    parts.append("\n*Severity Distribution:*")
+    for sv, count in m["severity_distribution"].items():
+        if count > 0:
+            parts.append(f"  - `{sv.upper()}`: {count}")
+
+    if m["top_attackers"]:
+        parts.append("\n*Top Attackers:*")
+        for ip, cnt in m["top_attackers"]:
+            parts.append(f"  - `{ip}`: {cnt} incidents")
+
+    await update.message.reply_text("\n".join(parts), parse_mode="Markdown")
+
+
+async def exportcase_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    user = update.effective_user
+    if not is_user_allowed(user.id):
+        await update.message.reply_text("❌ Maaf, kamu tidak punya akses ke bot ini.")
+        return
+
+    if not context.args:
+        await update.message.reply_text("Format: /exportcase <case_id>")
+        return
+
+    cid = context.args[0].strip()
+    c = cases.get_case(cid)
+    if not c:
+        await update.message.reply_text(f"❌ Case `{cid}` tidak ditemukan.", parse_mode="Markdown")
+        return
+
+    report_md = cases.generate_case_markdown_report(c)
+    await update.message.reply_text(f"```markdown\n{report_md[:3800]}\n```", parse_mode="Markdown")
+
+
+async def syncticket_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    user = update.effective_user
+    if not is_user_allowed(user.id):
+        await update.message.reply_text("❌ Maaf, kamu tidak punya akses ke bot ini.")
+        return
+
+    if not context.args:
+        await update.message.reply_text("Format: /syncticket <case_id>")
+        return
+
+    cid = context.args[0].strip()
+    await update.message.reply_text(f"Mendispatch case `{cid}` ke aplikasi ticketing pihak ke-3...", parse_mode="Markdown")
+    ok, msg = cases.sync_case_to_ticketing(cid, actor=f"@{user.username or user.id}")
+    prefix = "✅" if ok else "⚠️"
+    await update.message.reply_text(f"{prefix} {msg}")
+
+
+# -----------------
+# TIER 4: EXTENDED PERIMETERS (CLOUDFLARE & FORTIGATE)
+# -----------------
+async def blockoncf_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    user = update.effective_user
+    if not is_user_allowed(user.id):
+        await update.message.reply_text("❌ Maaf, kamu tidak punya akses ke bot ini.")
+        return
+
+    if not context.args or not valid_ip(context.args[0].strip()):
+        await update.message.reply_text("Format: /blockoncf <ip>")
+        return
+
+    ip = context.args[0].strip()
+    await update.message.reply_text(f"Memproses blokir IP `{ip}` di Cloudflare WAF ...", parse_mode="Markdown")
+    ok, msg = cloudflare.block_ip(ip, notes=f"Manual block by @{user.username or user.id}")
+    prefix = "✅" if ok else "❌"
+    await update.message.reply_text(f"{prefix} *Cloudflare:* {msg}", parse_mode="Markdown")
+
+
+async def unblockoncf_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    user = update.effective_user
+    if not is_user_allowed(user.id):
+        await update.message.reply_text("❌ Maaf, kamu tidak punya akses ke bot ini.")
+        return
+
+    if not context.args or not valid_ip(context.args[0].strip()):
+        await update.message.reply_text("Format: /unblockoncf <ip>")
+        return
+
+    ip = context.args[0].strip()
+    await update.message.reply_text(f"Memproses unblock IP `{ip}` di Cloudflare ...", parse_mode="Markdown")
+    ok, msg = cloudflare.unblock_ip(ip)
+    prefix = "✅" if ok else "❌"
+    await update.message.reply_text(f"{prefix} *Cloudflare:* {msg}", parse_mode="Markdown")
+
+
+async def blockonforti_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    user = update.effective_user
+    if not is_user_allowed(user.id):
+        await update.message.reply_text("❌ Maaf, kamu tidak punya akses ke bot ini.")
+        return
+
+    if not context.args or not valid_ip(context.args[0].strip()):
+        await update.message.reply_text("Format: /blockonforti <ip>")
+        return
+
+    ip = context.args[0].strip()
+    await update.message.reply_text(f"Memproses blokir IP `{ip}` di FortiGate Firewall ...", parse_mode="Markdown")
+    ok, msg = fortigate.block_ip(ip, comment=f"Manual block by @{user.username or user.id}")
+    prefix = "✅" if ok else "❌"
+    await update.message.reply_text(f"{prefix} *FortiGate:* {msg}", parse_mode="Markdown")
+
+
+async def unblockonforti_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    user = update.effective_user
+    if not is_user_allowed(user.id):
+        await update.message.reply_text("❌ Maaf, kamu tidak punya akses ke bot ini.")
+        return
+
+    if not context.args or not valid_ip(context.args[0].strip()):
+        await update.message.reply_text("Format: /unblockonforti <ip>")
+        return
+
+    ip = context.args[0].strip()
+    await update.message.reply_text(f"Memproses unblock IP `{ip}` di FortiGate ...", parse_mode="Markdown")
+    ok, msg = fortigate.unblock_ip(ip)
+    prefix = "✅" if ok else "❌"
+    await update.message.reply_text(f"{prefix} *FortiGate:* {msg}", parse_mode="Markdown")
+
+
+# -----------------
+# TIER 5: AI SOC COPILOT & MLOPS COMMANDS
+# -----------------
+async def askai_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    user = update.effective_user
+    if not is_user_allowed(user.id):
+        await update.message.reply_text("❌ Maaf, kamu tidak punya akses ke bot ini.")
+        return
+
+    if not context.args:
+        await update.message.reply_text("Format: /askai <pertanyaan keamanan atau analisa payload>")
+        return
+
+    question = " ".join(context.args)
+    await update.message.reply_text("🤖 _AI SOC Copilot sedang menganalisis..._", parse_mode="Markdown")
+    answer = ai.ask_copilot(question)
+    await update.message.reply_text(answer[:4000], parse_mode="Markdown")
+
+
+async def rca_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    user = update.effective_user
+    if not is_user_allowed(user.id):
+        await update.message.reply_text("❌ Maaf, kamu tidak punya akses ke bot ini.")
+        return
+
+    if not context.args:
+        await update.message.reply_text("Format: /rca <ip_or_event_id>")
+        return
+
+    target = context.args[0].strip()
+    await update.message.reply_text(f"🔍 _AI Copilot sedang menyusun Root Cause Analysis (RCA) untuk `{target}`..._", parse_mode="Markdown")
+    rca_text = ai.generate_rca(target)
+    await update.message.reply_text(rca_text[:4000], parse_mode="Markdown")
+
+
+async def retrainmodel_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    user = update.effective_user
+    if not is_user_allowed(user.id):
+        await update.message.reply_text("❌ Maaf, kamu tidak punya akses ke bot ini.")
+        return
+
+    from .ml.autotrain import run_autotrain_from_file
+
+    await update.message.reply_text("⚙️ Memulai proses auto-retraining model ML Challenger...", parse_mode="Markdown")
+    ok, metrics, msg = run_autotrain_from_file()
+    prefix = "✅" if ok else "⚠️"
+    details = f"\n• Metrics: ROC-AUC={metrics.get('roc_auc', '-')}, Acc={metrics.get('accuracy', '-')}" if metrics else ""
+    await update.message.reply_text(f"{prefix} *Hasil Auto-Retraining:*\n{msg}{details}", parse_mode="Markdown")
+
+
+# -----------------
 # HELP & ERROR
 # -----------------
 async def help_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE):
     await update.message.reply_text(
-        "Bot miniSOAR siap!\n\n"
-        "🟠 Palo Alto\n"
-        "/blockonpalo <ip address> : untuk menambahkan IP di blocklist Palo Alto\n"
-        "/unblockonpalo <ip address> : untuk menghapus IP dari blocklist di Palo Alto\n"
-        "/commitpalo : untuk commit konfigurasi di Palo Alto\n\n"
-        "🟢 Akamai\n"
-        "/blockonakamai <ip address> : untuk menambahkan IP di blocklist Akamai\n"
-        "/unblockonakamai <ip address> : untuk menghapus IP dari blocklist Akamai \n"
-        "/activateakamai : untuk melakukan Aktivasi Konfigurasi di Staging and Production\n\n"
-        "🔵 Imperva\n"
-        "/blockonimperva <ip address> : untuk menambahkan IP di blocklist Imperva\n"
-        "/unblockonimperva <ip address> : untuk menghapus IP dari blocklist Imperva\n"
-        "/tracev <event ID> : untuk melakukan tracing violation di Imperva\n"
+        "Bot miniSOAR Enterprise siap!\n\n"
+        "🟠 Perimeter (Palo Alto, Akamai, Imperva)\n"
+        "/blockonpalo <ip> | /unblockonpalo <ip> | /commitpalo\n"
+        "/blockonakamai <ip> | /unblockonakamai <ip> | /activateakamai\n"
+        "/blockonimperva <ip> | /unblockonimperva <ip> | /tracev <event ID>\n\n"
+        "🌐 Extended Perimeters (Cloudflare & FortiGate)\n"
+        "/blockoncf <ip> | /unblockoncf <ip> : Cloudflare WAF Access Rules\n"
+        "/blockonforti <ip> | /unblockonforti <ip> : Fortinet FortiGate Firewall\n\n"
+        "🛡️ EDR Server (Kaspersky KSC & TrendMicro)\n"
+        "/isolatehost <ip/id> [ksc|trendmicro|all] : Isolasi jaringan host endpoint\n"
+        "/restorehost <ip/id> [ksc|trendmicro|all] : Pulihkan jaringan host endpoint\n"
+        "/queryhost <ip> | /addedrioc <ioc> | /edrstatus\n\n"
+        "📋 Case Management & SLA Metrics (Tier 3)\n"
+        "/cases [status] : Lihat daftar insiden aktif\n"
+        "/case <case_id> : Detail laporan insiden\n"
+        "/updatecase <id> <status> [notes] : Update status insiden\n"
+        "/syncticket <case_id> : Dispatch insiden ke aplikasi ticketing pihak ke-3\n"
+        "/socmetrics : Metrik SLA (MTTD / MTTR / Top Attackers)\n"
+        "/exportcase <id> : Export laporan Markdown insiden\n\n"
+        "🤖 AI SOC Copilot & MLOps (Tier 5)\n"
+        "/askai <pertanyaan> : Konsultasi investigasi AI Copilot\n"
+        "/rca <ip/event_id> : Generate Root Cause Analysis otomatis\n"
+        "/retrainmodel : Trigger auto-retraining model ML trafik\n"
     )
 
 async def on_error(update: object, context: ContextTypes.DEFAULT_TYPE) -> None:
@@ -574,15 +1117,43 @@ def main() -> None:
         app.add_handler(CommandHandler("blockonpalo", blockonpalo))
         app.add_handler(CommandHandler("unblockonpalo", unblockonpalo))
         app.add_handler(CommandHandler("commitpalo", commitpalo))
+        app.add_handler(CommandHandler("tracevpalo", tracevpalo))
 
         app.add_handler(CommandHandler("blockonakamai", blockonakamai))
         app.add_handler(CommandHandler("unblockonakamai", unblockonakamai))
         app.add_handler(CommandHandler("activateakamai", activateakamai))
+        app.add_handler(CommandHandler("tracevakamai", tracevakamai))
+
+        # EDR Handlers
+        app.add_handler(CommandHandler("isolatehost", isolatehost))
+        app.add_handler(CommandHandler("restorehost", restorehost))
+        app.add_handler(CommandHandler("queryhost", queryhost))
+        app.add_handler(CommandHandler("addedrioc", addedrioc))
+        app.add_handler(CommandHandler("edrstatus", edrstatus))
+
+        # Tier 3: Case Management & Ticketing Handlers
+        app.add_handler(CommandHandler("cases", cases_cmd))
+        app.add_handler(CommandHandler("case", case_cmd))
+        app.add_handler(CommandHandler("updatecase", updatecase_cmd))
+        app.add_handler(CommandHandler("syncticket", syncticket_cmd))
+        app.add_handler(CommandHandler("socmetrics", socmetrics_cmd))
+        app.add_handler(CommandHandler("exportcase", exportcase_cmd))
+
+        # Tier 4: Extended Perimeters Handlers
+        app.add_handler(CommandHandler("blockoncf", blockoncf_cmd))
+        app.add_handler(CommandHandler("unblockoncf", unblockoncf_cmd))
+        app.add_handler(CommandHandler("blockonforti", blockonforti_cmd))
+        app.add_handler(CommandHandler("unblockonforti", unblockonforti_cmd))
+
+        # Tier 5: AI SOC Copilot & MLOps Handlers
+        app.add_handler(CommandHandler("askai", askai_cmd))
+        app.add_handler(CommandHandler("rca", rca_cmd))
+        app.add_handler(CommandHandler("retrainmodel", retrainmodel_cmd))
 
         app.add_handler(CallbackQueryHandler(callback_query_handler))
         app.add_error_handler(on_error)
 
-        print("Bot Telegram miniSOAR aktif...")
+        print("Bot Telegram miniSOAR Enterprise aktif...")
         app.run_polling()
     except KeyboardInterrupt:
         print("\n[INFO] Bot Telegram dihentikan oleh pengguna (Ctrl+C). Keluar secara anggun...")
@@ -590,3 +1161,4 @@ def main() -> None:
 
 if __name__ == "__main__":
     main()
+

@@ -4,6 +4,21 @@ Semua perubahan penting pada proyek **MiniSOAR** akan dicatat di dokumen ini.
 
 Format changelog berbasis pada [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 
+## [1.3.0] - 2026-08-18
+
+### Added
+- **EDR Server Integration (Kaspersky KSC & TrendMicro Vision One):** Menambahkan package `minisoar/edr/` yang menghubungkan MiniSOAR dengan server EDR untuk melakukan isolasi host endpoint (`isolate_endpoint`), pemulihan jaringan (`restore_endpoint`), sinkronisasi IoC / suspicious objects (`add_edr_ioc`), dan query inventory endpoint (`query_endpoint`).
+- **EDR Telegram Bot Commands:** Menambahkan perintah `/isolatehost`, `/restorehost`, `/queryhost`, `/addedrioc`, dan `/edrstatus` pada `minisoar/bot.py`.
+- **EDR Playbook Actions & Template:** Menambahkan action handler `edr.isolate_endpoint`, `edr.restore_endpoint`, `edr.add_ioc`, serta playbook bawaan `04_host_compromise_edr.yml`.
+- **Declarative YAML Playbook Engine:** Menambahkan package `minisoar/playbook/` yang mendukung perancangan alur kerja mitigasi modular berbasis YAML (`minisoar/playbooks/`), parser skema aman, evaluasi kondisi berbasis AST, registri aksi (`mitigation.auto_block`, `notification.telegram`, `database.store_label`), dan eksekusi bertahap (DAG).
+- **Default Playbooks:** Menyediakan playbook bawaan untuk `01_webshell_immediate.yml`, `02_bruteforce_attack.yml`, `03_injection_attacks.yml`, `04_host_compromise_edr.yml`, dan `99_default_fallback.yml`.
+- **Alert Correlation & Anti-Alert Storm Engine:** Menambahkan `minisoar/correlation.py` dengan Redis-backed sliding-window aggregation, alert throttling untuk mencegah kebanjiran notifikasi Telegram saat serangan berkelanjutan, dan deteksi multi-IP campaign (> 5 penyerang).
+- **Unit Test Suite:** Menambahkan `tests/test_playbook.py`, `tests/test_correlation.py`, dan `tests/test_edr.py` dengan cakupan pengujian lengkap.
+
+### Changed
+- **Modernized UTC Datetimes:** Memperbarui penggunaan `datetime.datetime.utcnow()` di `minisoar/database.py` menjadi `datetime.datetime.now(datetime.timezone.utc)` untuk kompatibilitas penuh Python 3.14+.
+- **Daemon Integration:** Mengintegrasikan Correlation Engine, Playbook Engine, dan EDR Connectivity Check ke dalam loop worker `minisoar/daemon.py` dengan mode `PLAYBOOK` dan kompatibilitas mundur penuh untuk mode `AUTO`/`SEMI`/`MANUAL`.
+
 ## [1.2.4] - 2026-06-18
 
 ### Added

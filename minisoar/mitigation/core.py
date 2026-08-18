@@ -9,7 +9,7 @@ import traceback
 
 from ..config import norm_provider
 
-from . import imperva, paloalto, akamai
+from . import imperva, paloalto, akamai, cloudflare, fortigate
 
 logger = logging.getLogger(__name__)
 
@@ -123,6 +123,14 @@ def trigger_auto_block(ip: str, provider: str, commit: bool = True) -> tuple[boo
         except Exception as e:
             return False, f"Akamai error: {e}"
 
+    # Cloudflare
+    if p == "cloudflare":
+        return cloudflare.block_ip(ip)
+
+    # FortiGate
+    if p == "fortigate":
+        return fortigate.block_ip(ip)
+
     return False, f"No mitigation action configured for provider '{provider}'"
 
 
@@ -192,7 +200,15 @@ def trigger_auto_unblock(ip: str, provider: str, commit: bool = True) -> tuple[b
         except Exception as e:
             return False, f"Akamai error: {e}"
 
-    return False, f"No mitigation action configured for provider '{provider}'"
+    # Cloudflare
+    if p == "cloudflare":
+        return cloudflare.unblock_ip(ip)
+
+    # FortiGate
+    if p == "fortigate":
+        return fortigate.unblock_ip(ip)
+
+    return False, f"No unblock action configured for provider '{provider}'"
 
 
 # ---------------------------------------------
@@ -363,6 +379,12 @@ def check_perimeter_connectivity() -> list[dict]:
         results.append(entry)
     else:
         results.append({"provider": "akamai", "configured": False, "ok": None, "error": None, "hint": None})
+
+    # Cloudflare
+    results.append(cloudflare.check_connectivity())
+
+    # FortiGate
+    results.append(fortigate.check_connectivity())
 
     return results
 

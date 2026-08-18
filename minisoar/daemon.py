@@ -54,6 +54,9 @@ from .utils import (
     extract_reputation_score,
 )
 from .ecs_normalizer import normalize_to_ecs
+from .correlation import CorrelationEngine
+from .edr import check_all_edr_connectivity
+from .playbook import ExecutionContext, PlaybookEngine
 
 logger = logging.getLogger(__name__)
 
@@ -136,8 +139,14 @@ def main() -> None:
     proc_chat_status = "SET" if os.environ.get("TELEGRAM_PROCESS_CHAT_ID") else "NOT SET (FALLBACK)"
 
     print(f"• Telegram Bot Token: {bot_masked} ({bot_status})")
-    print(f"• Telegram Chat ID  : {telegram_chat_id} ({chat_status})")
-    print(f"• Telegram Proc Chat: {telegram_proc_chat_id} ({proc_chat_status})")
+    # 5. Playbook & Correlation Engines Setup
+    playbooks_dir = Path(__file__).parent / "playbooks"
+    playbook_engine = PlaybookEngine(playbooks_dir=playbooks_dir)
+    correlation_engine = CorrelationEngine(redis_conn=r, default_window=minisoar_event_window)
+
+    print(f"• Playbook Engine  : {len(playbook_engine.playbooks)} playbooks loaded ({playbooks_dir})")
+    print(f"• Correlation Mode : Active (Window: {minisoar_event_window}s)")
+    print(f"• Blocking Mode    : {minisoar_blocking_mode}")
     print("=" * 60)
 
     # Perimeter connectivity check — verify every configured provider is reachable
@@ -161,6 +170,21 @@ def main() -> None:
             )
             if res.get("traceback"):
                 logger.error("Traceback for %s:\n%s", res["provider"], res["traceback"])
+
+    # EDR connectivity check — verify Kaspersky KSC and TrendMicro Vision One
+    print("• EDR Connectivity Check (Kaspersky & TrendMicro):")
+    edr_results = check_all_edr_connectivity()
+    for res in edr_results:
+        provider = res["provider"].upper()
+        if not res["configured"]:
+            print(f"   - {provider:<10}: SKIPPED (not configured)")
+            continue
+        if res["ok"]:
+            print(f"   - {provider:<10}: OK (reachable)")
+            logger.info("EDR check OK: %s", res["provider"])
+        else:
+            print(f"   - {provider:<10}: FAILED - {res['error']}")
+            logger.error("EDR check FAILED: provider=%s error=%s hint=%s", res["provider"], res["error"], res["hint"])
     print("=" * 60)
 
     try:
@@ -348,6 +372,47 @@ def main() -> None:
 
                     rep_score = extract_reputation_score(rep_str)
                     is_permanent = rep_score >= 50
+
+                    # Correlation aggregation & Campaign detection
+                    corr_data = correlation_engine.aggregate_event(
+                        ip=ip,
+                        website=website,
+                        detector_type=alert_type or "generic",
+                        top_paths=top_paths if ts_epoch else [],
+                        hits=int((event.get("alert") or {}).get("count") or event.get("count") or 1),
+                        window_seconds=minisoar_event_window,
+                    )
+                    campaign_data = correlation_engine.detect_campaign(
+                        website=website,
+                        detector_type=alert_type or "generic",
+                        src_ip=ip,
+                    )
+                    if campaign_data.get("is_campaign"):
+                        event["campaign"] = campaign_data
+                        msg = f"🚨 *DISTRIBUTED CAMPAIGN ({campaign_data['attacker_count']} IPs targeting {website or 'asset'})*\n" + msg
+
+                    if minisoar_blocking_mode == "PLAYBOOK":
+                        ctx = ExecutionContext(
+                            event=event,
+                            ip=ip,
+                            website=website,
+                            providers=providers,
+                            mapped=mapped,
+                            whitelisted=whitelisted,
+                            bypassed=bypassed,
+                            ml_prob=pred_prob,
+                            ml_label=pred_label,
+                            reputation_score=rep_score,
+                            rep_str=rep_str,
+                            event_id=event_id,
+                            redis_conn=r,
+                            pending_commits=pending_commits,
+                            logfile=logfile,
+                            minisoar_block_duration=minisoar_block_duration,
+                        )
+                        ok_pb, pb_id = playbook_engine.execute(ctx)
+                        if ok_pb:
+                            continue
 
                     if minisoar_blocking_mode == "AUTO":
                         if whitelisted:

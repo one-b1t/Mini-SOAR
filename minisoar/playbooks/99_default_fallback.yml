@@ -1,0 +1,19 @@
+name: "Default Fallback Notification Playbook"
+id: "pb-default-fallback"
+description: "Playbook default untuk alert yang tidak ter-matching playbook spesifik lainnya."
+enabled: true
+priority: 999
+
+trigger:
+  alert_types: []  # Match any alert
+
+conditions:
+  - "not bypassed"
+
+steps:
+  - id: "step_notify_telegram"
+    name: "Broadcast Alert to Telegram"
+    action: "notification.telegram"
+    params:
+      show_buttons: true
+    on_failure: "continue"

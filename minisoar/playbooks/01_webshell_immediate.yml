@@ -1,0 +1,42 @@
+name: "Webshell Immediate Response Playbook"
+id: "pb-webshell-immediate"
+description: "Mitigasi otomatis instan untuk deteksi upload atau eksekusi webshell berbahaya."
+enabled: true
+priority: 10
+
+trigger:
+  alert_types:
+    - "alert_webshell_immediate"
+    - "alert_webshell_name"
+    - "alert_webshell_heur"
+  severity:
+    - "high"
+    - "critical"
+
+conditions:
+  - "not whitelisted"
+  - "not bypassed"
+
+steps:
+  - id: "step_block_perimeter"
+    name: "Auto Block Perimeter"
+    action: "mitigation.auto_block"
+    params:
+      duration: 600
+      commit: false
+    on_failure: "continue"
+
+  - id: "step_notify_telegram"
+    name: "Broadcast Alert to Telegram"
+    action: "notification.telegram"
+    params:
+      show_buttons: true
+    on_failure: "continue"
+
+  - id: "step_audit_label"
+    name: "Record Audit Label in Elasticsearch"
+    action: "database.store_label"
+    params:
+      decision: "block"
+      actor: "playbook:pb-webshell-immediate"
+    on_failure: "continue"

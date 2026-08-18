@@ -1,0 +1,41 @@
+name: "Web Injection & Exploitation Playbook"
+id: "pb-web-injection"
+description: "Mitigasi otomatis terhadap serangan SQLi, XSS, LFI/RFI, dan RCE heuristik."
+enabled: true
+priority: 15
+
+trigger:
+  alert_types:
+    - "alert_sqli_attack"
+    - "alert_xss_attack"
+    - "alert_lfi_attempt"
+    - "alert_rce_heur"
+
+conditions:
+  - "not whitelisted"
+  - "not bypassed"
+  - "ml_prob >= 0.60 or reputation_score >= 20"
+
+steps:
+  - id: "step_block_perimeter"
+    name: "Auto Block Perimeter"
+    action: "mitigation.auto_block"
+    params:
+      duration: 600
+      commit: false
+    on_failure: "continue"
+
+  - id: "step_notify_telegram"
+    name: "Broadcast Alert to Telegram"
+    action: "notification.telegram"
+    params:
+      show_buttons: true
+    on_failure: "continue"
+
+  - id: "step_audit_label"
+    name: "Record Audit Label in Elasticsearch"
+    action: "database.store_label"
+    params:
+      decision: "block"
+      actor: "playbook:pb-web-injection"
+    on_failure: "continue"

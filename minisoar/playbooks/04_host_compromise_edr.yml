@@ -1,0 +1,60 @@
+name: "Endpoint Compromise & Ransomware Containment Playbook"
+id: "pb-edr-host-compromise"
+description: "Mitigasi otomatis isolasi host endpoint (Kaspersky KSC & TrendMicro Vision One) saat terdeteksi indikasi ransomware atau kompromi internal kritis."
+enabled: true
+priority: 5
+
+trigger:
+  alert_types:
+    - "alert_ransomware_activity"
+    - "alert_c2_communication"
+    - "alert_lateral_movement"
+    - "alert_privilege_escalation"
+  severity:
+    - "critical"
+
+conditions:
+  - "not whitelisted"
+  - "not bypassed"
+
+steps:
+  - id: "step_isolate_endpoint"
+    name: "Isolate Compromised Host on EDR"
+    action: "edr.isolate_endpoint"
+    params:
+      provider: "all"
+      reason: "Automated ransomware containment by MiniSOAR SOAR"
+    on_failure: "continue"
+
+  - id: "step_add_edr_ioc"
+    name: "Register Attacker IP to EDR Suspicious Objects"
+    action: "edr.add_ioc"
+    params:
+      type: "ip"
+      provider: "all"
+      comment: "Ransomware C2 IoC"
+    on_failure: "continue"
+
+  - id: "step_block_perimeter"
+    name: "Block on Perimeter Firewalls"
+    action: "mitigation.auto_block"
+    params:
+      duration: 1800
+      commit: false
+    on_failure: "continue"
+
+  - id: "step_notify_telegram"
+    name: "Broadcast Critical Containment Alert"
+    action: "notification.telegram"
+    params:
+      header: "🚨 *[CRITICAL] EDR ENDPOINT CONTAINMENT TRIGGERED*"
+      show_buttons: true
+    on_failure: "continue"
+
+  - id: "step_audit_label"
+    name: "Record Audit Label in Elasticsearch"
+    action: "database.store_label"
+    params:
+      decision: "isolate_and_block"
+      actor: "playbook:pb-edr-host-compromise"
+    on_failure: "continue"

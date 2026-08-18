@@ -12,18 +12,45 @@ from ..utils import extract_reputation_score
 logger = logging.getLogger(__name__)
 
 
+_CACHED_MODEL_ARTIFACT = None
+_CACHED_MODEL_MTIME: float = 0.0
+
+
 def load_model_artifact(model_path: Path | None = None):
-    path = model_path or (Path.cwd() / "baseline_model.joblib")
-    if not path.exists():
-        logger.warning("baseline_model.joblib not found. Fallback heuristic will be used.")
+    """Loads model artifact with automatic zero-downtime hot-reloading on file modification."""
+    global _CACHED_MODEL_ARTIFACT, _CACHED_MODEL_MTIME
+
+    candidates = [
+        model_path,
+        Path.cwd() / "active_model.joblib",
+        Path.cwd() / "baseline_model.joblib",
+        Path(__file__).resolve().parent.parent.parent / "active_model.joblib",
+        Path(__file__).resolve().parent.parent.parent / "baseline_model.joblib",
+    ]
+
+    target_path: Path | None = None
+    for cand in candidates:
+        if cand and cand.exists():
+            target_path = cand
+            break
+
+    if not target_path or not target_path.exists():
+        logger.warning("No active_model.joblib or baseline_model.joblib found. Fallback heuristic will be used.")
         return None
+
     try:
-        artifact = joblib.load(path)
-        logger.info("Loaded baseline model trained at %s", artifact.get("trained_date"))
+        current_mtime = target_path.stat().st_mtime
+        if _CACHED_MODEL_ARTIFACT is not None and current_mtime == _CACHED_MODEL_MTIME:
+            return _CACHED_MODEL_ARTIFACT
+
+        artifact = joblib.load(target_path)
+        _CACHED_MODEL_ARTIFACT = artifact
+        _CACHED_MODEL_MTIME = current_mtime
+        logger.info("Loaded/Hot-reloaded model artifact from %s (trained: %s)", target_path.name, artifact.get("trained_date"))
         return artifact
     except Exception as e:
-        logger.error("Failed to load baseline model: %s", e)
-        return None
+        logger.error("Failed to load model from %s: %s", target_path, e)
+        return _CACHED_MODEL_ARTIFACT
 
 
 def predict_block(event: dict, ip: str, provider: str, whitelisted: bool, rep_str: str, model_artifact=None) -> tuple[int, float]:

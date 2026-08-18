@@ -238,4 +238,35 @@ MiniSOAR still works as an alert delivery and mitigation pipeline, but its imple
 - **Solution:** Integrated `store_label` inside manual commands in `minisoar/bot.py` (fetching the closest `event_id` via `es_find_latest_event_id_by_ip`) and inside auto/semi-auto modes in `minisoar/daemon.py`.
 - **Rationale:** Writing all blocking decisions to the labels index prefixed with `minisoar-labels` ensures the dataset extraction queries run by `export.py` capture the full decision-making history of the SOAR platform.
 
+### 2026-08-18 10:50 WIB
+- **Problem:** Hardcoded mitigation logic in daemon made it difficult to customize workflow triggers for specific threat categories (e.g. webshell, bruteforce, sqli), and alert bursts from repeated attacks risked flooding analysts with notifications.
+- **Solution:** Implemented **Tier 2: Declarative Playbook Engine** (`minisoar/playbook/`) supporting YAML-defined workflows (`minisoar/playbooks/`), safe AST condition evaluation, DAG step execution, and fallback handling. Concurrently added **Alert Correlation & Anti-Spam Engine** (`minisoar/correlation.py`) providing Redis-backed sliding-window hit aggregation, alert storm throttling, and multi-IP campaign detection.
+- **Rationale:** Separating orchestration rules into declarative YAML files allows rapid tuning of mitigation playbooks without touching core code, while correlation and throttling prevent alert fatigue during sustained distributed attacks.
+
+### 2026-08-18 10:55 WIB
+- **Problem:** MiniSOAR previously only supported perimeter WAF/firewall mitigations (Imperva, Palo Alto, Akamai) without direct capability to contain internal compromised hosts or register IoCs at the endpoint level.
+- **Solution:** Integrated EDR servers via a dedicated `minisoar/edr/` package: **Kaspersky Security Center (KSC 15.1 OpenAPI)** and **TrendMicro (Cloud One Workload Security & Vision One)** APIs. Implemented unified host containment (`isolate_endpoint`, `restore_endpoint`), IoC registration (`add_edr_ioc`), endpoint querying, Telegram bot commands (`/isolatehost`, `/restorehost`, `/queryhost`, `/addedrioc`, `/edrstatus`), and Playbook actions (`edr.isolate_endpoint`, `edr.add_ioc`).
+- **Rationale:** Providing unified host containment across Kaspersky and TrendMicro enables instant response to ransomware, lateral movement, and internal asset compromises directly from SOAR playbooks and Telegram operations.
+
+### 2026-08-18 11:35 WIB
+- **Problem:** MiniSOAR should not enforce a heavy mandatory internal ticketing database. Instead, incident ticketing must integrate with enterprise 3rd-party applications (TheHive, Jira, ServiceNow, Generic Webhook) and remain strictly optional based on configuration.
+- **Solution:** Implemented **Tier 3: Modular & Optional 3rd-Party Ticketing Connectors** (`minisoar/cases/connectors.py` & `minisoar/cases/core.py`).
+  - Controlled by `TICKETING_PROVIDER` (`none` [default/disabled], `thehive`, `jira`, `servicenow`, `webhook`).
+  - When disabled (`none`), MiniSOAR processes alerts and mitigations seamlessly without ticketing overhead.
+  - When enabled, `dispatch_external_ticket` automatically creates tickets in the configured 3rd-party platform, or analysts can trigger it on-demand via `/syncticket <case_id>`.
+- **Rationale:** Decoupling ticketing from the codebase allows organizations to use their existing ITSM/SIEM solutions without data silos or mandatory schema constraints.
+
+### 2026-08-18 11:40 WIB
+- **Problem:** Perimeter mitigation was limited to Palo Alto, Akamai, and Imperva, lacking coverage for Cloudflare Edge WAF and Fortinet FortiGate enterprise firewalls.
+- **Solution:** Implemented **Tier 4: Extended Perimeters** via `minisoar/mitigation/cloudflare.py` (Cloudflare IP Access Rules API) and `minisoar/mitigation/fortigate.py` (FortiOS REST API address objects & address groups). Integrated both providers into the unified mitigation orchestrator (`trigger_auto_block`, `trigger_auto_unblock`, `check_perimeter_connectivity`), playbook actions, and Telegram commands (`/blockoncf`, `/unblockoncf`, `/blockonforti`, `/unblockonforti`).
+- **Rationale:** Expanding perimeter integrations enables organizations to enforce defense-in-depth across both multi-cloud CDN edges (Cloudflare) and on-premise datacenter firewalls (FortiGate).
+
+### 2026-08-18 11:45 WIB
+- **Problem:** High-volume traffic classification requires sub-millisecond local inference, while complex investigation tasks (payload deobfuscation, Root Cause Analysis, natural language query) require advanced GenAI LLMs. Furthermore, static ML models suffer from model drift as traffic patterns change over time.
+- **Solution:** Implemented **Tier 5: AI SOC Copilot & Continuous MLOps**:
+  1. Multi-Provider Copilot Router (`minisoar/ai/copilot.py`) supporting Google Antigravity / Gemini SDK, Anthropic Claude SDK, OpenAI / Codex SDK, and Local Ollama for air-gapped environments, exposing `/askai` and `/rca`.
+  2. Dual-Engine Architecture: Ultra-fast local ML inference (`.joblib`) for real-time Redis traffic processing, complemented by LLM Copilot for contextual investigation.
+  3. Continuous Retraining Pipeline (`minisoar/ml/autotrain.py`): Periodically extracts ground-truth decisions from `minisoar-labels`, trains Challenger models, validates via Champion-Challenger Quality Gate (ROC-AUC $\ge 0.85$), and dynamically hot-reloads model weights in memory without daemon restart.
+- **Rationale:** The dual-engine design guarantees high throughput and low latency on real-time traffic while empowering analysts with advanced GenAI reasoning, and the automated MLOps pipeline eliminates model drift without downtime.
+
 

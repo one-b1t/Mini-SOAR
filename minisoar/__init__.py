@@ -8,6 +8,14 @@ thin entrypoints that call into this package.
 """
 
 __all__ = [
+    "ai",
+    "cases",
     "config",
+    "correlation",
+    "edr",
+    "mitigation",
+    "playbook",
     "utils",
 ]
+
+
