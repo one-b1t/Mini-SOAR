@@ -27,7 +27,10 @@ graph TD
   - **Palo Alto Networks:** Address Objects, Dynamic Address Groups (DAG), Security Rule commit.
   - **Imperva Cloud WAF:** Custom Rule Policy, Site IP ACL blocking.
   - **Akamai Kona Site Defender:** Network List activation & staging/production deployment.
-- **Telegram Bot Interface:** Notifikasi interaktif instan untuk analis dengan inline action buttons.
+- **Triple-Interface Telegram Subsystem:**
+  - **1. Channel Notification (`TELEGRAM_CHAT_ID`):** Broadcast alert keamanan real-time dengan visualisasi severity dan tombol aksi inline.
+  - **2. Channel Action Log (`TELEGRAM_PROCESS_CHAT_ID`):** Audit trail stream khusus untuk memantau eksekusi mitigasi perimeter, EDR, dan ticketing.
+  - **3. Interactive Bot Message Interface:** Command center dua arah bagi analis SOC terotorisasi (`ALLOWED_USER_IDS`) untuk eksekusi perintah dan AI Copilot.
 
 ### 🟡 Tier 2: Playbook Engine & Correlation
 - **Declarative YAML Playbooks:** Workflow berbasis file YAML di `minisoar/playbooks/` yang dieksekusi secara terstruktur (Directed Acyclic Graph) dengan evaluasi kondisi AST aman (`SafeConditionEvaluator`).

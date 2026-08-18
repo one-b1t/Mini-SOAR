@@ -267,13 +267,14 @@ MiniSOAR still works as an alert delivery and mitigation pipeline, but its imple
   1. Multi-Provider Copilot Router (`minisoar/ai/copilot.py`) supporting Google Antigravity / Gemini SDK, Anthropic Claude SDK, OpenAI / Codex SDK, and Local Ollama for air-gapped environments, exposing `/askai` and `/rca`.
   2. Dual-Engine Architecture: Ultra-fast local ML inference (`.joblib`) for real-time Redis traffic processing, complemented by LLM Copilot for contextual investigation.
   3. Continuous Retraining Pipeline (`minisoar/ml/autotrain.py`): Periodically extracts ground-truth decisions from `minisoar-labels`, trains Challenger models, validates via Champion-Challenger Quality Gate (ROC-AUC $\ge 0.85$), and dynamically hot-reloads model weights in memory without daemon restart.
-### 2026-08-18 13:15 WIB
-- **Problem:** Unverified dependencies could contain known CVEs, weak hashing (SHA-1) in event signature generation risked collision, and hardcoded `verify=False` in perimeter API clients risked insecure transport.
-- **Solution:** Conducted full **Security & Quality Audit (SAST, SCA, Linting)**:
-  - **SCA Vulnerability Patching:** Upgraded `requests>=2.34.2` and `urllib3>=2.7.0` in `requirements.txt`, achieving **0 CVEs** on `pip-audit`.
-  - **SAST Hardening:** Replaced legacy SHA-1 with SHA-256 in `minisoar/database.py`, parameterized SSL verification in `minisoar/mitigation/imperva.py` and `paloalto.py` via `IMPERVA_VERIFY_SSL` and `PALOALTO_VERIFY_SSL`, and handled all exception paths defensibly. Bandit scan passed with **0 issues**.
-  - **Code Quality & Style:** Cleaned up type annotations, eliminated unused variables, and enforced PEP8 / Ruff formatting across the entire `minisoar/` package.
-- **Rationale:** Proactive vulnerability remediation and strict cryptographic hashing ensure the SOAR platform meets enterprise security standards without regressions.
+### 2026-08-18 13:30 WIB
+- **Problem:** Previous architectural documentation simplified the Telegram subsystem as a single bot node, obscuring the critical operational separation between notification broadcasting, action auditing, and command processing.
+- **Solution:** Updated [`docs/architecture.md`](file:///f:/Kantor/Program/MiniSOAR/docs/architecture.md) and [`docs/overview.md`](file:///f:/Kantor/Program/MiniSOAR/docs/overview.md) with comprehensive **Triple-Interface Telegram Subsystem** modeling:
+  1. **Channel Notification (`TELEGRAM_CHAT_ID`):** Broadcast alert stream with inline keyboard interactive action buttons.
+  2. **Channel Action Log (`TELEGRAM_PROCESS_CHAT_ID`):** Dedicated operational audit trail stream for all perimeter mitigations, EDR host isolations, case creations, and ticketing syncs.
+  3. **Interactive Bot Message (`minisoar/bot.py`):** Bidirectional conversational command center with RBAC validation (`ALLOWED_USER_IDS`) for manual commands (`/block`, `/cases`, `/isolatehost`, `/askai`, `/rca`, etc.).
+- **Rationale:** Clear separation of telemetry channels prevents alert fatigue, maintains clean incident audit records, and documents strict authorization boundaries.
+
 
 
 
