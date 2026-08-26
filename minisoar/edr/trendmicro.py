@@ -77,8 +77,11 @@ def check_connectivity() -> dict[str, Any]:
             url = f"{base}/api/computers" if not base.endswith("/api") else f"{base}/computers"
             resp = requests.get(url, headers=_get_headers(), params={"limit": 1}, verify=_get_verify_ssl(), timeout=10)
         else:
-            url = f"{base}/v3.0/eiqs/endpoints"
-            resp = requests.get(url, headers=_get_headers(), params={"top": 1}, verify=_get_verify_ssl(), timeout=10)
+            url = f"{base}/v3.0/endpointSecurity/endpoints"
+            resp = requests.get(url, headers=_get_headers(), verify=_get_verify_ssl(), timeout=10)
+            if resp.status_code not in {200, 201, 204}:
+                url = f"{base}/v3.0/eiqs/endpoints"
+                resp = requests.get(url, headers=_get_headers(), verify=_get_verify_ssl(), timeout=10)
 
         if resp.status_code in {200, 201, 204}:
             return {"provider": "trendmicro", "ok": True, "configured": True, "error": None, "hint": None}
@@ -149,13 +152,36 @@ def find_endpoint_by_ip(ip: str) -> tuple[list[dict[str, Any]], str | None]:
                 })
             return normalized, None
         else:
-            url = f"{base}/v3.0/eiqs/endpoints"
-            resp = requests.get(url, headers=_get_headers(), params={"ip": ip, "top": 10}, verify=_get_verify_ssl(), timeout=15)
-            if resp.status_code != 200:
-                return [], f"HTTP {resp.status_code}: {resp.text[:400]}"
-            data = resp.json()
-            items = data.get("items") or data.get("endpoints") or []
-            return items, None
+            url = f"{base}/v3.0/endpointSecurity/endpoints"
+            resp = requests.get(url, headers=_get_headers(), verify=_get_verify_ssl(), timeout=15)
+            if resp.status_code == 200:
+                data = resp.json()
+                items = data.get("items", [])
+                matched = []
+                for it in items:
+                    ips = list(it.get("ipAddresses") or [])
+                    if it.get("lastUsedIp") and it.get("lastUsedIp") not in ips:
+                        ips.append(it.get("lastUsedIp"))
+                    if ip in ips:
+                        matched.append({
+                            "endpointId": it.get("agentGuid") or it.get("endpointId"),
+                            "endpointName": it.get("endpointName") or it.get("displayName"),
+                            "hostName": it.get("endpointName"),
+                            "osName": it.get("osName", "Unknown OS"),
+                            "ip": ips,
+                            "agentVersion": it.get("eppAgent", {}).get("version") or it.get("edrSensor", {}).get("version", ""),
+                            "isolationStatus": "isolated" if it.get("isolationStatus") == "on" else "normal",
+                        })
+                return matched, None
+
+            # Fallback to legacy eiqs
+            url_legacy = f"{base}/v3.0/eiqs/endpoints"
+            resp_legacy = requests.get(url_legacy, headers=_get_headers(), params={"ip": ip, "top": 10}, verify=_get_verify_ssl(), timeout=15)
+            if resp_legacy.status_code == 200:
+                data = resp_legacy.json()
+                items = data.get("items") or data.get("endpoints") or []
+                return items, None
+            return [], f"HTTP {resp.status_code}: {resp.text[:400]}"
     except Exception as e:
         return [], f"Query failed: {e}"
 

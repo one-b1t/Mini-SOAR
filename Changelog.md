@@ -4,7 +4,14 @@ Semua perubahan penting pada proyek **MiniSOAR** akan dicatat di dokumen ini.
 
 Format changelog berbasis pada [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 
+## [1.3.4] - 2026-08-26
+
+### Added
+- **Trend Micro Vision One Singapore Region Integration**: Menambahkan kredensial API Key Bearer token JWT dan konfigurasi base URL regional Singapore (`https://api.sg.xdr.trendmicro.com`) pada berkas `.env` untuk integrasi modul EDR.
+- **Vision One v3.0 EndpointSecurity Native Support (`find_endpoint_by_ip`)**: Memperbarui adapter EDR `minisoar/edr/trendmicro.py` untuk secara native mendukung REST API v3.0 EndpointSecurity (`/v3.0/endpointSecurity/endpoints`) dengan resolusi IP address dan agent GUID, serta health check otomatis.
+
 ## [1.3.3] - 2026-08-21
+
 
 ### Added
 - **Dynamic Native Telegram Command Menu (`set_my_commands`)**: Mengintegrasikan hook `post_init` pada bot Telegram sehingga menu popup command bawaan Telegram (autocomplete saat mengetik `/` atau tombol Menu Telegram) secara dinamis hanya menampilkan command untuk Perimeter dan EDR yang kredensialnya benar-benar telah dikonfigurasi di file `.env`.
