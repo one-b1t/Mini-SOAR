@@ -753,6 +753,47 @@ async def callback_query_handler(update: Update, context: ContextTypes.DEFAULT_T
         store_label(event_id, "block", user, "telegram_button", ip=ip_to_block, telegram_message_id=getattr(query.message, "message_id", None), chat_id=update.effective_chat.id)
         await query.answer("Block di Akamai diproses!")
 
+    elif data.startswith("ioc_edr:") or data.startswith("add_ioc:") or data.startswith("add_ioc_edr:"):
+        payload = data.split(":", 1)[1].strip()
+        ip_to_add, event_id = _parse_callback_payload(payload)
+
+        log_user_action("add_ioc_edr", user, ip=ip_to_add, target="EDR-ALL", source="button", chat_id=update.effective_chat.id, note="inline_button", logfile=logfile)
+        await context.bot.send_message(
+            chat_id=update.effective_chat.id,
+            text=f"🛡️ Mendaftarkan IP <code>{html.escape(ip_to_add)}</code> ke repositori IoC EDR/XDR (Kaspersky & Trend Micro)...",
+            parse_mode="HTML",
+        )
+
+        ok, msg = edr.add_edr_ioc(
+            ioc_type="ip",
+            ioc_value=ip_to_add,
+            provider="all",
+            comment=f"Manual SOC IoC trigger by @{user.username or user.id}",
+        )
+        r = redis_client()
+        if r:
+            r.setex(f"minisoar:edr_ioc_synced:{ip_to_add}", 86400, "1")
+
+        prefix = "✅" if ok else "⚠️"
+        await context.bot.send_message(
+            chat_id=update.effective_chat.id,
+            text=f"{prefix} <b>Hasil Registrasi IoC EDR/XDR:</b>\n• IP: <code>{html.escape(ip_to_add)}</code>\n• Status: {html.escape(msg)}",
+            parse_mode="HTML",
+        )
+
+        if not event_id:
+            event_id = es_find_latest_event_id_by_ip(ip_to_add, getattr(query.message, "date", None))
+        store_label(
+            event_id,
+            "ioc_edr",
+            user,
+            "telegram_button",
+            ip=ip_to_add,
+            telegram_message_id=getattr(query.message, "message_id", None),
+            chat_id=update.effective_chat.id,
+        )
+        await query.answer("IP berhasil didaftarkan ke IoC EDR/XDR!")
+
     elif data.startswith("ignore:"):
         payload = data.split(":", 1)[1].strip()
         ip_to_ignore, event_id = _parse_callback_payload(payload)

@@ -7,6 +7,7 @@ Format changelog berbasis pada [Keep a Changelog](https://keepachangelog.com/en/
 ## [1.3.4] - 2026-08-26
 
 ### Added
+- **Telegram Alert Quick-Action "Masukkan IP ke IoC XDR" Button (`minisoar/utils.py` & `minisoar/bot.py`)**: Menambahkan tombol aksi interaktif `[🛡️ Masukkan IP ke IoC XDR]` pada setiap kartu notifikasi alert Telegram unhandled. Memungkinkan analis SOC untuk mendaftarkan IP penyerang ke repositori IoC EDR/XDR (Kaspersky & Trend Micro UDSO) secara instan dalam 1 klik tanpa harus mengetik command manual.
 - **Antigravity CLI (agy) WSL & Multi-Platform Integration**: Menambahkan wrapper eksekusi CLI Antigravity di WSL (`~/.local/bin/agy`), symlink profil otentikasi `~/.gemini`, serta konfigurasi `AI_PROVIDER=gemini` pada `.env` sehingga command bot `/ask_ai` dan `/rca` dapat langsung menggunakan sesi aktif Antigravity AI Copilot.
 - **Kaspersky Security Center (KSC) 15.1 OpenAPI Integration**: Menambahkan kredensial host, port 13299, username, password, dan setting bypass SSL untuk integrasi EDR KSC pada berkas `.env`.
 - **KSC 15.1 OpenAPI KSCBasic Authentication & Session Support (`minisoar/edr/kaspersky.py`)**: Mengoptimalkan adapter Kaspersky OpenAPI untuk mendukung format otentikasi `KSCBasic user=..., pass=...`, ekstraksi token sesi `PxgRetVal`, serta auto-normalisasi endpoint `/api/v1.0` dan alias environment variable `KSC_HOST`.

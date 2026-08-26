@@ -714,11 +714,15 @@ def send_telegram(
                     cb = _build_callback_data("block_palo", ip, event_id)
                     if website: txt += f" ({website})"
                     buttons.append([{"text": txt, "callback_data": cb}])
-        
-        if buttons:
-            ignore_cb = _build_callback_data("ignore", ip, event_id)
-            buttons.append([{"text": "🙈 Ignore", "callback_data": ignore_cb}])
-            data["reply_markup"] = {"inline_keyboard": buttons}
+
+        # Tombol Masukkan IP ke IoC XDR
+        ioc_cb = _build_callback_data("ioc_edr", ip, event_id)
+        buttons.append([{"text": "🛡️ Masukkan IP ke IoC XDR", "callback_data": ioc_cb}])
+
+        # Tombol Ignore (cukup 1 saja)
+        ignore_cb = _build_callback_data("ignore", ip, event_id)
+        buttons.append([{"text": "🙈 Ignore", "callback_data": ignore_cb}])
+        data["reply_markup"] = {"inline_keyboard": buttons}
 
     try:
         resp = requests.post(url, json=data, timeout=10)
