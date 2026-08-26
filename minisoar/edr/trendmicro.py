@@ -310,28 +310,36 @@ def add_suspicious_object(
                 return True, f"SUCCESS: IoC {object_value} added to Cloud One Workload Security IP Lists"
             return False, f"HTTP {resp.status_code}: {resp.text[:400]}"
         else:
-            # Vision One Response API
-            url = f"{base}/v3.0/response/suspiciousObjects"
-            mapped_type = {
+            # Vision One Threat Intel / Suspicious Objects API
+            url = f"{base}/v3.0/threatintel/suspiciousObjects"
+            field_name = {
                 "ip": "ip",
                 "domain": "domain",
-                "sha256": "fileSha256",
-                "sha1": "fileSha1",
                 "url": "url",
+                "sha256": "fileSha256",
+                "filesha256": "fileSha256",
+                "sha1": "fileSha1",
+                "filesha1": "fileSha1",
             }.get(object_type.lower(), "ip")
 
-            payload = [
-                {
-                    "type": mapped_type,
-                    "value": object_value,
-                    "riskLevel": "high",
-                    "action": "block",
-                    "description": description,
-                }
-            ]
+            item = {
+                field_name: object_value,
+                "description": description,
+                "scanAction": "block",
+                "riskLevel": "high",
+            }
+            payload = [item]
             resp = requests.post(url, headers=_get_headers(), json=payload, verify=_get_verify_ssl(), timeout=15)
-            if resp.status_code in {200, 201, 202, 207}:
+            if resp.status_code in {200, 201, 202}:
                 return True, f"SUCCESS: Added {object_type}={object_value} to TrendMicro Suspicious Objects list"
+            if resp.status_code == 207:
+                try:
+                    res_items = resp.json()
+                    if isinstance(res_items, list) and res_items and res_items[0].get("status") in {200, 201, 202}:
+                        return True, f"SUCCESS: Added {object_type}={object_value} to TrendMicro Suspicious Objects list"
+                    return False, f"HTTP 207: {resp.text[:400]}"
+                except Exception:
+                    return True, f"SUCCESS: Added {object_type}={object_value} to TrendMicro Suspicious Objects list"
             return False, f"HTTP {resp.status_code}: {resp.text[:400]}"
     except Exception as e:
         return False, f"Request failed: {e}"
