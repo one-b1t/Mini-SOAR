@@ -128,10 +128,27 @@ cmd_setup() {
     PY_BIN=$(command -v python3 || command -v python || command -v python.exe)
     log_info "Menggunakan Python binary: $PY_BIN"
 
-    if [ ! -d "$VENV_DIR" ]; then
+    if [ ! -d "$VENV_DIR" ] || [ ! -f "$VENV_DIR/bin/python" -a ! -f "$VENV_DIR/Scripts/python.exe" ]; then
         log_info "Membuat virtual environment (.venv)..."
-        "$PY_BIN" -m venv "$VENV_DIR"
-        log_success "Virtual environment berhasil dibuat di $VENV_DIR"
+        rm -rf "$VENV_DIR" 2>/dev/null || true
+
+        # 2026-08-21 - Penanganan kompatibilitas DrvFs / NTFS (WSL): Gunakan virtualenv --always-copy untuk menghindari kegagalan symlink lib64
+        if command -v virtualenv &>/dev/null && virtualenv --always-copy "$VENV_DIR" 2>/dev/null; then
+            log_success "Virtual environment berhasil dibuat via virtualenv (--always-copy)."
+        elif "$PY_BIN" -m virtualenv --always-copy "$VENV_DIR" 2>/dev/null; then
+            log_success "Virtual environment berhasil dibuat via python -m virtualenv (--always-copy)."
+        elif "$PY_BIN" -m venv "$VENV_DIR" 2>/dev/null; then
+            log_success "Virtual environment berhasil dibuat via venv standar."
+        else
+            log_warn "Pembuatan venv standar gagal (terdeteksi batasan symlink NTFS/WSL). Menyiapkan python3-virtualenv..."
+            if command -v apt-get &>/dev/null; then
+                sudo apt-get update -qq && sudo apt-get install -y python3-virtualenv python3-pip
+                virtualenv --always-copy "$VENV_DIR"
+            else
+                "$PY_BIN" -m venv --copies "$VENV_DIR"
+            fi
+            log_success "Virtual environment berhasil dibuat di $VENV_DIR"
+        fi
     else
         log_info "Virtual environment sudah ada di $VENV_DIR"
     fi
@@ -168,7 +185,25 @@ cmd_setup() {
         log_info "File .env sudah terdeteksi."
     fi
 
-    echo -e "\n${GREEN}${BOLD}Setup dasar Python selesai!${NC}"
+    # 2026-08-21 - Cek ketersediaan dan aktivasi redis-server
+    if ! command -v redis-server &>/dev/null && ! command -v redis-cli &>/dev/null; then
+        log_info "Redis server belum terinstal. Menyiapkan redis-server..."
+        if command -v apt-get &>/dev/null; then
+            sudo apt-get update -qq && sudo apt-get install -y redis-server redis-tools
+            sudo systemctl enable redis-server 2>/dev/null || true
+            sudo systemctl start redis-server 2>/dev/null || sudo service redis-server start 2>/dev/null || true
+            log_success "Redis server berhasil diinstal dan dijalankan."
+        fi
+    else
+        if command -v systemctl &>/dev/null && systemctl is-active --quiet redis-server 2>/dev/null; then
+            log_info "Redis server aktif."
+        elif command -v redis-server &>/dev/null; then
+            sudo systemctl start redis-server 2>/dev/null || sudo service redis-server start 2>/dev/null || true
+            log_info "Redis server dijalankan."
+        fi
+    fi
+
+    echo -e "\n${GREEN}${BOLD}Setup dasar Python & Redis selesai!${NC}"
 }
 
 # --- Command: Install Logstash Package ---
@@ -502,36 +537,38 @@ cmd_restart() {
     sleep 1
     cmd_start "$target"
 }
-
-# --- Command: Status ---
+# --- Command: Status Check ---
 cmd_status() {
     echo -e "${BOLD}${CYAN}=== Status Layanan Sistem MiniSOAR ===${NC}\n"
-
     printf "%-25s %-12s %-12s %-25s\n" "Layanan" "Status" "PID" "Log File / Unit"
     echo "----------------------------------------------------------------------"
 
-    if is_pid_running "$DAEMON_PID_FILE"; then
+    # Daemon
+    if [ -f "$DAEMON_PID_FILE" ] && kill -0 $(cat "$DAEMON_PID_FILE" 2>/dev/null) 2>/dev/null; then
         printf "%-25s ${GREEN}%-12s${NC} %-12s %-25s\n" "Alert Daemon" "RUNNING" "$(cat "$DAEMON_PID_FILE")" "$DAEMON_LOG"
     else
         printf "%-25s ${RED}%-12s${NC} %-12s %-25s\n" "Alert Daemon" "STOPPED" "-" "$DAEMON_LOG"
     fi
 
-    if is_pid_running "$BOT_PID_FILE"; then
+    # Bot
+    if [ -f "$BOT_PID_FILE" ] && kill -0 $(cat "$BOT_PID_FILE" 2>/dev/null) 2>/dev/null; then
         printf "%-25s ${GREEN}%-12s${NC} %-12s %-25s\n" "Telegram Bot" "RUNNING" "$(cat "$BOT_PID_FILE")" "$BOT_LOG"
     else
         printf "%-25s ${RED}%-12s${NC} %-12s %-25s\n" "Telegram Bot" "STOPPED" "-" "$BOT_LOG"
     fi
 
-    # Check Logstash service if systemctl available
+    # Logstash
     if command -v systemctl &>/dev/null; then
         if systemctl is-active --quiet logstash 2>/dev/null; then
-            printf "%-25s ${GREEN}%-12s${NC} %-12s %-25s\n" "Logstash Pipeline" "RUNNING" "systemd" "systemctl status logstash"
+            printf "%-25s ${GREEN}%-12s${NC} %-12s %-25s\n" "Logstash Pipeline" "ACTIVE" "systemd" "systemctl status logstash"
         else
             printf "%-25s ${YELLOW}%-12s${NC} %-12s %-25s\n" "Logstash Pipeline" "INACTIVE" "-" "systemctl status logstash"
         fi
+    fi
 
-        # Check Redis service
-        if systemctl is-active --quiet redis 2>/dev/null || systemctl is-active --quiet redis-server 2>/dev/null; then
+    # Redis
+    if command -v systemctl &>/dev/null; then
+        if systemctl is-active --quiet redis-server 2>/dev/null || systemctl is-active --quiet redis 2>/dev/null; then
             printf "%-25s ${GREEN}%-12s${NC} %-12s %-25s\n" "Redis Server" "RUNNING" "systemd" "systemctl status redis"
         fi
     fi
@@ -548,7 +585,7 @@ import sys
 from minisoar.config import load_env
 load_env()
 
-print('${BOLD}[1/5] Memeriksa Environment & Kredensial:${NC}')
+print('${BOLD}[1/6] Memeriksa Environment & Kredensial:${NC}')
 if os.path.exists('.env'):
     print('  [OK] File .env ditemukan.')
 else:
@@ -558,7 +595,25 @@ mock_mode = os.getenv('MINISOAR_MOCK', '0')
 print(f'  * Mock Mode: {mock_mode} (1=Simulasi/Mock, 0=Real API)')
 print(f'  * Blocking Mode: {os.getenv(\"MINISOAR_BLOCKING_MODE\", \"AUTO\")}')
 
-print('\n${BOLD}[2/5] Memeriksa AI SOC Copilot:${NC}')
+print('\n${BOLD}[2/6] Memeriksa Antrian Redis & Database:${NC}')
+from minisoar.database import get_system_health
+sys_health = get_system_health()
+
+r_h = sys_health.get('redis', {})
+if r_h.get('status') == 'OK':
+    print(f'  * REDIS: [OK] Terhubung (Pending Queue: {r_h.get(\"queue_len\", 0)} items)')
+else:
+    print(f'  * REDIS: [FAIL] Gagal - {r_h.get(\"error\", \"OFFLINE\")}')
+
+es_h = sys_health.get('elasticsearch', {})
+if es_h.get('status') in ['GREEN', 'YELLOW']:
+    print(f'  * ELASTICSEARCH: [OK] Cluster status {es_h.get(\"status\")} ({es_h.get(\"host\")})')
+elif es_h.get('status') == 'RED':
+    print(f'  * ELASTICSEARCH: [WARN] Cluster RED ({es_h.get(\"host\")})')
+else:
+    print(f'  * ELASTICSEARCH: [FAIL] {es_h.get(\"error\", \"OFFLINE\")}')
+
+print('\n${BOLD}[3/6] Memeriksa AI SOC Copilot:${NC}')
 from minisoar.ai.copilot import get_auth_info
 ai_info = get_auth_info()
 print(f'  * Provider: {ai_info[\"provider\"].upper()}')
@@ -566,14 +621,14 @@ print(f'  * Model: {ai_info[\"model\"]}')
 print(f'  * Auth Source: {ai_info[\"auth_source\"]}')
 print(f'  * Status: {\"[OK] Siap\" if ai_info[\"configured\"] else \"[WARN] Belum dikonfigurasi\"}')
 
-print('\n${BOLD}[3/5] Memeriksa Ticketing 3rd-Party (Opsional):${NC}')
+print('\n${BOLD}[4/6] Memeriksa Ticketing 3rd-Party (Opsional):${NC}')
 from minisoar.cases.connectors import get_ticketing_provider, is_ticketing_enabled
 t_prov = get_ticketing_provider()
 t_enabled = is_ticketing_enabled()
 print(f'  * Provider: {t_prov.upper()}')
 print(f'  * Status: {\"[OK] Aktif\" if t_enabled else \"[INFO] Nonaktif (Opsional)\"}')
 
-print('\n${BOLD}[4/5] Memeriksa Konektivitas Perimeter:${NC}')
+print('\n${BOLD}[5/6] Memeriksa Konektivitas Perimeter:${NC}')
 from minisoar.mitigation.core import check_perimeter_connectivity
 results = check_perimeter_connectivity()
 for r in results:
@@ -585,7 +640,7 @@ for r in results:
     else:
         print(f'  * {prov}: [FAIL] Gagal - {r.get(\"error\")}')
 
-print('\n${BOLD}[5/5] Memeriksa Konektivitas EDR Server:${NC}')
+print('\n${BOLD}[6/6] Memeriksa Konektivitas EDR Server:${NC}')
 from minisoar.edr.core import check_edr_connectivity
 edr_results = check_edr_connectivity()
 for r in edr_results:
@@ -596,6 +651,42 @@ for r in edr_results:
         print(f'  * {prov}: [INFO] Belum Dikonfigurasi')
     else:
         print(f'  * {prov}: [FAIL] Gagal - {r.get(\"error\")}')
+"
+}
+
+# --- Command: Blocked List (Perimeter & EDR) ---
+cmd_blocked() {
+    local filter="${1:-all}"
+    echo -e "${BOLD}${CYAN}=== Daftar IP Aktif di Block List & EDR IoC Repository ===${NC}\n"
+
+    "$PYTHON_CMD" -c "
+import sys
+from minisoar.config import load_env, norm_provider
+from minisoar.mitigation import get_active_blocklist
+
+load_env()
+data = get_active_blocklist()
+perims = data.get('perimeters', [])
+edrs = data.get('edr_iocs', [])
+filt = '$filter'.lower()
+
+if filt in {'all', 'perimeter', 'perimeters', 'palo', 'paloalto', 'imperva', 'akamai', 'cloudflare', 'cf', 'forti', 'fortigate'}:
+    matched_p = perims if filt in {'all', 'perimeter', 'perimeters'} else [p for p in perims if norm_provider(filt) == norm_provider(p['provider'])]
+    print(f'${BOLD}[1] Perimeter Block List ({len(matched_p)} IP aktif):${NC}')
+    if matched_p:
+        for p in matched_p:
+            print(f'  • IP: {p[\"ip\"]: <16} | Provider: {p[\"provider\"].upper(): <10} | Sisa: {p[\"ttl_sec\"]}s (s/d {p[\"expires_at\"]})')
+    else:
+        print('  (Tidak ada IP aktif yang sedang diblokir sementara)')
+    print()
+
+if filt in {'all', 'edr', 'ioc', 'iocs', 'ksc', 'kaspersky', 'trendmicro'}:
+    print(f'${BOLD}[2] EDR IoC Repository ({len(edrs)} IP terdaftar):${NC}')
+    if edrs:
+        for e in edrs:
+            print(f'  • IP: {e[\"ip\"]: <16} | Target: {e[\"provider\"]: <25} | Cache: {e[\"ttl_sec\"]}s | Status: {e[\"status\"]}')
+    else:
+        print('  (Tidak ada IP IoC yang terdaftar di repositori EDR)')
 "
 }
 
@@ -817,8 +908,11 @@ main() {
         check-redis|redis|queue)
             cmd_check_redis "$@"
             ;;
-        doctor|check)
+        doctor|check|health)
             cmd_doctor "$@"
+            ;;
+        blocked|blocklist|bl)
+            cmd_blocked "$@"
             ;;
         start)
             cmd_start "${1:-all}"
@@ -837,6 +931,9 @@ main() {
             ;;
         test)
             cmd_test "$@"
+            ;;
+        simulate|mock-alert|test-alert|inject)
+            ./simulate_alert.sh "$@"
             ;;
         retrain)
             cmd_retrain "$@"
@@ -860,7 +957,8 @@ main() {
             echo "Perintah Diagnostik & Monitoring:"
             echo "  check-elk           : Cek status koneksi Elasticsearch, cluster health, node & indeks"
             echo "  check-redis         : Cek koneksi Redis, memori, dan inspeksi panjang antrian alert (LLEN)"
-            echo "  doctor | check      : Cek komprehensif (Perimeter, EDR, AI Copilot, Ticketing, DB)"
+            echo "  doctor | check | health : Cek komprehensif (Perimeter, EDR, AI Copilot, Ticketing, DB)"
+            echo "  blocked | blocklist [target] : Tampilkan daftar IP yang diblokir di Perimeter & EDR"
             echo ""
             echo "Perintah Manajemen Layanan:"
             echo "  start [daemon|bot]  : Jalankan layanan di background"
@@ -870,7 +968,8 @@ main() {
             echo "  logs [daemon|bot]   : Stream live logs"
             echo "  systemd             : Buat file unit systemd untuk Linux server"
             echo ""
-            echo "Perintah MLOps & Testing:"
+            echo "Perintah MLOps, Simulasi & Testing:"
+            echo "  simulate [skenario] : Simulasi injeksi alert keamanan ke Redis queue (Webshell, SQLi, C2, dll)"
             echo "  test                : Jalankan seluruh test suite pytest"
             echo "  retrain             : Jalankan MLOps auto-retraining model Challenger"
             echo "  clean               : Bersihkan __pycache__ & temporary files"

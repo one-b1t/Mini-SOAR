@@ -276,13 +276,51 @@ MiniSOAR still works as an alert delivery and mitigation pipeline, but its imple
   4. **Interactive Case Action Buttons**: Attached inline buttons (`[✅ Resolve Case]`, `[🎟️ Sync Ticket]`, `[📄 Export MD]`) to `/case <id>` outputs.
 - **Rationale:** Expanding Telegram bot management capabilities enables remote SOC operations without requiring server SSH access or multiple web dashboards.
 
+### 2026-08-21 07:35 WIB
+- **Problem:** Developers and operators working on Windows workstations need a seamless way to execute the Linux-native `minisoar.sh` lifecycle commands and services inside WSL without manual path translations or committing local execution helper scripts to git.
+- **Solution:** Created `run-wsl.ps1` as a PowerShell execution wrapper with UTF-8 console support, directory mapping (`--cd`), argument forwarding, custom distro selection, and interactive bash access (`-Shell`), while excluding it and other `*.ps1` files via `.gitignore`.
+- **Rationale:** Facilitates cross-platform development workflows between Windows host environments and WSL Linux runtimes while preserving repository hygiene.
 
+### 2026-08-21 08:20 WIB
+- **Problem:** MiniSOAR Alert Daemon and Telegram Bot encountered `Error 111 Connection refused` when trying to connect to Redis on `127.0.0.1:6379`, and CLI lacked integrated Redis health verification in `doctor`.
+- **Solution:** Installed and enabled `redis-server` in the WSL environment via systemd, integrated Redis queue & Elasticsearch status checks into `minisoar.sh doctor`, added `health` command alias to `minisoar.sh`, and added automated Redis server provisioning in `cmd_setup`.
+- **Rationale:** Ensures all MiniSOAR queue consumers, cache managers, and rate-limiters operate reliably in local WSL development and server production deployments.
 
+### 2026-08-21 09:25 WIB
+- **Problem:** Automated host isolation in EDR could inadvertently isolate critical production web servers when analyzing web traffic logs, while confirmed high-threat/C2/malicious IPs from Threat Intelligence were not automatically pushed to EDR blocklists.
+- **Solution:** 
+  1. Disabled automatic host isolation by default via safety policy guard (`MINISOAR_EDR_ALLOW_AUTO_ISOLATE=0`) in `action_edr_isolate` while keeping manual SOC analyst containment via Telegram bot (`/isolate_host`).
+  2. Implemented `sync_edr_ioc_if_malicious()` in `daemon.py` and added `edr.add_ioc` steps in playbooks (`01_webshell_immediate.yml`, `03_injection_attacks.yml`) to automatically push confirmed malicious/C2 IPs (AbuseIPDB reputation $\ge 50\%$, permanent block, ML prediction) to Kaspersky KSC and Trend Micro Vision One with 24-hour Redis caching.
+- **Rationale:** Protects production web servers from accidental downtime while ensuring endpoint agents across the organization actively block outbound connections to attacker C2 infrastructure.
 
+### 2026-08-21 13:10 WIB
+- **Problem:** Developers and SOC engineers needed a convenient, realistic way to simulate and inject attack log alerts directly into the Redis queue (`logstash_alert_queue`) to test daemon responsiveness, playbook workflows, and surface errors without requiring live Logstash/Filebeat ingestion pipelines.
+- **Solution:**
+  1. Developed `simulate_alert.sh` supporting 7 attack scenarios (Webshell, SQLi, XSS, Brute Force 401 Burst, C2 IoC, Path Probe, Custom Input, and Multi-burst) with auto-detection of Redis host/port/key/password, queue length introspection, and live daemon log streaming.
+  2. Integrated `./minisoar.sh simulate` into the main CLI router and help interface.
+  3. Added `os.access(parent, os.W_OK)` in `resolve_log_path` to avoid permission errors when running as non-root user in WSL.
+- **Rationale:** Empowers fast end-to-end integration testing and validation of MiniSOAR detection, correlation, and response capabilities.
 
+### 2026-08-21 13:28 WIB
+- **Problem:** Some detector types (such as `alert_c2_communication`, `alert_ransomware_activity`, `alert_random_url`, or unclassified anomalies) fell through to a legacy raw JSON fallback string in `build_message()`, resulting in unformatted JSON blobs on Telegram.
+- **Solution:** Completely eliminated the raw JSON fallback in `minisoar/utils.py:build_message()`. Added dedicated card renderers for C2 Communication, Ransomware, Random URL, and implemented a robust human-readable fallback card for any generic anomaly with full IP enrichment, severity, URL, status, and timestamp.
+- **Rationale:** Guarantees 100% consistent, clean, and professional visual formatting across all Telegram alert notifications without leaking raw JSON objects to SOC analysts.
 
+### 2026-08-21 14:10 WIB
+- **Problem:** SOC analysts could not visually see whether a malicious IP was synced to EDR IoC repositories (Kaspersky KSC & Trend Micro Vision One) directly within the Telegram alert card or Action Log channel, especially when subsequent hits were deduplicated by Redis 24-hour cache.
+- **Solution:** 
+  1. Added `inject_edr_line()` to dynamically insert `• EDR IoC: 🛡️ Kaspersky & Trend Micro (Synced)` on Telegram alert cards whenever the IP is synced or cached in Redis.
+  2. Integrated `notify_action_log()` inside `sync_edr_ioc_if_malicious()` and `action_edr_add_ioc()` to broadcast live IoC sync audit events to `TELEGRAM_PROCESS_CHAT_ID`.
+- **Rationale:** Provides immediate, unambiguous visual confirmation to SOC analysts that endpoint protection agents across the enterprise are blocking the attacker IP.
 
+### 2026-08-21 14:20 WIB
+- **Problem:** SOC analysts needed a way to query active blocked IPs across Perimeters and EDR IoC repositories, and the Telegram bot help menu was cluttered by displaying commands for perimeters whose environment variables were not yet configured.
+- **Solution:**
+  1. Added `get_active_blocklist()` and implemented `/blocked` (`/blocklist`, `/bl`) Telegram bot command & `./minisoar.sh blocked` CLI tool to inspect active blocks with remaining TTL and IoC sync status.
+  2. Implemented `get_configured_providers()` to dynamically filter and render only configured perimeters and EDR servers in `/help` and `/start`, producing a clean, concise command center.
+- **Rationale:** Enhances operational ergonomics and situational awareness for SOC analysts while decluttering the Telegram command center.
 
-
-
-
+### 2026-08-21 14:56 WIB
+- **Problem:** When typing `/` or clicking the Telegram "Menu" button in the chat interface, the Telegram client showed unconfigured perimeter commands.
+- **Solution:** Integrated `post_init()` hook with `application.bot.set_my_commands(commands)` in `minisoar/bot.py`. The bot now dynamically registers only active, configured perimeters and EDR servers to Telegram's native command autocomplete list.
+- **Rationale:** Guarantees that Telegram's native `/` popup command list strictly reflects only the security tools available in the environment.

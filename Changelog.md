@@ -4,6 +4,27 @@ Semua perubahan penting pada proyek **MiniSOAR** akan dicatat di dokumen ini.
 
 Format changelog berbasis pada [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 
+## [1.3.3] - 2026-08-21
+
+### Added
+- **Dynamic Native Telegram Command Menu (`set_my_commands`)**: Mengintegrasikan hook `post_init` pada bot Telegram sehingga menu popup command bawaan Telegram (autocomplete saat mengetik `/` atau tombol Menu Telegram) secara dinamis hanya menampilkan command untuk Perimeter dan EDR yang kredensialnya benar-benar telah dikonfigurasi di file `.env`.
+- **Active Blocklist & IoC Query Command (`/blocked` & `./minisoar.sh blocked`)**: Menambahkan command bot Telegram (`/blocked [perimeter|edr]`, `/blocklist`, `/bl`) dan CLI (`./minisoar.sh blocked [target]`) untuk menginspeksi secara real-time seluruh IP yang sedang aktif diblokir pada Perimeter Security (Redis ZSET dengan sisa durasi TTL) dan terdaftar pada EDR IoC Repository (Kaspersky KSC & Trend Micro).
+- **Dynamic Configured Perimeter Help Menu (`get_configured_providers`)**: Mengoptimalkan menu bantuan Telegram Bot (`/help`, `/start`) agar secara cerdas hanya merender command untuk Perimeter (Imperva, Palo Alto, Akamai, Cloudflare, FortiGate) dan EDR Server yang kredensialnya benar-benar telah dikonfigurasi di file `.env`, menjadikan antarmuka bot jauh lebih ringkas, bersih, dan kontekstual.
+- **Visual EDR IoC Protection Badge (`inject_edr_line`)**: Menambahkan baris badge visual `• EDR IoC: 🛡️ Kaspersky & Trend Micro (Synced)` pada kartu pesan alert Telegram secara otomatis setiap kali IP penyerang telah terdaftar dalam repositori IoC / Suspicious Objects EDR.
+- **Dedicated Telegram Action Log Notifications (`notify_action_log`)**: Mengirimkan notifikasi audit otomatis ke channel operasional Telegram (`TELEGRAM_PROCESS_CHAT_ID`) saat sinkronisasi IoC EDR berhasil dilakukan oleh Threat Intel maupun Playbook.
+- **Security Alert & Traffic Simulator (`simulate_alert.sh` & `./minisoar.sh simulate`)**: Script bash interaktif dan berbasis CLI untuk menginjeksi berbagai payload alert serangan keamanan (Webshell Immediate, SQL Injection, XSS, Brute Force 401 Burst, C2 Communication IoC, Path Probe, dan Mode Burst Multi-Serangan) langsung ke antrean Redis (`logstash_alert_queue`) guna memvalidasi respon Alert Daemon, eksekusi Playbook, notifikasi Telegram, dan pendeteksian anomali secara real-time.
+- **Threat Intelligence EDR IoC Auto-Sync (`sync_edr_ioc_if_malicious`)**: Otomasi pendaftaran IP penyerang/C2 yang terkonfirmasi berbahaya oleh Threat Intelligence (AbuseIPDB reputation $\ge 50\%$, permanent block, ML prediction, atau serangan webshell/injeksi kritis) ke daftar Suspicious Objects / IoC Repository EDR (Kaspersky KSC & Trend Micro Vision One) dengan caching 24 jam di Redis.
+- **EDR Safety Policy (`MINISOAR_EDR_ALLOW_AUTO_ISOLATE=0`)**: Menambahkan pengaman kebijakan agar isolasi host endpoint otomatis dinonaktifkan secara default untuk melindungi ketersediaan server web produksi, sembari tetap mempertahankan fungsi isolasi manual oleh analis SOC via Telegram bot (`/isolate_host`).
+- **WSL PowerShell Execution Wrapper (`run-wsl.ps1`)**: Script helper PowerShell untuk memfasilitasi eksekusi lifecycle command, CLI `minisoar.sh`, dan interactive bash shell secara mulus di environment WSL (Windows Subsystem for Linux) langsung dari Windows host terminal dengan translasi direktori otomatis, dukungan custom distro, dan propagasi exit code.
+- **Redis Service Auto-Provisioning & Health CLI (`minisoar.sh`)**: Otomasi instalasi dan verifikasi layanan `redis-server` di WSL/Linux pada `cmd_setup`, integrasi diagnostik Redis Queue & Elasticsearch pada `cmd_doctor`, serta penambahan alias perintah `./minisoar.sh health`.
+
+### Changed
+- **Total Elimination of Raw JSON Fallback (`build_message`)**: Menghapus seluruh fallback format raw JSON pada modul pembentuk pesan notifikasi Telegram, menggantikannya dengan format kartu alert Markdown SOC yang terstruktur, human-readable, dan konsisten untuk seluruh kategori ancaman (termasuk C2 Communication, Ransomware Activity, Random URL Spray, dan Generic Anomaly).
+- **Permission Safe Path Resolution (`resolve_log_path`)**: Menambahkan pemeriksaan `os.access(parent, os.W_OK)` agar proses non-root di lingkungan WSL otomatis melakukan fallback ke direktori kerja lokal jika direktori sistem `/var/log/` tidak memiliki izin tulis.
+- **Repository Hygiene (`.gitignore`)**: Menambahkan `run-wsl.ps1` dan `*.ps1` ke daftar pengecualian git repository agar berkas otomasi lokal host Windows tidak ter-commit ke repositori.
+- **WSL Virtualenv Compatibility**: Menggunakan `virtualenv --always-copy` pada `cmd_setup` untuk menangani batasan symlink NTFS/DrvFs pada mount path WSL (`/mnt/f/...`).
+- **Playbook EDR Enhancement**: Menambahkan step registrasi `edr.add_ioc` pada Playbook Webshell Immediate (`01_webshell_immediate.yml`) dan Web Injection (`03_injection_attacks.yml`).
+
 ## [1.3.2] - 2026-08-18
 
 ### Added

@@ -102,3 +102,16 @@ def telegram_config() -> TelegramConfig:
     chat_id = os.getenv("TELEGRAM_CHAT_ID", "")
     process_chat_id = os.getenv("TELEGRAM_PROCESS_CHAT_ID", "") or chat_id
     return TelegramConfig(token=token, chat_id=chat_id, process_chat_id=process_chat_id)
+
+
+def get_configured_providers() -> dict[str, bool]:
+    """Returns a dictionary indicating which perimeter security and EDR providers have valid credentials configured in .env."""
+    return {
+        "imperva": bool(os.getenv("IMPERVA_BASE_URL") or os.getenv("IMPERVA_API_ID") or os.getenv("IMPERVA_USERNAME")),
+        "paloalto": bool(os.getenv("PA_HOST") or os.getenv("PALO_ALTO_HOST") or os.getenv("PA_API_KEY")),
+        "akamai": bool(os.getenv("AKAMAI_BASEURL") or os.getenv("AKAMAI_HOST") or os.getenv("AKAMAI_CLIENT_TOKEN")),
+        "cloudflare": bool(os.getenv("CLOUDFLARE_API_TOKEN") or os.getenv("CLOUDFLARE_ZONE_ID")),
+        "fortigate": bool(os.getenv("FORTIGATE_HOST") or os.getenv("FORTIGATE_API_KEY")),
+        "kaspersky": bool(os.getenv("KSC_SERVER_URL") or os.getenv("KASPERSKY_KSC_HOST")),
+        "trendmicro": bool(os.getenv("TRENDMICRO_API_KEY") or os.getenv("TRENDMICRO_VISION_ONE_URL")),
+    }

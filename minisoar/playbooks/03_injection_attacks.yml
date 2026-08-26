@@ -25,6 +25,17 @@ steps:
       commit: false
     on_failure: "continue"
 
+  - id: "step_add_edr_ioc"
+    name: "Register Injection Attacker IP to EDR IoC"
+    action: "edr.add_ioc"
+    conditions:
+      - "reputation_score >= 30 or ml_prob >= 0.70"
+    params:
+      type: "ip"
+      provider: "all"
+      comment: "Web Injection & Exploitation Attacker IoC"
+    on_failure: "continue"
+
   - id: "step_notify_telegram"
     name: "Broadcast Alert to Telegram"
     action: "notification.telegram"

@@ -10,7 +10,12 @@ import html
 import logging
 import os
 
-from telegram import InlineKeyboardButton, InlineKeyboardMarkup, Update
+from telegram import (
+    BotCommand,
+    InlineKeyboardButton,
+    InlineKeyboardMarkup,
+    Update,
+)
 from telegram.ext import (
     ApplicationBuilder,
     CallbackQueryHandler,
@@ -19,7 +24,13 @@ from telegram.ext import (
 )
 
 from . import ai, cases, edr
-from .config import load_env, parse_allowed_users, telegram_config
+from .config import (
+    get_configured_providers,
+    load_env,
+    norm_provider,
+    parse_allowed_users,
+    telegram_config,
+)
 from .database import (
     es_count_hits_by_ip,
     es_find_latest_event_id_by_ip,
@@ -33,6 +44,7 @@ from .mitigation import (
     akamai,
     cloudflare,
     fortigate,
+    get_active_blocklist,
     imperva,
     paloalto,
     register_block_state,
@@ -45,6 +57,7 @@ from .utils import (
     get_perimeter_info,
     get_whitelist_entries,
     log_user_action,
+    provider_badge,
     remove_from_whitelist,
     resolve_log_path,
     valid_ip,
@@ -1343,57 +1356,213 @@ async def whitelists_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE):
     await update.message.reply_text("\n".join(parts), parse_mode="HTML")
 
 
+async def blocked_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    """Lists all currently blocked IPs in Perimeter blocklists and synced EDR IoC repositories."""
+    user = update.effective_user
+    if not is_user_allowed(user.id):
+        await update.message.reply_text("❌ Maaf, kamu tidak punya akses ke bot ini.")
+        return
+
+    filter_target = context.args[0].lower() if context.args else "all"
+
+    data = get_active_blocklist()
+    perimeters = data.get("perimeters", [])
+    edr_iocs = data.get("edr_iocs", [])
+
+    lines = ["🛡️ <b>MiniSOAR Active Block List & IoC Repository</b> 🛡️\n"]
+
+    # 1. Perimeter section
+    if filter_target in {"all", "perimeter", "perimeters", "palo", "paloalto", "imperva", "akamai", "cloudflare", "cf", "forti", "fortigate"}:
+        matched_perim = perimeters
+        if filter_target not in {"all", "perimeter", "perimeters"}:
+            matched_perim = [p for p in perimeters if norm_provider(filter_target) == norm_provider(p["provider"])]
+
+        lines.append(f"🧱 <b>Perimeter Block List ({len(matched_perim)} IP aktif):</b>")
+        if matched_perim:
+            for item in matched_perim:
+                p_badge = provider_badge([item["provider"]], True)
+                lines.append(f"• <code>{html.escape(item['ip'])}</code> ({p_badge}) — Sisa: <b>{item['ttl_sec']}s</b> (s/d {item['expires_at']})")
+        else:
+            lines.append("<i>Tidak ada IP yang sedang dalam status temporary block.</i>")
+        lines.append("")
+
+    # 2. EDR section
+    if filter_target in {"all", "edr", "ioc", "iocs", "ksc", "kaspersky", "trendmicro", "trend"}:
+        lines.append(f"💻 <b>EDR IoC Repository ({len(edr_iocs)} IP terdaftar):</b>")
+        if edr_iocs:
+            for item in edr_iocs:
+                lines.append(f"• <code>{html.escape(item['ip'])}</code> — 🛡️ {item['provider']} (Cache: <b>{item['ttl_sec']}s</b>)")
+        else:
+            lines.append("<i>Tidak ada IP IoC yang terdaftar di repositori EDR.</i>")
+        lines.append("")
+
+    lines.append("💡 <i>Gunakan <code>/blocked perimeter</code> atau <code>/blocked edr</code> untuk memfilter.</i>")
+    await update.message.reply_text("\n".join(lines), parse_mode="HTML")
+
+
 # -----------------
 # HELP & ERROR
 # -----------------
 async def help_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    await update.message.reply_text(
-        "⚡ <b>MiniSOAR Enterprise Bot Command Center</b> ⚡\n\n"
+    conf = get_configured_providers()
+
+    sections = [
+        "⚡ <b>MiniSOAR Enterprise Bot Command Center</b> ⚡\n",
         "🔍 <b>Threat Intel & System Diagnostics</b>\n"
-        "• <code>/intel &lt;ip&gt;</code> — Summary kart intelijen IP & reputasi\n"
-        "• <code>/health</code> — Dashboard kesehatan Redis, ES, EDR & AI\n\n"
+        "• <code>/intel &lt;ip&gt;</code> — Summary kartu intelijen IP & reputasi\n"
+        "• <code>/blocked [perimeter|edr]</code> — Daftar IP aktif di Block List & EDR\n"
+        "• <code>/health</code> — Dashboard kesehatan Redis, ES, EDR & AI\n",
         "🛡️ <b>Whitelist Management</b>\n"
         "• <code>/whitelist_add &lt;ip/cidr&gt; [alasan]</code> — Tambah IP ke whitelist\n"
         "• <code>/whitelist_remove &lt;ip/cidr&gt;</code> — Hapus IP dari whitelist\n"
-        "• <code>/whitelists</code> — Daftar IP whitelist aktif\n\n"
-        "🟠 <b>Perimeter Security (Palo Alto, Akamai, Imperva)</b>\n"
-        "• <code>/block_imperva &lt;ip&gt;</code> — Blokir IP di Imperva WAF\n"
-        "• <code>/unblock_imperva &lt;ip&gt;</code> — Unblock IP di Imperva WAF\n"
-        "• <code>/trace_imperva &lt;event_id&gt; [days]</code> — Trace violation log Imperva\n"
-        "• <code>/block_palo &lt;ip&gt;</code> — Tambah IP ke group Palo Alto\n"
-        "• <code>/unblock_palo &lt;ip&gt;</code> — Hapus IP dari group Palo Alto\n"
-        "• <code>/commit_palo</code> — Partial commit konfigurasi Palo Alto\n"
-        "• <code>/trace_palo &lt;threat_id&gt;</code> — Trace threat log Palo Alto\n"
-        "• <code>/block_akamai &lt;ip&gt;</code> — Tambah IP ke Akamai Client List\n"
-        "• <code>/unblock_akamai &lt;ip&gt;</code> — Hapus IP dari Akamai Client List\n"
-        "• <code>/activate_akamai</code> — Aktivasi daftar IP di Akamai\n"
-        "• <code>/trace_akamai &lt;event_id&gt;</code> — Trace SIEM event Akamai\n\n"
-        "🌐 <b>Extended Perimeters (Cloudflare & FortiGate)</b>\n"
-        "• <code>/block_cf &lt;ip&gt;</code> — Blokir IP di Cloudflare WAF\n"
-        "• <code>/unblock_cf &lt;ip&gt;</code> — Unblock IP di Cloudflare WAF\n"
-        "• <code>/block_forti &lt;ip&gt;</code> — Blokir IP di FortiGate Firewall\n"
-        "• <code>/unblock_forti &lt;ip&gt;</code> — Unblock IP di FortiGate Firewall\n\n"
-        "💻 <b>EDR Server (Kaspersky KSC & TrendMicro Vision One)</b>\n"
-        "• <code>/isolate_host &lt;ip/id&gt; [ksc|trendmicro|all]</code> — Isolasi host endpoint\n"
-        "• <code>/restore_host &lt;ip/id&gt; [ksc|trendmicro|all]</code> — Pulihkan host endpoint\n"
-        "• <code>/query_host &lt;ip&gt;</code> — Query inventory host EDR\n"
-        "• <code>/add_edr_ioc &lt;ioc&gt; [ksc|trendmicro|all]</code> — Registrasi IoC ke EDR\n"
-        "• <code>/edr_status</code> — Cek status konektivitas EDR server\n\n"
+        "• <code>/whitelists</code> — Daftar IP whitelist aktif\n",
+    ]
+
+    # Perimeter Commands (Hanya menampilkan perimeter yang terkonfigurasi di .env)
+    perim_cmds = []
+    if conf.get("imperva"):
+        perim_cmds.extend([
+            "• <code>/block_imperva &lt;ip&gt;</code> — Blokir IP di Imperva WAF",
+            "• <code>/unblock_imperva &lt;ip&gt;</code> — Unblock IP di Imperva WAF",
+            "• <code>/trace_imperva &lt;event_id&gt; [days]</code> — Trace violation log Imperva",
+        ])
+    if conf.get("paloalto"):
+        perim_cmds.extend([
+            "• <code>/block_palo &lt;ip&gt;</code> — Tambah IP ke group Palo Alto",
+            "• <code>/unblock_palo &lt;ip&gt;</code> — Hapus IP dari group Palo Alto",
+            "• <code>/commit_palo</code> — Partial commit konfigurasi Palo Alto",
+            "• <code>/trace_palo &lt;threat_id&gt;</code> — Trace threat log Palo Alto",
+        ])
+    if conf.get("akamai"):
+        perim_cmds.extend([
+            "• <code>/block_akamai &lt;ip&gt;</code> — Tambah IP ke Akamai Client List",
+            "• <code>/unblock_akamai &lt;ip&gt;</code> — Hapus IP dari Akamai Client List",
+            "• <code>/activate_akamai</code> — Aktivasi daftar IP di Akamai",
+            "• <code>/trace_akamai &lt;event_id&gt;</code> — Trace SIEM event Akamai",
+        ])
+    if conf.get("cloudflare"):
+        perim_cmds.extend([
+            "• <code>/block_cf &lt;ip&gt;</code> — Blokir IP di Cloudflare WAF",
+            "• <code>/unblock_cf &lt;ip&gt;</code> — Unblock IP di Cloudflare WAF",
+        ])
+    if conf.get("fortigate"):
+        perim_cmds.extend([
+            "• <code>/block_forti &lt;ip&gt;</code> — Blokir IP di FortiGate Firewall",
+            "• <code>/unblock_forti &lt;ip&gt;</code> — Unblock IP di FortiGate Firewall",
+        ])
+
+    if perim_cmds:
+        active_perim_names = [p.upper() if p in {"cf"} else p.title() for p, ok in conf.items() if ok and p in {"imperva", "paloalto", "akamai", "cloudflare", "fortigate"}]
+        sections.append(f"🟠 <b>Perimeter Security ({', '.join(active_perim_names)})</b>\n" + "\n".join(perim_cmds) + "\n")
+
+    # EDR Commands (Hanya jika KSC atau TrendMicro terkonfigurasi)
+    edr_active = [p for p in ["kaspersky", "trendmicro"] if conf.get(p)]
+    if edr_active:
+        edr_labels = " & ".join(["Kaspersky KSC" if p == "kaspersky" else "TrendMicro Vision One" for p in edr_active])
+        sections.append(
+            f"💻 <b>EDR Server ({edr_labels})</b>\n"
+            "• <code>/isolate_host &lt;ip/id&gt; [ksc|trendmicro|all]</code> — Isolasi host endpoint\n"
+            "• <code>/restore_host &lt;ip/id&gt; [ksc|trendmicro|all]</code> — Pulihkan host endpoint\n"
+            "• <code>/query_host &lt;ip&gt;</code> — Query inventory host EDR\n"
+            "• <code>/add_edr_ioc &lt;ioc&gt; [ksc|trendmicro|all]</code> — Registrasi IoC ke EDR\n"
+            "• <code>/edr_status</code> — Cek status konektivitas EDR server\n"
+        )
+
+    sections.extend([
         "📋 <b>Case Management & SLA Metrics</b>\n"
         "• <code>/cases [status]</code> — Daftar incident case aktif\n"
         "• <code>/case &lt;case_id&gt;</code> — Detail laporan incident case\n"
         "• <code>/update_case &lt;id&gt; &lt;status&gt; [notes]</code> — Update status case\n"
         "• <code>/sync_ticket &lt;case_id&gt;</code> — Dispatch case ke ticketing 3rd party\n"
         "• <code>/soc_metrics</code> — Metrik SLA SOC (MTTD / MTTR / Top Attackers)\n"
-        "• <code>/export_case &lt;id&gt;</code> — Export laporan case format Markdown\n\n"
+        "• <code>/export_case &lt;id&gt;</code> — Export laporan case format Markdown\n",
         "🤖 <b>AI SOC Copilot & MLOps</b>\n"
         "• <code>/ask_ai &lt;pertanyaan&gt;</code> — Konsultasi investigasi AI Copilot\n"
         "• <code>/rca &lt;ip/event_id&gt;</code> — Generate Root Cause Analysis otomatis\n"
         "• <code>/ai_model [model]</code> — Cek / ganti model AI live\n"
         "• <code>/ai_provider [provider]</code> — Cek / ganti AI provider live\n"
         "• <code>/retrain_model</code> — Trigger auto-retraining model ML",
-        parse_mode="HTML"
-    )
+    ])
+
+    await update.message.reply_text("\n".join(sections), parse_mode="HTML")
+
+
+async def post_init(application) -> None:
+    """Dynamically sets Telegram Bot interactive command menu (set_my_commands) based on configured providers in .env."""
+    conf = get_configured_providers()
+
+    commands = [
+        BotCommand("help", "Bantuan & panduan command bot"),
+        BotCommand("intel", "Summary kartu intelijen IP & reputasi"),
+        BotCommand("blocked", "Daftar IP aktif di Block List & EDR"),
+        BotCommand("health", "Dashboard kesehatan SOAR, Redis & AI"),
+        BotCommand("whitelists", "Daftar IP whitelist aktif"),
+        BotCommand("whitelist_add", "Tambah IP ke whitelist"),
+        BotCommand("whitelist_remove", "Hapus IP dari whitelist"),
+    ]
+
+    # Perimeter Commands (Hanya menampilkan perimeter yang terkonfigurasi di .env)
+    if conf.get("imperva"):
+        commands.extend([
+            BotCommand("block_imperva", "Blokir IP di Imperva WAF"),
+            BotCommand("unblock_imperva", "Unblock IP di Imperva WAF"),
+            BotCommand("trace_imperva", "Trace violation log Imperva"),
+        ])
+    if conf.get("paloalto"):
+        commands.extend([
+            BotCommand("block_palo", "Tambah IP ke group Palo Alto"),
+            BotCommand("unblock_palo", "Hapus IP dari group Palo Alto"),
+            BotCommand("commit_palo", "Commit konfigurasi Palo Alto"),
+            BotCommand("trace_palo", "Trace threat log Palo Alto"),
+        ])
+    if conf.get("akamai"):
+        commands.extend([
+            BotCommand("block_akamai", "Tambah IP ke Akamai Client List"),
+            BotCommand("unblock_akamai", "Hapus IP dari Akamai Client List"),
+            BotCommand("activate_akamai", "Aktivasi daftar IP di Akamai"),
+            BotCommand("trace_akamai", "Trace SIEM event Akamai"),
+        ])
+    if conf.get("cloudflare"):
+        commands.extend([
+            BotCommand("block_cf", "Blokir IP di Cloudflare WAF"),
+            BotCommand("unblock_cf", "Unblock IP di Cloudflare WAF"),
+        ])
+    if conf.get("fortigate"):
+        commands.extend([
+            BotCommand("block_forti", "Blokir IP di FortiGate Firewall"),
+            BotCommand("unblock_forti", "Unblock IP di FortiGate Firewall"),
+        ])
+
+    # EDR Server Commands (Hanya jika terkonfigurasi di .env)
+    if conf.get("kaspersky") or conf.get("trendmicro"):
+        commands.extend([
+            BotCommand("isolate_host", "Isolasi host endpoint via EDR"),
+            BotCommand("restore_host", "Pulihkan host endpoint via EDR"),
+            BotCommand("query_host", "Query inventory host EDR"),
+            BotCommand("add_edr_ioc", "Registrasi IoC ke EDR"),
+            BotCommand("edr_status", "Cek status konektivitas EDR"),
+        ])
+
+    # Case Management & AI Copilot Commands
+    commands.extend([
+        BotCommand("cases", "Daftar incident case aktif"),
+        BotCommand("case", "Detail laporan incident case"),
+        BotCommand("update_case", "Update status incident case"),
+        BotCommand("sync_ticket", "Dispatch case ke ticketing 3rd party"),
+        BotCommand("soc_metrics", "Metrik SLA SOC (MTTD / MTTR)"),
+        BotCommand("export_case", "Export laporan case format Markdown"),
+        BotCommand("ask_ai", "Konsultasi investigasi AI Copilot"),
+        BotCommand("rca", "Generate Root Cause Analysis otomatis"),
+        BotCommand("ai_model", "Cek / ganti model AI live"),
+        BotCommand("ai_provider", "Cek / ganti AI provider live"),
+        BotCommand("retrain_model", "Trigger auto-retraining model ML"),
+    ])
+
+    try:
+        await application.bot.set_my_commands(commands)
+        logger.info("[BOT] Successfully updated Telegram Bot interactive menu with %d commands.", len(commands))
+    except Exception as e:
+        logger.warning("[BOT] Failed to set_my_commands on Telegram: %s", e)
 
 
 async def on_error(update: object, context: ContextTypes.DEFAULT_TYPE) -> None:
@@ -1410,12 +1579,13 @@ def main() -> None:
         return
 
     try:
-        app = ApplicationBuilder().token(cfg.token).build()
+        app = ApplicationBuilder().token(cfg.token).post_init(post_init).build()
 
         app.add_handler(CommandHandler(["help", "h", "start"], help_cmd))
 
         # Threat Intel & Diagnostics Handlers
         app.add_handler(CommandHandler(["intel", "lookup", "ip"], intel_cmd))
+        app.add_handler(CommandHandler(["blocked", "blocklist", "bl"], blocked_cmd))
         app.add_handler(CommandHandler(["health", "soar_status", "hp"], health_cmd))
 
         # Whitelist Management Handlers

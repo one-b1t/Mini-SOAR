@@ -14,6 +14,7 @@ from minisoar.mitigation.core import (
 class MockRedis:
     def __init__(self):
         self.zset = {}
+        self.kv = {}
 
     def zscore(self, key, member):
         return self.zset.get((key, member))
@@ -22,11 +23,16 @@ class MockRedis:
         for member, score in mapping.items():
             self.zset[(key, member)] = float(score)
 
-    def zrangebyscore(self, key, min_val, max_val):
+    def zrangebyscore(self, key, min_val, max_val, withscores=False):
+        min_v = -float("inf") if min_val == "-inf" else float(min_val)
+        max_v = float("inf") if max_val == "+inf" else float(max_val)
         out = []
         for (k, member), score in self.zset.items():
-            if k == key and min_val <= score <= max_val:
-                out.append(member)
+            if k == key and min_v <= score <= max_v:
+                if withscores:
+                    out.append((member, score))
+                else:
+                    out.append(member)
         return out
 
     def zrem(self, key, member):
@@ -34,6 +40,16 @@ class MockRedis:
             del self.zset[(key, member)]
             return 1
         return 0
+
+    def setex(self, key, ttl, val):
+        self.kv[key] = val
+
+    def keys(self, pattern):
+        import fnmatch
+        return [k for k in self.kv.keys() if fnmatch.fnmatch(k, pattern)]
+
+    def ttl(self, key):
+        return 86400 if key in self.kv else -2
 
 def test_trigger_auto_block_mock():
     os.environ["MINISOAR_MOCK"] = "1"
@@ -113,6 +129,20 @@ def test_redis_block_helpers():
     expired = get_expired_blocks(r)
     assert len(expired) == 1
     assert expired[0] == ("5.6.7.8", "akamai")
+
+
+def test_get_active_blocklist():
+    from minisoar.mitigation.core import get_active_blocklist
+    r = MockRedis()
+    register_block_state(r, "185.220.101.5", "paloalto", duration=600)
+    r.setex("minisoar:edr_ioc_synced:185.220.101.5", 86400, "1")
+
+    data = get_active_blocklist(r)
+    assert data["total_perimeter"] == 1
+    assert data["perimeters"][0]["ip"] == "185.220.101.5"
+    assert data["perimeters"][0]["provider"] == "paloalto"
+    assert data["total_edr"] == 1
+    assert data["edr_iocs"][0]["ip"] == "185.220.101.5"
 
 
 def test_es_website_lookups():

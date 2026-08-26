@@ -26,6 +26,15 @@ steps:
       commit: false
     on_failure: "continue"
 
+  - id: "step_add_edr_ioc"
+    name: "Register Webshell Attacker IP to EDR IoC"
+    action: "edr.add_ioc"
+    params:
+      type: "ip"
+      provider: "all"
+      comment: "Webshell Attacker IoC from WAF detection"
+    on_failure: "continue"
+
   - id: "step_notify_telegram"
     name: "Broadcast Alert to Telegram"
     action: "notification.telegram"

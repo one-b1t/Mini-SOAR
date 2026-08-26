@@ -53,7 +53,7 @@ logs/
 tele-soar-actions.log
 minisoar-unmapped-sites.log
 
-# --- OS Specific Files ---
+# --- OS Specific Files & Local Scripts ---
 .DS_Store
 .DS_Store?
 ._*
@@ -61,6 +61,8 @@ minisoar-unmapped-sites.log
 .Trashes
 ehthumbs.db
 Thumbs.db
+run-wsl.ps1
+*.ps1
 
 # --- IDE & Editor Configs ---
 .idea/

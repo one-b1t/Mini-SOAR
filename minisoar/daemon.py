@@ -45,6 +45,7 @@ from .utils import (
     build_message,
     extract_reputation_score,
     get_perimeter_info,
+    inject_edr_line,
     inject_perimeter_line,
     is_ip_whitelisted,
     load_cidr_list_from_env_and_file,
@@ -54,9 +55,79 @@ from .utils import (
     provider_badge,
     resolve_log_path,
     send_telegram,
+    valid_ip,
 )
 
 logger = logging.getLogger(__name__)
+
+
+def sync_edr_ioc_if_malicious(
+    r,
+    ip: str,
+    rep_score: int,
+    is_permanent: bool,
+    pred_label: int,
+    event_id: str,
+    detector_type: str,
+    logfile: str | None = None,
+) -> bool:
+    """Auto-registers confirmed high-threat / C2 / malicious IPs to EDR IoC repositories (Kaspersky KSC & Trend Micro Vision One)."""
+    if not ip or ip == "(unknown)" or not valid_ip(ip):
+        return False
+
+    # Kriteria: Reputasi ancaman intelijen tinggi (>= 50%), permanent block, ML prediction block, atau serangan webshell/RCE
+    is_malicious = (
+        is_permanent
+        or rep_score >= 50
+        or pred_label == 1
+        or detector_type in {
+            "alert_webshell_immediate",
+            "alert_webshell_name",
+            "alert_webshell_heur",
+            "alert_rce_heur",
+            "alert_c2_communication",
+            "alert_ransomware_activity",
+        }
+    )
+    if not is_malicious:
+        return False
+
+    cache_key = f"minisoar:edr_ioc_synced:{ip}"
+    if r and r.exists(cache_key):
+        return False
+
+    try:
+        from .edr.core import add_edr_ioc
+
+        ok, msg = add_edr_ioc(
+            ioc_type="ip",
+            ioc_value=ip,
+            provider="all",
+            comment=f"ThreatIntel Rep:{rep_score}% - Event:{event_id or detector_type}",
+        )
+        if ok:
+            if r:
+                r.setex(cache_key, 86400, "1")
+            log_user_action(
+                "EDR_IOC_AUTO_SYNC",
+                {"username": "threat_intel"},
+                ip=ip,
+                target="EDR-ALL",
+                note=f"Auto IoC synced to Kaspersky & TrendMicro: {msg}",
+                logfile=logfile,
+            )
+            notify_action_log(
+                f"🛡️ *EDR IOC AUTO-SYNC*\n"
+                f"• IP: `{ip}`\n"
+                f"• Target EDR: `Kaspersky KSC & Trend Micro Vision One`\n"
+                f"• Note: `ThreatIntel Rep: {rep_score}% - Event: {detector_type}`\n"
+                f"• Status: `✅ Active / Blocked on EDR Repositories`"
+            )
+            logger.info("[EDR-IOC] Auto-registered IP %s to EDR Suspicious Objects: %s", ip, msg)
+            return True
+    except Exception as e:
+        logger.debug("[EDR-IOC] Auto IoC registration skipped/failed: %s", e)
+    return False
 
 
 def main() -> None:
@@ -304,8 +375,13 @@ def main() -> None:
                     metrics["hit_count"] = (event.get("alert") or {}).get("count") or event.get("count")
                     metrics["window_seconds"] = minisoar_event_window
 
-                    samples = event.setdefault("samples", {})
-                    samples["paths_top"] = top_paths
+                    if isinstance(event.get("samples"), dict):
+                        event["samples"]["paths_top"] = top_paths
+                    else:
+                        raw_samples = event.get("samples")
+                        event["samples"] = {"paths_top": top_paths}
+                        if raw_samples is not None:
+                            event["samples"]["raw"] = raw_samples
 
                     signature = event.setdefault("signature", {})
                     signature["top_paths_hash"] = sig_hash(top_paths)
@@ -391,6 +467,21 @@ def main() -> None:
                     if campaign_data.get("is_campaign"):
                         event["campaign"] = campaign_data
                         msg = f"🚨 *DISTRIBUTED CAMPAIGN ({campaign_data['attacker_count']} IPs targeting {website or 'asset'})*\n" + msg
+
+                    # 2026-08-21 - Otomasi Sinkronisasi IP Terkonfirmasi Ancaman/C2 ke EDR IoC (Kaspersky KSC & Trend Micro)
+                    if not whitelisted and not bypassed:
+                        is_edr_synced = sync_edr_ioc_if_malicious(
+                            r=r,
+                            ip=ip,
+                            rep_score=rep_score,
+                            is_permanent=is_permanent,
+                            pred_label=pred_label,
+                            event_id=event_id,
+                            detector_type=alert_type or "generic",
+                            logfile=logfile,
+                        )
+                        if is_edr_synced or (r and r.exists(f"minisoar:edr_ioc_synced:{ip}")):
+                            msg = inject_edr_line(msg, "🛡️ Kaspersky & Trend Micro (Synced)")
 
                     if minisoar_blocking_mode == "PLAYBOOK":
                         ctx = ExecutionContext(

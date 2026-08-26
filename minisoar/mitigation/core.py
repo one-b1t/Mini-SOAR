@@ -289,6 +289,59 @@ def remove_block_state(r, ip: str, provider: str) -> bool:
         return False
 
 
+def get_active_blocklist(r=None) -> dict[str, Any]:
+    """Returns all currently blocked IPs across Security Perimeters (Redis ZSET) and synced EDR IoCs."""
+    if r is None:
+        try:
+            from ..database import redis_client
+            r = redis_client()
+        except Exception:
+            r = None
+
+    now = time.time()
+    perimeters: list[dict[str, Any]] = []
+    edr_iocs: list[dict[str, Any]] = []
+
+    if r:
+        # 1. Perimeter Blocks from Redis ZSET
+        try:
+            members_with_scores = r.zrangebyscore(REDIS_ZSET_KEY, now, "+inf", withscores=True)
+            for member, score in members_with_scores:
+                if ":" in member:
+                    p, ip = member.split(":", 1)
+                    ttl_sec = max(0, int(score - now))
+                    perimeters.append({
+                        "ip": ip,
+                        "provider": p,
+                        "ttl_sec": ttl_sec,
+                        "expires_at": time.strftime("%Y-%m-%d %H:%M:%S UTC", time.gmtime(score)),
+                    })
+        except Exception as e:
+            logger.error("Failed to read perimeter blocklist from Redis: %s", e)
+
+        # 2. EDR IoC Synced IPs from Redis Cache Keys
+        try:
+            keys = r.keys("minisoar:edr_ioc_synced:*")
+            for k in keys:
+                ip = k.replace("minisoar:edr_ioc_synced:", "")
+                ttl = r.ttl(k)
+                edr_iocs.append({
+                    "ip": ip,
+                    "provider": "Kaspersky & Trend Micro",
+                    "ttl_sec": ttl if ttl > 0 else 86400,
+                    "status": "Active (IoC Repository)",
+                })
+        except Exception as e:
+            logger.error("Failed to read EDR IoC list from Redis: %s", e)
+
+    return {
+        "perimeters": perimeters,
+        "edr_iocs": edr_iocs,
+        "total_perimeter": len(perimeters),
+        "total_edr": len(edr_iocs),
+    }
+
+
 # ---------------------------------------------
 # Perimeter connectivity check (startup diagnostics)
 # ---------------------------------------------

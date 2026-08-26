@@ -4,6 +4,7 @@ from . import akamai, cloudflare, fortigate, imperva, paloalto
 from .core import (
     check_perimeter_connectivity,
     extend_block_state,
+    get_active_blocklist,
     get_expired_blocks,
     is_ip_blocked,
     register_block_state,
@@ -19,6 +20,7 @@ __all__ = [
     "cloudflare",
     "extend_block_state",
     "fortigate",
+    "get_active_blocklist",
     "get_expired_blocks",
     "imperva",
     "is_ip_blocked",

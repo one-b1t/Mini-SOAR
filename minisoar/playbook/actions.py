@@ -20,6 +20,7 @@ from ..utils import (
     build_message,
     inject_perimeter_line,
     log_user_action,
+    notify_action_log,
     provider_badge,
     send_telegram,
 )
@@ -220,6 +221,18 @@ def action_set_variable(ctx: ExecutionContext, params: dict[str, Any]) -> tuple[
 @register_action("edr.isolate_endpoint")
 def action_edr_isolate(ctx: ExecutionContext, params: dict[str, Any]) -> tuple[bool, Any]:
     """Action to isolate an endpoint host via EDR (Kaspersky KSC / TrendMicro Vision One)."""
+    import os
+
+    # 2026-08-21 - Safety Guard: Isolasi host otomatis dinonaktifkan secara default untuk melindungi ketersediaan server web produksi
+    if os.getenv("MINISOAR_EDR_ALLOW_AUTO_ISOLATE", "0").lower() not in {"1", "true", "yes"}:
+        logger.warning(
+            "[EDR SAFETY] Automated host isolation skipped: feature is disabled by policy (MINISOAR_EDR_ALLOW_AUTO_ISOLATE=0) to prevent server downtime"
+        )
+        return True, {
+            "message": "SKIPPED: Automated host isolation is disabled by policy for server safety",
+            "details": {"isolated": False, "policy": "disabled"},
+        }
+
     from ..edr.core import isolate_endpoint
 
     target = params.get("target") or ctx.ip
@@ -260,7 +273,7 @@ def action_edr_restore(ctx: ExecutionContext, params: dict[str, Any]) -> tuple[b
 
 @register_action("edr.add_ioc")
 def action_edr_add_ioc(ctx: ExecutionContext, params: dict[str, Any]) -> tuple[bool, Any]:
-    """Action to push IoC indicators (IP, hash, URL) to EDR servers."""
+    """Action to push IoC indicators (IP, hash, URL) to EDR servers (Kaspersky KSC & TrendMicro Vision One)."""
     from ..edr.core import add_edr_ioc
 
     ioc_type = params.get("type", "ip")
@@ -269,6 +282,21 @@ def action_edr_add_ioc(ctx: ExecutionContext, params: dict[str, Any]) -> tuple[b
     comment = params.get("comment", f"MiniSOAR Playbook IoC for event {ctx.event_id}")
 
     ok, msg = add_edr_ioc(ioc_type=ioc_type, ioc_value=ioc_value, provider=provider, comment=comment)
+    if ok:
+        log_user_action(
+            "EDR_ADD_IOC",
+            {"username": "playbook"},
+            ip=ioc_value if ioc_type == "ip" else None,
+            target=f"EDR-{provider.upper()}",
+            note=f"Playbook EDR IoC ({ioc_type.upper()}): {msg}",
+            logfile=ctx.logfile,
+        )
+        notify_action_log(
+            f"🛡️ *PLAYBOOK ACTION: EDR IOC ADDED*\n"
+            f"• IP/Value: `{ioc_value}`\n"
+            f"• Target EDR: `{provider.upper()}`\n"
+            f"• Status: `✅ {msg}`"
+        )
     return ok, {"message": msg}
 
 

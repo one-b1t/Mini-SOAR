@@ -49,7 +49,7 @@ def resolve_log_path(env_key: str, default_linux_path: str, default_win_filename
 
     try:
         parent = os.path.dirname(default_linux_path)
-        if parent and os.path.exists(parent):
+        if parent and os.path.exists(parent) and os.access(parent, os.W_OK):
             return default_linux_path
     except OSError:
         pass
@@ -450,6 +450,26 @@ def inject_perimeter_line(msg: str, perimeter: str) -> str:
     return msg + "\n" + per_line
 
 
+def inject_edr_line(msg: str, edr_status: str) -> str:
+    if not msg or not edr_status:
+        return msg
+    if "*EDR IoC:*" in msg or "EDR IoC:" in msg:
+        return msg
+
+    edr_line = f"• *EDR IoC:* `{edr_status}`"
+    lines = msg.splitlines()
+
+    for i, line in enumerate(lines):
+        if "*Perimeter:*" in line:
+            lines.insert(i + 1, edr_line)
+            return "\n".join(lines)
+        if "*Website:*" in line:
+            lines.insert(i + 1, edr_line)
+            return "\n".join(lines)
+
+    return msg + "\n" + edr_line
+
+
 def build_message(event: dict[str, Any]) -> str:
     a = event.get("alert") or {}
 
@@ -568,32 +588,73 @@ def build_message(event: dict[str, Any]) -> str:
             f"{_bullet_last_seen(event)}"
         )
 
-    exploit_types = {"alert_url_probe", "alert_sqli_attack", "alert_xss_attack", "alert_lfi_attempt", "alert_rce_heur"}
-    if alert_type in ({"alert_gambling_slot"} | exploit_types) or ({"alert_gambling_slot"} | exploit_types) & tags:
+    c2_types = {"alert_c2_communication", "alert_ransomware_activity"}
+    if alert_type in c2_types or c2_types & tags:
         rep, geo = enrich_ip(ip) if ip != "(unknown)" else ("-", "-")
-        if alert_type == "alert_gambling_slot" or "alert_gambling_slot" in tags:
-            title_plain = "Gambling/Slot Pattern"
-        elif "sqli" in alert_type: title_plain = "SQLi Attack"
-        elif "xss" in alert_type: title_plain = "XSS Attack"
-        elif "lfi" in alert_type: title_plain = "LFI Attempt"
-        elif "rce" in alert_type: title_plain = "RCE Heuristic"
-        else: title_plain = "Exploit/Probe URL"
-            
-        emoji = "🎰" if "gambling" in title_plain.lower() else "💣" if "rce" in alert_type else "🛠️"
-        sev = severity or ("critical" if "rce" in alert_type else "high" if "Gambling" in title_plain or "lfi" in alert_type or "sqli" in alert_type else "medium")
+        title_plain = "C2 Communication & Beaconing" if "c2" in (alert_type or "") else "Ransomware Activity Detected"
+        emoji = "☠️" if "c2" in (alert_type or "") else "☣️"
+        sev = severity or "critical"
         return (
-            f"{emoji} *{title_plain} {emoji}*\n"
+            f"{emoji} *{title_plain}* {emoji}\n"
             f"• *Severity:* `{sev}`\n"
             f"• *Website:* `{server_name}`\n"
             f"• *Source IP:* `{ip}`\n"
             f"• *Reputation:* {rep}\n"
             f"• *Location:* {geo}\n"
-            f"• *Method / Status:* `{method or '-'} {status}`\n"
-            f"• *URL:* `{url}`\n"
+            f"• *Method / Status:* `{method or '-'} {status or '-'}`\n"
+            f"• *URL:* `{url or '-'}`\n"
             f"{_bullet_last_seen(event)}"
         )
 
-    return f"🔔 Anomali terdeteksi:\n```json\n{json.dumps(event, indent=2, ensure_ascii=False)}\n```"
+    exploit_types = {"alert_url_probe", "alert_sqli_attack", "alert_xss_attack", "alert_lfi_attempt", "alert_rce_heur", "alert_random_url"}
+    if alert_type in ({"alert_gambling_slot"} | exploit_types) or ({"alert_gambling_slot"} | exploit_types) & tags:
+        rep, geo = enrich_ip(ip) if ip != "(unknown)" else ("-", "-")
+        if alert_type == "alert_gambling_slot" or "alert_gambling_slot" in tags:
+            title_plain = "Gambling/Slot Pattern"
+        elif "sqli" in (alert_type or ""): title_plain = "SQLi Attack"
+        elif "xss" in (alert_type or ""): title_plain = "XSS Attack"
+        elif "lfi" in (alert_type or ""): title_plain = "LFI Attempt"
+        elif "rce" in (alert_type or ""): title_plain = "RCE Heuristic"
+        elif "random" in (alert_type or ""): title_plain = "Random URL Spray"
+        else: title_plain = "Exploit/Probe URL"
+            
+        emoji = "🎰" if "gambling" in title_plain.lower() else "💣" if "rce" in (alert_type or "") else "🎲" if "random" in title_plain.lower() else "🛠️"
+        sev = severity or ("critical" if "rce" in (alert_type or "") else "high" if "Gambling" in title_plain or "lfi" in (alert_type or "") or "sqli" in (alert_type or "") else "medium")
+        return (
+            f"{emoji} *{title_plain}* {emoji}\n"
+            f"• *Severity:* `{sev}`\n"
+            f"• *Website:* `{server_name}`\n"
+            f"• *Source IP:* `{ip}`\n"
+            f"• *Reputation:* {rep}\n"
+            f"• *Location:* {geo}\n"
+            f"• *Method / Status:* `{method or '-'} {status or '-'}`\n"
+            f"• *URL:* `{url or '-'}`\n"
+            f"{_bullet_last_seen(event)}"
+        )
+
+    # Standard / Unclassified Anomaly Card (Selalu dalam format human-readable Markdown Card, TANPA RAW JSON)
+    rep, geo = enrich_ip(ip) if ip != "(unknown)" else ("-", "-")
+    title_plain = a.get("title_plain") or (alert_type.replace("alert_", "").replace("_", " ").title() if alert_type else "Security Anomaly Detected")
+    emoji = a.get("emoji") or "🔔"
+    sev = severity or "medium"
+    
+    card_lines = [
+        f"{emoji} *{title_plain}* {emoji}",
+        f"• *Severity:* `{sev}`",
+        f"• *Website:* `{server_name}`",
+        f"• *Source IP:* `{ip}`",
+        f"• *Reputation:* {rep}",
+        f"• *Location:* {geo}",
+    ]
+    if method or status:
+        card_lines.append(f"• *Method / Status:* `{method or '-'} {status or '-'}`")
+    if url:
+        card_lines.append(f"• *URL:* `{url}`")
+    if count and str(count) != "1":
+        card_lines.append(f"• *Hit Count:* `{count}`x")
+    card_lines.append(_bullet_last_seen(event))
+
+    return "\n".join(card_lines)
 
 
 # -----------------
@@ -629,7 +690,7 @@ def send_telegram(
     data = {
         "chat_id": target_chat,
         "text": msg,
-        "parse_mode": "HTML",
+        "parse_mode": "Markdown",
         "disable_web_page_preview": True,
     }
 
@@ -662,6 +723,13 @@ def send_telegram(
     try:
         resp = requests.post(url, json=data, timeout=10)
         if resp.status_code >= 400:
+            if "can't parse entities" in resp.text:
+                # Fallback: kirim tanpa parse_mode jika ada karakter markdown/HTML yang unescaped
+                data.pop("parse_mode", None)
+                resp_retry = requests.post(url, json=data, timeout=10)
+                if resp_retry.status_code < 400:
+                    logger.info("Alert sent via plain-text fallback (buttons: %s)", "ON" if "reply_markup" in data else "OFF")
+                    return
             logger.error("Telegram error: %s - %s", resp.status_code, resp.text)
         else:
             logger.info("Alert sent (buttons: %s)", "ON" if "reply_markup" in data else "OFF")
