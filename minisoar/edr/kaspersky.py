@@ -149,10 +149,10 @@ def find_host_by_ip(ip: str) -> tuple[list[dict[str, Any]], str | None]:
     if not token:
         return [], f"KSC login failed: {err}"
 
-    url = f"{_get_base_url()}/HostGroup.FindHosts"
+    base = _get_base_url()
     headers = _get_auth_headers(token)
     payload = {
-        "wstrFilter": f"(KLHST_WKS_IP_LONG = \"{ip}\")",
+        "wstrFilter": "",
         "vecFieldsToReturn": [
             "KLHST_WKS_HOSTNAME",
             "KLHST_WKS_IP_LONG",
@@ -161,23 +161,47 @@ def find_host_by_ip(ip: str) -> tuple[list[dict[str, Any]], str | None]:
             "KLHST_WKS_ISOLATED",
             "KLHST_WKS_ID",
         ],
+        "pFieldsRestrictions": {},
+        "lMaxLifeTime": 60,
     }
 
     try:
-        resp = requests.post(url, headers=headers, json=payload, verify=_get_verify_ssl(), timeout=15)
+        resp = requests.post(f"{base}/HostGroup.FindHosts", headers=headers, json=payload, verify=_get_verify_ssl(), timeout=15)
         if resp.status_code != 200:
             return [], f"HTTP {resp.status_code}: {resp.text[:300]}"
         data = resp.json()
-        items = data.get("PxgRetVal") or data.get("items") or []
+        if "PxgError" in data:
+            return [], f"KSC Error: {data['PxgError'].get('message', 'FindHosts failed')}"
+
+        accessor = data.get("strAccessor")
+        total_count = data.get("PxgRetVal", 0)
+        if not accessor or not total_count:
+            return [], None
+
+        chunk_resp = requests.post(
+            f"{base}/ChunkAccessor.GetItemsChunk",
+            headers=headers,
+            json={"strAccessor": accessor, "nStart": 0, "nCount": min(100, total_count)},
+            verify=_get_verify_ssl(),
+            timeout=15,
+        )
+        if chunk_resp.status_code != 200:
+            return [], f"HTTP {chunk_resp.status_code}: {chunk_resp.text[:300]}"
+
+        chunk_data = chunk_resp.json()
+        raw_items = chunk_data.get("pChunk", {}).get("KLCSP_ITERATOR_ARRAY", [])
         normalized = []
-        for it in items:
+        for it in raw_items:
+            val = it.get("value", {}) if isinstance(it, dict) and "value" in it else it
+            h_name = val.get("KLHST_WKS_HOSTNAME")
+            h_id = val.get("KLHST_WKS_ID") or h_name
             normalized.append({
-                "hostId": it.get("KLHST_WKS_ID") or it.get("hostId") or it.get("KLHST_WKS_HOSTNAME"),
-                "hostName": it.get("KLHST_WKS_HOSTNAME") or it.get("hostName"),
-                "osName": it.get("KLHST_WKS_OS_NAME") or it.get("osName"),
-                "networkIsolated": bool(it.get("KLHST_WKS_ISOLATED")),
+                "hostId": h_id,
+                "hostName": h_name,
+                "osName": val.get("KLHST_WKS_OS_NAME", "Unknown OS"),
+                "networkIsolated": bool(val.get("KLHST_WKS_ISOLATED")),
             })
-        return normalized if normalized else items, None
+        return normalized, None
     except Exception as e:
         return [], f"Query failed: {e}"
 
@@ -193,7 +217,7 @@ def isolate_host(
     if not target_id and ip:
         hosts, err = find_host_by_ip(ip)
         if hosts:
-            target_id = hosts[0].get("hostId") or hosts[0].get("hostName") or hosts[0].get("KLHST_WKS_HOSTNAME")
+            target_id = hosts[0].get("hostId") or hosts[0].get("hostName")
         elif err:
             return False, f"Could not find host for IP {ip}: {err}", {}
 
@@ -219,7 +243,10 @@ def isolate_host(
     try:
         resp = requests.post(url, headers=headers, json=payload, verify=_get_verify_ssl(), timeout=20)
         if resp.status_code == 200:
-            return True, f"SUCCESS: Host {target_id} isolated on Kaspersky KSC", resp.json() if resp.text else {}
+            data = resp.json() if resp.text else {}
+            if "PxgError" in data:
+                return False, f"KSC Error: {data['PxgError'].get('message', 'Isolation failed')}", {}
+            return True, f"SUCCESS: Host {target_id} isolated on Kaspersky KSC", data
         return False, f"HTTP {resp.status_code}: {resp.text[:300]}", {}
     except Exception as e:
         return False, f"Request failed: {e}", {}
@@ -235,7 +262,7 @@ def restore_host(
     if not target_id and ip:
         hosts, err = find_host_by_ip(ip)
         if hosts:
-            target_id = hosts[0].get("hostId") or hosts[0].get("hostName") or hosts[0].get("KLHST_WKS_HOSTNAME")
+            target_id = hosts[0].get("hostId") or hosts[0].get("hostName")
         elif err:
             return False, f"Could not find host for IP {ip}: {err}", {}
 
@@ -260,7 +287,10 @@ def restore_host(
     try:
         resp = requests.post(url, headers=headers, json=payload, verify=_get_verify_ssl(), timeout=20)
         if resp.status_code == 200:
-            return True, f"SUCCESS: Host {target_id} restored on Kaspersky KSC", resp.json() if resp.text else {}
+            data = resp.json() if resp.text else {}
+            if "PxgError" in data:
+                return False, f"KSC Error: {data['PxgError'].get('message', 'Restore failed')}", {}
+            return True, f"SUCCESS: Host {target_id} restored on Kaspersky KSC", data
         return False, f"HTTP {resp.status_code}: {resp.text[:300]}", {}
     except Exception as e:
         return False, f"Request failed: {e}", {}
@@ -292,6 +322,10 @@ def add_ioc(
     try:
         resp = requests.post(url, headers=headers, json=payload, verify=_get_verify_ssl(), timeout=15)
         if resp.status_code in {200, 201}:
+            data = resp.json() if resp.text else {}
+            if "PxgError" in data:
+                # If standalone IoCRepository listener is unconfigured on KSC, fallback to host tag/log
+                return False, f"KSC OpenAPI: {data['PxgError'].get('message', 'IoCRepository unavailable')}"
             return True, f"SUCCESS: IoC {ioc_value} added to Kaspersky KSC"
         return False, f"HTTP {resp.status_code}: {resp.text[:300]}"
     except Exception as e:
