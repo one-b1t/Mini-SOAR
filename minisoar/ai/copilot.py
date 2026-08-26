@@ -29,7 +29,7 @@ logger = logging.getLogger(__name__)
 
 
 def _get_provider() -> str:
-    prov = os.getenv("AI_PROVIDER", "codex").lower().strip()
+    prov = os.getenv("AI_PROVIDER", "gemini").lower().strip()
     if prov in {"openai", "codex", "gpt"}:
         return "openai"
     if prov in {"google", "gemini", "antigravity", "agy"}:
@@ -38,7 +38,7 @@ def _get_provider() -> str:
         return "claude"
     if prov in {"ollama", "local"}:
         return "ollama"
-    return "openai"
+    return "gemini"
 
 
 def _read_file_token(filepath: str | Path) -> str | None:
@@ -379,29 +379,45 @@ def _call_headless_cli(provider: str, prompt: str, system_instruction: str = "")
 
     # 2. Google Antigravity / Gemini CLI Headless Mode (agy / antigravity)
     if provider in {"gemini", "antigravity", "agy", "google"}:
-        cli_bin = (
-            os.getenv("AGY_CLI_PATH")
-            or os.getenv("ANTIGRAVITY_CLI_PATH")
-            or shutil.which("agy")
-            or shutil.which("antigravity")
-        )
+        cli_candidates = [
+            os.getenv("AGY_CLI_PATH"),
+            os.getenv("ANTIGRAVITY_CLI_PATH"),
+            shutil.which("agy"),
+            str(Path.home() / ".local" / "bin" / "agy"),
+            "/mnt/c/Users/bandar/AppData/Local/agy/bin/agy.exe",
+            r"C:\Users\bandar\AppData\Local\agy\bin\agy.exe",
+            shutil.which("antigravity"),
+        ]
+        cli_bin = None
+        for cand in cli_candidates:
+            if cand and (shutil.which(cand) or Path(cand).exists()):
+                cli_bin = cand
+                break
+
         if not cli_bin:
             return None
-        # Format: agy -p "<prompt>" --output-format json
-        cmd = [cli_bin, "-p", combined_prompt, "--output-format", "json"]
-        if model_name:
+
+        # Try text output format first (returns human readable / clean markdown)
+        cmd = [cli_bin, "-p", combined_prompt, "--output-format", "text", "--disable-slash-commands"]
+        if model_name and not model_name.startswith("gemini-1.5") and model_name not in {"default", "auto"}:
             cmd.extend(["--model", model_name])
         try:
-            res = subprocess.run(cmd, capture_output=True, text=True, timeout=60, check=False)
-            if res.returncode == 0 and res.stdout.strip():
+            res = subprocess.run(cmd, capture_output=True, text=True, encoding="utf-8", errors="replace", timeout=60, check=False)
+            if res.returncode == 0 and res.stdout and res.stdout.strip():
                 return res.stdout.strip()
-            # Fallback syntax: agy run --headless --json
-            cmd_alt = [cli_bin, "run", "--headless", "--json", combined_prompt]
-            if model_name:
-                cmd_alt.extend(["--model", model_name])
-            res_alt = subprocess.run(cmd_alt, capture_output=True, text=True, timeout=60, check=False)
-            if res_alt.returncode == 0 and res_alt.stdout.strip():
-                return res_alt.stdout.strip()
+
+            # Retry without --model if the previous command failed due to unrecognized model
+            if "--model" in cmd:
+                cmd_nomodel = [cli_bin, "-p", combined_prompt, "--output-format", "text", "--disable-slash-commands"]
+                res_nomodel = subprocess.run(cmd_nomodel, capture_output=True, text=True, encoding="utf-8", errors="replace", timeout=60, check=False)
+                if res_nomodel.returncode == 0 and res_nomodel.stdout and res_nomodel.stdout.strip():
+                    return res_nomodel.stdout.strip()
+
+            # Fallback syntax with json output
+            cmd_json = [cli_bin, "-p", combined_prompt, "--output-format", "json"]
+            res_json = subprocess.run(cmd_json, capture_output=True, text=True, encoding="utf-8", errors="replace", timeout=60, check=False)
+            if res_json.returncode == 0 and res_json.stdout and res_json.stdout.strip():
+                return res_json.stdout.strip()
             logger.debug("Antigravity (agy) Headless CLI returned code %s: %s", res.returncode, res.stderr)
         except Exception as e:
             logger.debug("Antigravity (agy) Headless CLI execution error: %s", e)
@@ -416,8 +432,8 @@ def _call_headless_cli(provider: str, prompt: str, system_instruction: str = "")
         if model_name:
             cmd.extend(["--model", model_name])
         try:
-            res = subprocess.run(cmd, capture_output=True, text=True, timeout=60, check=False)
-            if res.returncode == 0 and res.stdout.strip():
+            res = subprocess.run(cmd, capture_output=True, text=True, encoding="utf-8", errors="replace", timeout=60, check=False)
+            if res.returncode == 0 and res.stdout and res.stdout.strip():
                 return res.stdout.strip()
             logger.debug("Claude Headless CLI returned code %s: %s", res.returncode, res.stderr)
         except Exception as e:

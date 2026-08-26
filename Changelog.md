@@ -7,10 +7,14 @@ Format changelog berbasis pada [Keep a Changelog](https://keepachangelog.com/en/
 ## [1.3.4] - 2026-08-26
 
 ### Added
+- **Antigravity CLI (agy) WSL & Multi-Platform Integration**: Menambahkan wrapper eksekusi CLI Antigravity di WSL (`~/.local/bin/agy`), symlink profil otentikasi `~/.gemini`, serta konfigurasi `AI_PROVIDER=gemini` pada `.env` sehingga command bot `/ask_ai` dan `/rca` dapat langsung menggunakan sesi aktif Antigravity AI Copilot.
 - **Kaspersky Security Center (KSC) 15.1 OpenAPI Integration**: Menambahkan kredensial host, port 13299, username, password, dan setting bypass SSL untuk integrasi EDR KSC pada berkas `.env`.
 - **KSC 15.1 OpenAPI KSCBasic Authentication & Session Support (`minisoar/edr/kaspersky.py`)**: Mengoptimalkan adapter Kaspersky OpenAPI untuk mendukung format otentikasi `KSCBasic user=..., pass=...`, ekstraksi token sesi `PxgRetVal`, serta auto-normalisasi endpoint `/api/v1.0` dan alias environment variable `KSC_HOST`.
 - **Trend Micro Vision One Singapore Region Integration**: Menambahkan kredensial API Key Bearer token JWT dan konfigurasi base URL regional Singapore (`https://api.sg.xdr.trendmicro.com`) pada berkas `.env` untuk integrasi modul EDR.
 - **Vision One v3.0 EndpointSecurity Native Support (`find_endpoint_by_ip`)**: Memperbarui adapter EDR `minisoar/edr/trendmicro.py` untuk secara native mendukung REST API v3.0 EndpointSecurity (`/v3.0/endpointSecurity/endpoints`) dengan resolusi IP address dan agent GUID, serta health check otomatis.
+
+### Changed
+- **Cross-Platform UTF-8 Subprocess Decoding**: Memperbaiki pemanggilan headless subprocess pada `minisoar/ai/copilot.py` dengan penegakan decoding `utf-8` defensif untuk mencegah `UnicodeDecodeError` di lingkungan host Windows dan WSL.
 
 ## [1.3.3] - 2026-08-21
 
