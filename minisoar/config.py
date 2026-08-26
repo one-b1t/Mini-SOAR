@@ -112,6 +112,6 @@ def get_configured_providers() -> dict[str, bool]:
         "akamai": bool(os.getenv("AKAMAI_BASEURL") or os.getenv("AKAMAI_HOST") or os.getenv("AKAMAI_CLIENT_TOKEN")),
         "cloudflare": bool(os.getenv("CLOUDFLARE_API_TOKEN") or os.getenv("CLOUDFLARE_ZONE_ID")),
         "fortigate": bool(os.getenv("FORTIGATE_HOST") or os.getenv("FORTIGATE_API_KEY")),
-        "kaspersky": bool(os.getenv("KSC_SERVER_URL") or os.getenv("KASPERSKY_KSC_HOST")),
+        "kaspersky": bool(os.getenv("KSC_SERVER_URL") or os.getenv("KASPERSKY_KSC_HOST") or os.getenv("KSC_HOST")),
         "trendmicro": bool(os.getenv("TRENDMICRO_API_KEY") or os.getenv("TRENDMICRO_VISION_ONE_URL")),
     }

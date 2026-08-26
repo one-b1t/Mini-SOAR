@@ -19,7 +19,14 @@ logger = logging.getLogger(__name__)
 
 
 def _get_base_url() -> str:
-    url = os.getenv("KSC_SERVER_URL", "https://127.0.0.1:13299/api/v1.0").rstrip("/")
+    url = (
+        os.getenv("KSC_SERVER_URL")
+        or os.getenv("KASPERSKY_KSC_HOST")
+        or os.getenv("KSC_HOST")
+        or "https://127.0.0.1:13299/api/v1.0"
+    ).rstrip("/")
+    if not url.endswith("/api/v1.0") and ":13299" in url:
+        url = f"{url}/api/v1.0"
     return url
 
 
@@ -28,7 +35,8 @@ def _get_verify_ssl() -> bool:
 
 
 def is_configured() -> bool:
-    return bool(os.getenv("KSC_SERVER_URL") and os.getenv("KSC_USERNAME") and os.getenv("KSC_PASSWORD"))
+    has_host = bool(os.getenv("KSC_SERVER_URL") or os.getenv("KASPERSKY_KSC_HOST") or os.getenv("KSC_HOST"))
+    return bool(has_host and os.getenv("KSC_USERNAME") and os.getenv("KSC_PASSWORD"))
 
 
 def login() -> tuple[str | None, str | None]:
@@ -43,13 +51,17 @@ def login() -> tuple[str | None, str | None]:
     username = os.getenv("KSC_USERNAME", "")
     password = os.getenv("KSC_PASSWORD", "")
 
-    # KSC 15.1 OpenAPI uses base64 encoded user:pass in Authorization header
+    # KSC 15.1 OpenAPI uses base64 encoded user and pass parameters in KSCBasic header
+    u_b64 = base64.b64encode(username.encode("utf-8")).decode("utf-8")
+    p_b64 = base64.b64encode(password.encode("utf-8")).decode("utf-8")
     auth_str = f"{username}:{password}"
     auth_b64 = base64.b64encode(auth_str.encode("utf-8")).decode("utf-8")
-    headers = {
-        "Authorization": f"KSCBasic {auth_b64}",
-        "Content-Type": "application/json",
-    }
+
+    auth_header_candidates = [
+        f'KSCBasic user="{u_b64}", pass="{p_b64}"',
+        f"KSCBasic {auth_b64}",
+        f"Basic {auth_b64}",
+    ]
 
     endpoints = [
         f"{base_url}/Session.StartSession",
@@ -57,18 +69,29 @@ def login() -> tuple[str | None, str | None]:
     ]
 
     last_err = ""
-    for url in endpoints:
-        try:
-            resp = requests.post(url, headers=headers, json={}, verify=_get_verify_ssl(), timeout=10)
-            if resp.status_code == 200:
-                data = resp.json() if resp.text else {}
-                token = data.get("accessor") or data.get("session_token") or resp.headers.get("X-KSC-Session") or resp.headers.get("Kaspersky-Session-Token")
-                if not token:
-                    token = resp.cookies.get("KSC-Session-Token", "ksc-authenticated-session")
-                return token, None
-            last_err = f"HTTP {resp.status_code}: {resp.text[:300]}"
-        except Exception as e:
-            last_err = f"Connection to KSC failed ({url}): {e}"
+    for auth_hdr in auth_header_candidates:
+        headers = {
+            "Authorization": auth_hdr,
+            "Content-Type": "application/json",
+        }
+        for url in endpoints:
+            try:
+                resp = requests.post(url, headers=headers, json={}, verify=_get_verify_ssl(), timeout=10)
+                if resp.status_code == 200:
+                    data = resp.json() if resp.text else {}
+                    token = (
+                        data.get("PxgRetVal")
+                        or data.get("accessor")
+                        or data.get("session_token")
+                        or resp.headers.get("X-KSC-Session")
+                        or resp.headers.get("Kaspersky-Session-Token")
+                    )
+                    if not token:
+                        token = resp.cookies.get("KSC-Session-Token", "ksc-authenticated-session")
+                    return token, None
+                last_err = f"HTTP {resp.status_code}: {resp.text[:300]}"
+            except Exception as e:
+                last_err = f"Connection to KSC failed ({url}): {e}"
 
     return None, last_err
 

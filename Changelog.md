@@ -7,6 +7,8 @@ Format changelog berbasis pada [Keep a Changelog](https://keepachangelog.com/en/
 ## [1.3.4] - 2026-08-26
 
 ### Added
+- **Kaspersky Security Center (KSC) 15.1 OpenAPI Integration**: Menambahkan kredensial host, port 13299, username, password, dan setting bypass SSL untuk integrasi EDR KSC pada berkas `.env`.
+- **KSC 15.1 OpenAPI KSCBasic Authentication & Session Support (`minisoar/edr/kaspersky.py`)**: Mengoptimalkan adapter Kaspersky OpenAPI untuk mendukung format otentikasi `KSCBasic user=..., pass=...`, ekstraksi token sesi `PxgRetVal`, serta auto-normalisasi endpoint `/api/v1.0` dan alias environment variable `KSC_HOST`.
 - **Trend Micro Vision One Singapore Region Integration**: Menambahkan kredensial API Key Bearer token JWT dan konfigurasi base URL regional Singapore (`https://api.sg.xdr.trendmicro.com`) pada berkas `.env` untuk integrasi modul EDR.
 - **Vision One v3.0 EndpointSecurity Native Support (`find_endpoint_by_ip`)**: Memperbarui adapter EDR `minisoar/edr/trendmicro.py` untuk secara native mendukung REST API v3.0 EndpointSecurity (`/v3.0/endpointSecurity/endpoints`) dengan resolusi IP address dan agent GUID, serta health check otomatis.
 
