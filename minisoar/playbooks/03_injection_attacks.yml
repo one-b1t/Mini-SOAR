@@ -30,6 +30,7 @@ steps:
     action: "edr.add_ioc"
     conditions:
       - "reputation_score >= 50"
+      - "ml_prob >= 0.70"
     params:
       type: "ip"
       provider: "all"

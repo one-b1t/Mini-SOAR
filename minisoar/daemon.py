@@ -81,6 +81,10 @@ def sync_edr_ioc_if_malicious(
     if not ip or ip == "(unknown)" or not valid_ip(ip):
         return False
 
+    # 2026-08-28 - Absolute EDR IoC Guardrail: ML Confidence < 70% dilarang mutlak masuk ke EDR/XDR
+    if ml_prob < 0.70:
+        return False
+
     # 2026-08-28 - Absolute EDR IoC Guardrail: IP dengan Threat Intel Clean (< 50%) dilarang mutlak masuk ke EDR
     if not is_permanent and rep_score < 50:
         return False

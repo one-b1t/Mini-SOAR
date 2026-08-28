@@ -108,11 +108,15 @@ def should_delete_ioc(description: str, threshold: int = 70) -> tuple[bool, str]
         rep_score = int(rep_match.group(1))
         ml_score = int(ml_match.group(1)) if ml_match else None
 
-        # If TI score >= threshold or ML score >= threshold -> PRESERVE IT
-        if rep_score >= threshold or (ml_score is not None and ml_score >= threshold):
+        # 2026-08-28 - Absolute EDR IoC Guardrail: ML Confidence < threshold (70%) dilarang dipertahankan di EDR
+        if ml_score is not None and ml_score < threshold:
+            return True, f"Low ML Confidence < {threshold}% (ML: {ml_score}%, Rep: {rep_score}%) -> DELETE"
+
+        # If TI score >= threshold AND (ml_score is None or ml_score >= threshold) -> PRESERVE IT
+        if rep_score >= threshold and (ml_score is None or ml_score >= threshold):
             return False, f"High Threat Score >= {threshold}% (Rep: {rep_score}%, ML: {ml_score if ml_score is not None else 'N/A'}) -> KEEP"
 
-        return True, f"Low/Clean Score < {threshold}% (Rep: {rep_score}%, ML: {ml_score if ml_score is not None else 'N/A'}) -> DELETE"
+        return True, f"Low/Clean TI Score < {threshold}% (Rep: {rep_score}%, ML: {ml_score if ml_score is not None else 'N/A'}) -> DELETE"
 
     # 3. For other MiniSOAR heuristic/playbook comments without explicit score:
     # Mark as eligible for deletion if threshold >= 70 since they lack verified >= 70% TI score

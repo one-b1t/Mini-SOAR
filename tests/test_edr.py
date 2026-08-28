@@ -201,19 +201,31 @@ def test_sync_edr_ioc_if_malicious_filter_clean_ip(monkeypatch):
     )
     assert res_clean_2 is False
 
-    # 2. Confirmed Malicious IP (TI >= 50%) -> MUST sync to EDR
-    res_mal_ti = sync_edr_ioc_if_malicious(
+    # 2. IP with High TI (85%) but Low ML Confidence (< 70%) -> MUST NOT sync to EDR
+    res_low_ml = sync_edr_ioc_if_malicious(
         r=None,
         ip="198.51.100.52",
         rep_score=85,
         is_permanent=False,
         ml_prob=0.30,
+        event_id="ev-low-ml",
+        detector_type="alert_url_probe",
+    )
+    assert res_low_ml is False
+
+    # 3. Confirmed Malicious IP (TI >= 50%) with High ML Confidence (>= 70%) -> MUST sync to EDR
+    res_mal_ti_high_ml = sync_edr_ioc_if_malicious(
+        r=None,
+        ip="198.51.100.52",
+        rep_score=85,
+        is_permanent=False,
+        ml_prob=0.85,
         event_id="ev-mal-ti",
         detector_type="alert_url_probe",
     )
-    assert res_mal_ti is True
+    assert res_mal_ti_high_ml is True
 
-    # 3. Clean IP even with high ML confidence (e.g. 88%) -> MUST NOT sync to EDR (EDR is strictly for confirmed malicious TI)
+    # 4. Clean IP even with high ML confidence (e.g. 88%) -> MUST NOT sync to EDR (EDR is strictly for confirmed malicious TI)
     res_clean_high_ml = sync_edr_ioc_if_malicious(
         r=None,
         ip="198.51.100.53",
@@ -225,17 +237,29 @@ def test_sync_edr_ioc_if_malicious_filter_clean_ip(monkeypatch):
     )
     assert res_clean_high_ml is False
 
-    # 4. Permanent block -> MUST sync to EDR
-    res_perm = sync_edr_ioc_if_malicious(
+    # 5. Permanent block with Low ML Confidence (< 70%) -> MUST NOT sync to EDR
+    res_perm_low_ml = sync_edr_ioc_if_malicious(
         r=None,
         ip="198.51.100.54",
         rep_score=0,
         is_permanent=True,
         ml_prob=0.10,
-        event_id="ev-perm",
+        event_id="ev-perm-low",
         detector_type="alert_generic",
     )
-    assert res_perm is True
+    assert res_perm_low_ml is False
+
+    # 6. Permanent block with High ML Confidence (>= 70%) -> MUST sync to EDR
+    res_perm_high_ml = sync_edr_ioc_if_malicious(
+        r=None,
+        ip="198.51.100.54",
+        rep_score=0,
+        is_permanent=True,
+        ml_prob=0.75,
+        event_id="ev-perm-high",
+        detector_type="alert_generic",
+    )
+    assert res_perm_high_ml is True
 
 
 def test_webshell_playbook_clean_ip_skips_edr_ioc(monkeypatch):
@@ -281,4 +305,94 @@ def test_webshell_playbook_clean_ip_skips_edr_ioc(monkeypatch):
     assert pb_id == "pb-webshell-immediate"
     assert "step_block_perimeter" in ctx.executed_steps
     assert "step_add_edr_ioc" not in ctx.executed_steps  # MUST BE SKIPPED FOR CLEAN IP (<70% ML & 0% Rep)
+
+
+def test_webshell_playbook_low_ml_skips_edr_ioc(monkeypatch):
+    os.environ["MINISOAR_MOCK"] = "1"
+    monkeypatch.setattr("minisoar.playbook.actions.send_telegram", lambda *args, **kwargs: None)
+    monkeypatch.setattr("minisoar.playbook.actions.store_label", lambda *args, **kwargs: None)
+
+    playbooks_dir = Path(__file__).parent.parent / "minisoar" / "playbooks"
+    engine = PlaybookEngine(playbooks_dir=playbooks_dir)
+
+    # Webshell event with high TI (80%) but low ML confidence (0.60 < 0.70)
+    event = {
+        "alert": {
+            "type": "alert_webshell_heur",
+            "src_ip": "198.51.100.89",
+            "severity": "high",
+        },
+        "tags": ["alert_webshell_heur", "high"],
+    }
+
+    ctx = ExecutionContext(
+        event=event,
+        ip="198.51.100.89",
+        website="portal.internal.gov.id",
+        providers=["imperva"],
+        mapped=True,
+        whitelisted=False,
+        bypassed=False,
+        ml_prob=0.60,
+        ml_label=1,
+        reputation_score=80,
+        rep_str="🛑 Malicious (80/100)",
+        event_id="test_ev_low_ml_webshell",
+        redis_conn=None,
+    )
+
+    pb = engine.select_playbook(ctx)
+    assert pb is not None
+    assert pb.id == "pb-webshell-immediate"
+
+    ok, pb_id = engine.execute(ctx)
+    assert ok is True
+    assert pb_id == "pb-webshell-immediate"
+    assert "step_block_perimeter" in ctx.executed_steps
+    assert "step_add_edr_ioc" not in ctx.executed_steps  # MUST BE SKIPPED FOR LOW ML CONFIDENCE (< 70%)
+
+
+def test_webshell_playbook_high_confidence_executes_edr_ioc(monkeypatch):
+    os.environ["MINISOAR_MOCK"] = "1"
+    monkeypatch.setattr("minisoar.playbook.actions.send_telegram", lambda *args, **kwargs: None)
+    monkeypatch.setattr("minisoar.playbook.actions.store_label", lambda *args, **kwargs: None)
+
+    playbooks_dir = Path(__file__).parent.parent / "minisoar" / "playbooks"
+    engine = PlaybookEngine(playbooks_dir=playbooks_dir)
+
+    # Webshell event with high TI (80%) and high ML confidence (0.85 >= 0.70)
+    event = {
+        "alert": {
+            "type": "alert_webshell_heur",
+            "src_ip": "198.51.100.90",
+            "severity": "high",
+        },
+        "tags": ["alert_webshell_heur", "high"],
+    }
+
+    ctx = ExecutionContext(
+        event=event,
+        ip="198.51.100.90",
+        website="portal.internal.gov.id",
+        providers=["imperva"],
+        mapped=True,
+        whitelisted=False,
+        bypassed=False,
+        ml_prob=0.85,
+        ml_label=1,
+        reputation_score=80,
+        rep_str="🛑 Malicious (80/100)",
+        event_id="test_ev_high_ml_webshell",
+        redis_conn=None,
+    )
+
+    pb = engine.select_playbook(ctx)
+    assert pb is not None
+    assert pb.id == "pb-webshell-immediate"
+
+    ok, pb_id = engine.execute(ctx)
+    assert ok is True
+    assert pb_id == "pb-webshell-immediate"
+    assert "step_block_perimeter" in ctx.executed_steps
+    assert "step_add_edr_ioc" in ctx.executed_steps  # MUST EXECUTE FOR TI >= 50% & ML >= 70%
 

@@ -282,10 +282,14 @@ def action_edr_add_ioc(ctx: ExecutionContext, params: dict[str, Any]) -> tuple[b
     comment = params.get("comment", f"MiniSOAR Playbook IoC for event {ctx.event_id}")
     force = bool(params.get("force", False))
 
-    # Defensive Guardrail: IP Clean berdasarkan Threat Intelligence (< 50%) dilarang mutlak masuk ke EDR IoC
-    if ioc_type == "ip" and not force and ctx.reputation_score < 50:
-        logger.info("[PLAYBOOK-EDR] Skipped adding Clean IP %s to EDR IoC (Reputation: %d%%)", ioc_value, ctx.reputation_score)
-        return True, {"message": f"Skipped EDR IoC: IP {ioc_value} is Clean (Reputation: {ctx.reputation_score}%)"}
+    # 2026-08-28 - Defensive Guardrail: IP Clean (< 50%) atau ML Confidence < 70% dilarang mutlak masuk ke EDR IoC
+    if ioc_type == "ip" and not force:
+        if ctx.reputation_score < 50:
+            logger.info("[PLAYBOOK-EDR] Skipped adding Clean IP %s to EDR IoC (Reputation: %d%%)", ioc_value, ctx.reputation_score)
+            return True, {"message": f"Skipped EDR IoC: IP {ioc_value} is Clean (Reputation: {ctx.reputation_score}%)"}
+        if ctx.ml_prob is not None and ctx.ml_prob < 0.70:
+            logger.info("[PLAYBOOK-EDR] Skipped adding IP %s to EDR IoC: ML confidence (%.0f%%) is below 70%%", ioc_value, ctx.ml_prob * 100)
+            return True, {"message": f"Skipped EDR IoC: IP {ioc_value} ML confidence ({ctx.ml_prob:.0%}) < 70%"}
 
     ok, msg = add_edr_ioc(ioc_type=ioc_type, ioc_value=ioc_value, provider=provider, comment=comment)
     if ok:

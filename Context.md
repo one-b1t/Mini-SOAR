@@ -325,12 +325,15 @@ MiniSOAR still works as an alert delivery and mitigation pipeline, but its imple
 - **Solution:** Integrated `post_init()` hook with `application.bot.set_my_commands(commands)` in `minisoar/bot.py`. The bot now dynamically registers only active, configured perimeters and EDR servers to Telegram's native command autocomplete list.
 - **Rationale:** Guarantees that Telegram's native `/` popup command list strictly reflects only the security tools available in the environment.
 
-### 2026-08-28 11:45 WIB
-- **Problem:** Analis SOC membutuhkan utilitas pembersih IoC EDR yang mampu memfilter secara cerdas hanya entri dengan reputasi Threat Intelligence / confidence Machine Learning di bawah threshold (< 70%), mempertahankan IoC ancaman tinggi (>= 70%), mendukung Trend Micro Vision One dan Kaspersky Security Center (KSC), serta dapat diakses langsung via CLI `minisoar.sh`.
+### 2026-08-28 14:15 WIB
+- **Problem:** IP dari trafik yang dianalisa oleh Machine Learning (ML) dengan tingkat confidence di bawah 70% (< 70%) masih ter-upload ke repositori IoC EDR/XDR (Kaspersky KSC & Trend Micro Vision One) apabila memiliki skor Threat Intelligence (AbuseIPDB reputation >= 50%) atau permanent block, karena `sync_edr_ioc_if_malicious()` dan Playbook EDR actions sebelumnya tidak memvalidasi ambang batas minimal `ml_prob >= 0.70`.
 - **Solution:** 
-  1. Meningkatkan `scripts/cleanup_minisoar_edr_iocs.py` dengan fungsi `should_delete_ioc()` berbasis ekstraksi regex (`ThreatIntel Rep:X%` & `ML:Y%`), CLI options (`--threshold`, `--dry-run`, `--provider`, `--batch-size`), pooling koneksi HTTP, dan inspeksi Kaspersky KSC 15.1 OpenAPI `IoCRepository`.
-  2. Menambahkan sub-command `cleanioc` (`./minisoar.sh cleanioc [opsi]`), menu interaktif opsi 17, dan bantuan help pada `minisoar.sh`.
-- **Rationale:** Memberikan kendali penuh dan efisiensi operasional bagi analis SOC dalam menjaga kebersihan repositori IoC EDR tanpa menghapus indikator ancaman valid berkeyakinan tinggi.
+  1. Menambahkan guardrail ketat `if ml_prob < 0.70: return False` pada `sync_edr_ioc_if_malicious()` di [daemon.py](file:///f:/Kantor/Program/MiniSOAR/minisoar/daemon.py) sehingga IP dengan ML confidence < 70% ditolak mutlak dari pendaftaran EDR/XDR.
+  2. Menambahkan filter pengaman `ctx.ml_prob < 0.70` pada `action_edr_add_ioc` di [actions.py](file:///f:/Kantor/Program/MiniSOAR/minisoar/playbook/actions.py) dan condition requirement `- "ml_prob >= 0.70"` pada seluruh playbook bawaan (`01_webshell_immediate.yml`, `03_injection_attacks.yml`, `04_host_compromise_edr.yml`).
+  3. Memperbarui logika seleksi `should_delete_ioc()` di [cleanup_minisoar_edr_iocs.py](file:///f:/Kantor/Program/MiniSOAR/scripts/cleanup_minisoar_edr_iocs.py) agar menandai entri IoC dengan ML score < 70% untuk dihapus saat pembersihan.
+  4. Menambahkan test cases komprehensif pada [test_edr.py](file:///f:/Kantor/Program/MiniSOAR/tests/test_edr.py) guna memverifikasi penolakan IP ber-confidence rendah (< 70%) dan penerimaan IP ber-confidence tinggi (>= 70%).
+- **Rationale:** Menjamin bahwa hanya IP berbahaya dengan tingkat keyakinan Machine Learning tinggi (>= 70%) yang dikirimkan ke repositori IoC EDR/XDR, mencegah false positives dan polusi data pada endpoint security agent.
+
 
 
 
