@@ -30,7 +30,7 @@ steps:
     name: "Register Attacker IP to EDR Suspicious Objects"
     action: "edr.add_ioc"
     conditions:
-      - "reputation_score >= 50 or ml_prob >= 0.70"
+      - "reputation_score >= 50"
     params:
       type: "ip"
       provider: "all"

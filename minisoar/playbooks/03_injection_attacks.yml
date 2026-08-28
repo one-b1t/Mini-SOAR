@@ -29,7 +29,7 @@ steps:
     name: "Register Injection Attacker IP to EDR IoC"
     action: "edr.add_ioc"
     conditions:
-      - "reputation_score >= 50 or ml_prob >= 0.70"
+      - "reputation_score >= 50"
     params:
       type: "ip"
       provider: "all"

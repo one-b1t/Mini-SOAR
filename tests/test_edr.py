@@ -213,17 +213,17 @@ def test_sync_edr_ioc_if_malicious_filter_clean_ip(monkeypatch):
     )
     assert res_mal_ti is True
 
-    # 3. High ML confidence (>= 70%) even if TI clean -> MUST sync to EDR
-    res_mal_ml = sync_edr_ioc_if_malicious(
+    # 3. Clean IP even with high ML confidence (e.g. 88%) -> MUST NOT sync to EDR (EDR is strictly for confirmed malicious TI)
+    res_clean_high_ml = sync_edr_ioc_if_malicious(
         r=None,
         ip="198.51.100.53",
         rep_score=0,
         is_permanent=False,
         ml_prob=0.88,
-        event_id="ev-mal-ml",
+        event_id="ev-clean-high-ml",
         detector_type="alert_webshell_name",
     )
-    assert res_mal_ml is True
+    assert res_clean_high_ml is False
 
     # 4. Permanent block -> MUST sync to EDR
     res_perm = sync_edr_ioc_if_malicious(

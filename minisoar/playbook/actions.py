@@ -280,6 +280,12 @@ def action_edr_add_ioc(ctx: ExecutionContext, params: dict[str, Any]) -> tuple[b
     ioc_value = params.get("value") or ctx.ip
     provider = params.get("provider", "all")
     comment = params.get("comment", f"MiniSOAR Playbook IoC for event {ctx.event_id}")
+    force = bool(params.get("force", False))
+
+    # Defensive Guardrail: IP Clean berdasarkan Threat Intelligence (< 50%) dilarang mutlak masuk ke EDR IoC
+    if ioc_type == "ip" and not force and ctx.reputation_score < 50:
+        logger.info("[PLAYBOOK-EDR] Skipped adding Clean IP %s to EDR IoC (Reputation: %d%%)", ioc_value, ctx.reputation_score)
+        return True, {"message": f"Skipped EDR IoC: IP {ioc_value} is Clean (Reputation: {ctx.reputation_score}%)"}
 
     ok, msg = add_edr_ioc(ioc_type=ioc_type, ioc_value=ioc_value, provider=provider, comment=comment)
     if ok:

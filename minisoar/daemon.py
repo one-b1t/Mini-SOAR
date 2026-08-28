@@ -74,23 +74,18 @@ def sync_edr_ioc_if_malicious(
 ) -> bool:
     """Auto-registers confirmed high-threat / C2 / malicious IPs to EDR IoC repositories (Kaspersky KSC & Trend Micro Vision One).
 
-    IP is strictly registered only if confirmed malicious:
-    - is_permanent is True (confirmed permanent ban), OR
-    - rep_score >= 50 (high threat intelligence reputation), OR
-    - ml_prob >= 0.70 (high-confidence ML decision >= 70%), OR
-    - critical internal breach detector with non-clean signals.
-    Clean IPs (rep_score < 50 and ml_prob < 0.70) are NEVER auto-registered into EDR IoC.
+    STRICT GUARDRAIL:
+    - IP is strictly registered only if confirmed malicious by Threat Intelligence (rep_score >= 50) or is_permanent is True.
+    - Clean IPs (rep_score < 50) are NEVER auto-registered into EDR IoC repositories.
     """
     if not ip or ip == "(unknown)" or not valid_ip(ip):
         return False
 
-    # 2026-08-28 - Strict IoC Guardrail: Hanya registrasikan IP jika reputasi TI tinggi (>= 50%) atau ML confidence >= 70%
-    is_malicious = (
-        is_permanent
-        or rep_score >= 50
-        or ml_prob >= 0.70
-        or (detector_type in {"alert_c2_communication", "alert_ransomware_activity"} and (rep_score >= 30 or ml_prob >= 0.50))
-    )
+    # 2026-08-28 - Absolute EDR IoC Guardrail: IP dengan Threat Intel Clean (< 50%) dilarang mutlak masuk ke EDR
+    if not is_permanent and rep_score < 50:
+        return False
+
+    is_malicious = is_permanent or rep_score >= 50
     if not is_malicious:
         return False
 
