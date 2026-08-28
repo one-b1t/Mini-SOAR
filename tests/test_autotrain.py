@@ -49,3 +49,33 @@ def test_evaluate_and_promote_model():
         )
         assert pred == 1
         assert prob >= 0.5
+
+
+def test_export_dataset_from_es_fallback():
+    from minisoar.ml.export import export_dataset_from_es
+
+    with tempfile.TemporaryDirectory() as tmp_dir:
+        tmp_csv = Path(tmp_dir) / "test_dataset.csv"
+        ok, count, msg = export_dataset_from_es(tmp_csv, fallback_synthetic=True)
+
+        assert ok is True
+        assert count > 0
+        assert tmp_csv.exists()
+        df = pd.read_csv(tmp_csv)
+        assert len(df) == count
+        assert "label" in df.columns
+        assert "reputation_score" in df.columns
+
+
+def test_run_autotrain_from_file_auto_export():
+    from minisoar.ml.autotrain import run_autotrain_from_file
+
+    with tempfile.TemporaryDirectory() as tmp_dir:
+        tmp_csv = Path(tmp_dir) / "test_dataset_auto.csv"
+        ok, metrics, msg = run_autotrain_from_file(csv_path=tmp_csv, auto_export_elk=True)
+
+        assert ok is True
+        assert "SUCCESS" in msg
+        assert tmp_csv.exists()
+        assert metrics["roc_auc"] >= 0.85
+

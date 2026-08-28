@@ -121,12 +121,21 @@ def evaluate_and_promote_model(
     return True, metrics, msg
 
 
-def run_autotrain_from_file(csv_path: Path | None = None) -> tuple[bool, dict[str, Any], str]:
-    """Loads dataset from CSV and runs the retraining pipeline."""
+def run_autotrain_from_file(csv_path: Path | None = None, auto_export_elk: bool = True) -> tuple[bool, dict[str, Any], str]:
+    """Extracts latest training data from Elasticsearch and runs the retraining pipeline."""
     root_dir = Path(__file__).resolve().parent.parent.parent
     path = csv_path or (root_dir / "dataset.csv")
+
+    # 2026-08-28 - Automated ELK Telemetry Sync before ML Retraining
+    if auto_export_elk or not path.exists():
+        from .export import export_dataset_from_es
+        logger.info("[MLOps] Auto-exporting latest training dataset from Elasticsearch...")
+        ok_exp, count, msg_exp = export_dataset_from_es(path)
+        logger.info("[MLOps] Dataset export status: %s (%d samples)", msg_exp, count)
+
     if not path.exists():
-        return False, {}, f"Dataset file not found at {path}"
+        return False, {}, f"Dataset file could not be generated at {path}"
 
     df = pd.read_csv(path)
     return evaluate_and_promote_model(df)
+

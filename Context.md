@@ -325,14 +325,14 @@ MiniSOAR still works as an alert delivery and mitigation pipeline, but its imple
 - **Solution:** Integrated `post_init()` hook with `application.bot.set_my_commands(commands)` in `minisoar/bot.py`. The bot now dynamically registers only active, configured perimeters and EDR servers to Telegram's native command autocomplete list.
 - **Rationale:** Guarantees that Telegram's native `/` popup command list strictly reflects only the security tools available in the environment.
 
-### 2026-08-28 14:15 WIB
-- **Problem:** IP dari trafik yang dianalisa oleh Machine Learning (ML) dengan tingkat confidence di bawah 70% (< 70%) masih ter-upload ke repositori IoC EDR/XDR (Kaspersky KSC & Trend Micro Vision One) apabila memiliki skor Threat Intelligence (AbuseIPDB reputation >= 50%) atau permanent block, karena `sync_edr_ioc_if_malicious()` dan Playbook EDR actions sebelumnya tidak memvalidasi ambang batas minimal `ml_prob >= 0.70`.
+### 2026-08-28 14:38 WIB
+- **Problem:** Eksekusi Retraining ML Model via CLI `minisoar.sh` (opsi 14) atau bot command `/retrain_model` gagal dengan error `Dataset file not found at dataset.csv` apabila file CSV belum diekstrak secara manual dari Elasticsearch, dan pipeline retraining tidak otomatis menarik data label keputusan analis dan telemetri event terbaru dari cluster ELK (`minisoar-labels-*` dan `minisoar-events-*`).
 - **Solution:** 
-  1. Menambahkan guardrail ketat `if ml_prob < 0.70: return False` pada `sync_edr_ioc_if_malicious()` di [daemon.py](file:///f:/Kantor/Program/MiniSOAR/minisoar/daemon.py) sehingga IP dengan ML confidence < 70% ditolak mutlak dari pendaftaran EDR/XDR.
-  2. Menambahkan filter pengaman `ctx.ml_prob < 0.70` pada `action_edr_add_ioc` di [actions.py](file:///f:/Kantor/Program/MiniSOAR/minisoar/playbook/actions.py) dan condition requirement `- "ml_prob >= 0.70"` pada seluruh playbook bawaan (`01_webshell_immediate.yml`, `03_injection_attacks.yml`, `04_host_compromise_edr.yml`).
-  3. Memperbarui logika seleksi `should_delete_ioc()` di [cleanup_minisoar_edr_iocs.py](file:///f:/Kantor/Program/MiniSOAR/scripts/cleanup_minisoar_edr_iocs.py) agar menandai entri IoC dengan ML score < 70% untuk dihapus saat pembersihan.
-  4. Menambahkan test cases komprehensif pada [test_edr.py](file:///f:/Kantor/Program/MiniSOAR/tests/test_edr.py) guna memverifikasi penolakan IP ber-confidence rendah (< 70%) dan penerimaan IP ber-confidence tinggi (>= 70%).
-- **Rationale:** Menjamin bahwa hanya IP berbahaya dengan tingkat keyakinan Machine Learning tinggi (>= 70%) yang dikirimkan ke repositori IoC EDR/XDR, mencegah false positives dan polusi data pada endpoint security agent.
+  1. Merefaktor [export.py](file:///f:/Kantor/Program/MiniSOAR/minisoar/ml/export.py) dengan menyediakan fungsi `export_dataset_from_es()` yang mengekstrak label analis dan event alert dari Elasticsearch dengan konfigurasi terpusat (`load_env()`, `ES_HOSTS`, `ES_USER`, `ES_PASS`, `ES_TIMEOUT`), serta fallback cerdas ke bootstrap synthetic dataset bila indeks ELK masih kosong.
+  2. Mengintegrasikan pemanggilan otomatis `export_dataset_from_es()` ke dalam `run_autotrain_from_file()` pada [autotrain.py](file:///f:/Kantor/Program/MiniSOAR/minisoar/ml/autotrain.py) dan `cmd_retrain()` pada [minisoar.sh](file:///f:/Kantor/Program/MiniSOAR/minisoar.sh).
+  3. Menambahkan pengujian otomatis pada [test_autotrain.py](file:///f:/Kantor/Program/MiniSOAR/tests/test_autotrain.py) untuk memastikan siklus ekspor dataset dan pelatihan model Challenger berjalan mulus.
+- **Rationale:** Memastikan pipeline MLOps continuous learning di MiniSOAR selalu mendapatkan data ground-truth paling mutakhir dari analis SOC secara otomatis tanpa intervensi manual pembuatan file dataset.
+
 
 
 

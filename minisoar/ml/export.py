@@ -1,29 +1,36 @@
-from __future__ import annotations
-
 import csv
+import logging
 import os
 import random
 from pathlib import Path
+from typing import Any
 
 import requests
-from dotenv import load_dotenv
+
+from ..config import load_env
+
+logger = logging.getLogger(__name__)
 
 
-def es_request(method: str, path: str, body=None):
-    host = os.getenv("ES_HOSTS", "").split(",")[0].strip()
+def es_request(method: str, path: str, body: dict[str, Any] | None = None) -> dict[str, Any]:
+    load_env()
+    hosts_str = os.getenv("ES_HOSTS", "") or os.getenv("ES_HOST", "http://127.0.0.1:9200")
+    host = hosts_str.split(",")[0].strip()
     if not host:
-        raise ValueError("ES_HOSTS is not configured in .env.")
-    url = f"{host.rstrip('/')}/{path}"
+        raise ValueError("Elasticsearch host is not configured.")
+    url = f"{host.rstrip('/')}/{path.lstrip('/')}"
     es_user = os.getenv("ES_USER", "")
     es_pass = os.getenv("ES_PASS", "")
     es_verify = os.getenv("ES_VERIFY", "true").lower() not in {"0", "false", "no"}
-    auth = (es_user, es_pass) if es_user or es_pass else None
-    resp = requests.request(method=method, url=url, json=body, auth=auth, verify=es_verify, timeout=5)
+    es_timeout = int(os.getenv("ES_TIMEOUT", "6"))
+    auth = (es_user, es_pass) if (es_user or es_pass) else None
+
+    resp = requests.request(method=method, url=url, json=body, auth=auth, verify=es_verify, timeout=es_timeout)
     resp.raise_for_status()
     return resp.json()
 
 
-def write_synthetic_dataset(csv_path: Path):
+def write_synthetic_dataset(csv_path: Path) -> int:
     headers = [
         "event_id",
         "detector_type",
@@ -103,60 +110,72 @@ def write_synthetic_dataset(csv_path: Path):
             src_ip, dst_ip, domain, url_path, src_port, dst_port, label
         ])
 
+    csv_path.parent.mkdir(parents=True, exist_ok=True)
     with open(csv_path, "w", newline="", encoding="utf-8") as f:
         writer = csv.writer(f)
         writer.writerow(headers)
         writer.writerows(rows)
+    return len(rows)
 
 
-def main():
+def export_dataset_from_es(csv_path: Path | None = None, fallback_synthetic: bool = True) -> tuple[bool, int, str]:
+    """Extracts ground-truth security decision labels and telemetry from Elasticsearch to produce dataset.csv.
+
+    Returns:
+        (success: bool, sample_count: int, status_message: str)
+    """
+    load_env()
     root_dir = Path(__file__).resolve().parent.parent.parent
-    if (root_dir / ".env").exists():
-        load_dotenv(root_dir / ".env")
-    else:
-        load_dotenv(Path.cwd() / ".env")
-    csv_path = root_dir / "dataset.csv"
+    target_path = csv_path or (root_dir / "dataset.csv")
+
     labels_prefix = os.getenv("ES_LABELS_INDEX_PREFIX", "minisoar-labels")
     events_prefix = os.getenv("ES_EVENTS_INDEX_PREFIX", "minisoar-events")
+
+    headers = [
+        "event_id", "detector_type", "severity", "reputation_score", "hit_count",
+        "perimeter_vendor", "is_whitelisted", "source_ip", "destination_ip",
+        "domain", "url_path", "source_port", "target_port", "label"
+    ]
 
     try:
         labels_data = es_request("GET", f"{labels_prefix}-*/_search", body={"size": 10000})
         label_hits = labels_data.get("hits", {}).get("hits", [])
 
         if not label_hits:
-            write_synthetic_dataset(csv_path)
-            print("No labels found; synthetic dataset generated.")
-            return
+            if fallback_synthetic:
+                count = write_synthetic_dataset(target_path)
+                return True, count, f"Elasticsearch labels are empty; generated {count:,} bootstrap synthetic samples in {target_path.name}."
+            return False, 0, "No labels found in Elasticsearch index."
 
-        label_map = {}
+        label_map: dict[str, int] = {}
         for hit in label_hits:
             src = hit.get("_source", {})
             event_id = src.get("event_id")
             if not event_id:
                 continue
-            label_str = src.get("label", "").lower()
+            label_str = str(src.get("label", "")).lower()
             label_map[event_id] = 1 if "block" in label_str else 0
 
         event_ids = list(label_map.keys())
-        rows = []
+        rows: list[list[Any]] = []
         chunk_size = 1000
-        
+
         for i in range(0, len(event_ids), chunk_size):
             chunk = event_ids[i:i + chunk_size]
             try:
                 event_data = es_request(
-                    "GET", 
-                    f"{events_prefix}-*/_search", 
+                    "GET",
+                    f"{events_prefix}-*/_search",
                     body={"size": len(chunk), "query": {"terms": {"event_id": chunk}}}
                 )
                 event_hits = event_data.get("hits", {}).get("hits", [])
-                
+
                 for ehit in event_hits:
                     evt_src = ehit.get("_source", {})
                     eid = evt_src.get("event_id")
                     if not eid or eid not in label_map:
                         continue
-                        
+
                     rows.append([
                         eid,
                         evt_src.get("detector_type", "alert_generic"),
@@ -174,30 +193,38 @@ def main():
                         label_map[eid],
                     ])
             except Exception as e:
-                print(f"Error fetching chunk {i}: {e}")
+                logger.warning("Error querying event chunk from Elasticsearch: %s", e)
                 continue
 
         if not rows:
-            write_synthetic_dataset(csv_path)
-            print("No joined rows found; synthetic dataset generated.")
-            return
+            if fallback_synthetic:
+                count = write_synthetic_dataset(target_path)
+                return True, count, f"Elasticsearch labels could not be matched to events; generated {count:,} bootstrap samples."
+            return False, 0, "No joined event-label rows found in Elasticsearch."
 
-        headers = [
-            "event_id", "detector_type", "severity", "reputation_score", "hit_count", 
-            "perimeter_vendor", "is_whitelisted", "source_ip", "destination_ip", 
-            "domain", "url_path", "source_port", "target_port", "label"
-        ]
-        with open(csv_path, "w", newline="", encoding="utf-8") as f:
+        target_path.parent.mkdir(parents=True, exist_ok=True)
+        with open(target_path, "w", newline="", encoding="utf-8") as f:
             writer = csv.writer(f)
             writer.writerow(headers)
             writer.writerows(rows)
-        print(f"Exported {len(rows)} rows to {csv_path}")
+
+        msg = f"Successfully exported {len(rows):,} ground-truth samples from Elasticsearch into {target_path.name}"
+        logger.info(msg)
+        return True, len(rows), msg
 
     except Exception as e:
-        print(f"Could not retrieve data from Elasticsearch: {e}")
-        write_synthetic_dataset(csv_path)
-        print("Synthetic dataset generated.")
+        logger.warning("Elasticsearch export failed: %s", e)
+        if fallback_synthetic:
+            count = write_synthetic_dataset(target_path)
+            return True, count, f"Elasticsearch unreachable ({e}); generated {count:,} bootstrap samples in {target_path.name}."
+        return False, 0, f"Elasticsearch export failed: {e}"
+
+
+def main() -> None:
+    ok, count, msg = export_dataset_from_es()
+    print(f"[{'OK' if ok else 'FAIL'}] {msg}")
 
 
 if __name__ == "__main__":
     main()
+

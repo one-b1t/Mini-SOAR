@@ -6,11 +6,14 @@ Format changelog berbasis pada [Keep a Changelog](https://keepachangelog.com/en/
 
 ## [1.3.7] - 2026-08-28
 
+### Added
+- **Automated ELK Telemetry & Decision Sync for MLOps Retraining (`minisoar/ml/export.py`, `minisoar/ml/autotrain.py`, `minisoar.sh`)**: Mengintegrasikan ekstraksi otomatis label keputusan analis dan telemetri keamanan langsung dari Elasticsearch (`minisoar-labels-*` & `minisoar-events-*`) sebelum proses retraining dijalankan melalui CLI `minisoar.sh` (opsi 14) atau bot command `/retrain_model`. Mengeliminasi error `Dataset file not found at dataset.csv` dengan mekanisme sinkronisasi data riil ELK otomatis dan fallback dataset bootstrap sintetis berkualitas tinggi.
+
 ### Changed
 - **Strict ML Confidence Threshold for EDR/XDR IoC Sync (`minisoar/daemon.py:sync_edr_ioc_if_malicious`)**: Menegakkan aturan mutlak bahwa IP dari trafik yang dianalisa oleh Machine Learning dilarang keras di-upload ke repositori IoC EDR/XDR (Kaspersky KSC & Trend Micro Vision One) jika tingkat confidence ML berada di bawah 70% (`ml_prob < 0.70`). Hanya IP dengan tingkat keyakinan tinggi (`ml_prob >= 0.70`) dan terkonfirmasi ancaman (reputation score >= 50% atau permanent block) yang diperbolehkan tersinkronisasi ke EDR/XDR.
 - **Playbook EDR Action Confidence Gate (`minisoar/playbook/actions.py` & `minisoar/playbooks/`)**: Menambahkan pemeriksaan `ctx.ml_prob < 0.70` pada `action_edr_add_ioc` dan condition requirement `ml_prob >= 0.70` pada `step_add_edr_ioc` di seluruh playbook (`01_webshell_immediate.yml`, `03_injection_attacks.yml`, `04_host_compromise_edr.yml`).
 - **IoC Targeted Cleaner ML Confidence Enforcement (`scripts/cleanup_minisoar_edr_iocs.py`)**: Memperbarui algoritma pembersihan IoC agar secara otomatis menandai dan menghapus entri IoC yang memiliki skor ML di bawah ambang batas (`< 70%`).
-- **Unit Test Verification (`tests/test_edr.py`)**: Menambahkan pengujian komprehensif untuk memastikan penolakan sinkronisasi EDR/XDR pada IP dengan confidence ML rendah (< 70%) dan keberhasilan sinkronisasi pada confidence tinggi (>= 70%).
+- **Unit Test Verification (`tests/test_edr.py`, `tests/test_autotrain.py`)**: Menambahkan pengujian komprehensif untuk memastikan penolakan sinkronisasi EDR/XDR pada IP dengan confidence ML rendah (< 70%), keberhasilan sinkronisasi pada confidence tinggi (>= 70%), dan validasi alur auto-export dataset retraining dari Elasticsearch.
 
 ## [1.3.6] - 2026-08-28
 

@@ -720,9 +720,10 @@ cmd_test() {
 # --- Command: Retrain Model ---
 cmd_retrain() {
     echo -e "${BOLD}${CYAN}=== MLOps Auto-Retraining Model Challenger ===${NC}\n"
+    echo -e "${CYAN}[1/2] Mengekstrak data telemetry & label keputusan analis terbaru dari Elasticsearch (ELK)...${NC}"
     "$PYTHON_CMD" -c "
 from minisoar.ml.autotrain import run_autotrain_from_file
-ok, metrics, msg = run_autotrain_from_file()
+ok, metrics, msg = run_autotrain_from_file(auto_export_elk=True)
 if ok:
     print(f'${GREEN}✅ {msg}${NC}')
     print(f'   • Metrics: ROC-AUC={metrics.get(\"roc_auc\")}, Accuracy={metrics.get(\"accuracy\")}, Samples={metrics.get(\"total_samples\")}')
