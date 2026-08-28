@@ -827,6 +827,12 @@ cmd_clean() {
     log_success "Cache berhasil dibersihkan."
 }
 
+# --- Command: Targeted EDR IoC Cleaner ---
+cmd_cleanioc() {
+    log_info "Menjalankan pembersihan IoC EDR (Kaspersky & Trend Micro) untuk IP dengan skor di bawah threshold (default < 70%)..."
+    "$PYTHON_CMD" "$SCRIPT_DIR/scripts/cleanup_minisoar_edr_iocs.py" "$@"
+}
+
 # --- Interactive Menu ---
 cmd_menu() {
     while true; do
@@ -855,9 +861,10 @@ cmd_menu() {
         echo "  14) Trigger ML Model Auto-Retraining"
         echo "  15) Generate Systemd Linux Service Units"
         echo "  16) Clean Python Cache & Temp Files"
+        echo "  17) Clean EDR IoCs (< 70% score / Clean IPs on Trend Micro & KSC)"
         echo "  0)  Exit"
         echo ""
-        read -r -p "Masukkan pilihan [0-16]: " choice
+        read -r -p "Masukkan pilihan [0-17]: " choice
 
         case "$choice" in
             1) cmd_install_all ;;
@@ -876,6 +883,7 @@ cmd_menu() {
             14) cmd_retrain ;;
             15) cmd_systemd ;;
             16) cmd_clean ;;
+            17) cmd_cleanioc ;;
             0) echo "Keluar."; exit 0 ;;
             *) log_error "Pilihan tidak valid." ;;
         esac
@@ -913,6 +921,9 @@ main() {
             ;;
         blocked|blocklist|bl)
             cmd_blocked "$@"
+            ;;
+        cleanioc|cleanup-ioc|clean-ioc|cleaniocs)
+            cmd_cleanioc "$@"
             ;;
         start)
             cmd_start "${1:-all}"
@@ -959,6 +970,8 @@ main() {
             echo "  check-redis         : Cek koneksi Redis, memori, dan inspeksi panjang antrian alert (LLEN)"
             echo "  doctor | check | health : Cek komprehensif (Perimeter, EDR, AI Copilot, Ticketing, DB)"
             echo "  blocked | blocklist [target] : Tampilkan daftar IP yang diblokir di Perimeter & EDR"
+            echo "  cleanioc [opsi]     : Bersihkan IoC EDR (Trend Micro & KSC) berstatus Clean / skor < 70%"
+            echo "                        (Opsi: --threshold <N>, --dry-run, --provider [all|trendmicro|kaspersky])"
             echo ""
             echo "Perintah Manajemen Layanan:"
             echo "  start [daemon|bot]  : Jalankan layanan di background"

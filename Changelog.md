@@ -4,6 +4,12 @@ Semua perubahan penting pada proyek **MiniSOAR** akan dicatat di dokumen ini.
 
 Format changelog berbasis pada [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 
+## [1.3.6] - 2026-08-28
+
+### Added
+- **Targeted EDR IoC Cleaner (< 70% threshold) (`scripts/cleanup_minisoar_edr_iocs.py`)**: Fitur pembersihan cerdas repositori IoC EDR (Trend Micro Vision One & Kaspersky Security Center) yang hanya menghapus entri MiniSOAR dengan skor Threat Intelligence reputasi / Machine Learning di bawah ambang batas (`< 70%`), sekaligus mempertahankan indikator ancaman berkeyakinan tinggi (`>= 70%`) tetap aktif di EDR. Mendukung flag CLI `--threshold <int>`, `--dry-run`, `--provider [all|trendmicro|kaspersky]`, dan `--batch-size`.
+- **CLI Wrapper `minisoar.sh cleanioc` (`minisoar.sh`)**: Integrasi perintah `./minisoar.sh cleanioc [opsi]` serta penambahan opsi 17 pada interactive menu untuk mempermudah eksekusi pembersihan IoC EDR langsung dari shell Linux/WSL.
+
 ## [1.3.5] - 2026-08-28
 
 ### Changed

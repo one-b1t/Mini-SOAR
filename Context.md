@@ -325,13 +325,12 @@ MiniSOAR still works as an alert delivery and mitigation pipeline, but its imple
 - **Solution:** Integrated `post_init()` hook with `application.bot.set_my_commands(commands)` in `minisoar/bot.py`. The bot now dynamically registers only active, configured perimeters and EDR servers to Telegram's native command autocomplete list.
 - **Rationale:** Guarantees that Telegram's native `/` popup command list strictly reflects only the security tools available in the environment.
 
-### 2026-08-28 10:15 WIB
-- **Problem:** IP dengan status *Clean* (Threat Intelligence reputasi 0% / < 50%) keliru didaftarkan ke EDR IoC repositories (Kaspersky KSC & Trend Micro Vision One) akibat evaluasi `pred_label == 1` (> 50%), *blanket bypass* pada detector type tertentu, atau prediksi model WAF ML pada event web application layer (seperti `alert_gambling_slot`, `alert_url_probe`, dll).
+### 2026-08-28 11:45 WIB
+- **Problem:** Analis SOC membutuhkan utilitas pembersih IoC EDR yang mampu memfilter secara cerdas hanya entri dengan reputasi Threat Intelligence / confidence Machine Learning di bawah threshold (< 70%), mempertahankan IoC ancaman tinggi (>= 70%), mendukung Trend Micro Vision One dan Kaspersky Security Center (KSC), serta dapat diakses langsung via CLI `minisoar.sh`.
 - **Solution:** 
-  1. Menegakkan **Absolute Threat Intelligence Guardrail** pada `sync_edr_ioc_if_malicious()` di `minisoar/daemon.py`: IP dengan reputasi Threat Intelligence bersih (`rep_score < 50%`) dilarang mutlak masuk ke EDR IoC list, terlepas dari skor ML perimeter atau tipe detektor.
-  2. Menerapkan defensive guardrail pada `action_edr_add_ioc` di `minisoar/playbook/actions.py` dan step conditions `reputation_score >= 50` pada `step_add_edr_ioc` di declarative playbooks (`01_webshell_immediate.yml`, `04_host_compromise_edr.yml`, `03_injection_attacks.yml`).
-  3. Mengembangkan utility script pembersih massal `scripts/cleanup_minisoar_edr_iocs.py` yang berhasil memindai dan menghapus 1.514 residual IoC lama dari Trend Micro Vision One dan membersihkan cache Redis.
-  4. Menambahkan unit test komprehensif di `tests/test_edr.py` untuk memvalidasi bahwa seluruh IP Clean (meskipun skor ML tinggi) secara mutlak ditolak dari registrasi IoC EDR.
-- **Rationale:** Memisahkan secara tegas mitigasi layer Perimeter WAF/Firewall (yang menangani traffic aplikasi web) dengan layer Endpoint EDR IoC (yang hanya boleh menerima IP ancaman terkonfirmasi berreputasi buruk $\ge 50\%$).
+  1. Meningkatkan `scripts/cleanup_minisoar_edr_iocs.py` dengan fungsi `should_delete_ioc()` berbasis ekstraksi regex (`ThreatIntel Rep:X%` & `ML:Y%`), CLI options (`--threshold`, `--dry-run`, `--provider`, `--batch-size`), pooling koneksi HTTP, dan inspeksi Kaspersky KSC 15.1 OpenAPI `IoCRepository`.
+  2. Menambahkan sub-command `cleanioc` (`./minisoar.sh cleanioc [opsi]`), menu interaktif opsi 17, dan bantuan help pada `minisoar.sh`.
+- **Rationale:** Memberikan kendali penuh dan efisiensi operasional bagi analis SOC dalam menjaga kebersihan repositori IoC EDR tanpa menghapus indikator ancaman valid berkeyakinan tinggi.
+
 
 
