@@ -324,3 +324,12 @@ MiniSOAR still works as an alert delivery and mitigation pipeline, but its imple
 - **Problem:** When typing `/` or clicking the Telegram "Menu" button in the chat interface, the Telegram client showed unconfigured perimeter commands.
 - **Solution:** Integrated `post_init()` hook with `application.bot.set_my_commands(commands)` in `minisoar/bot.py`. The bot now dynamically registers only active, configured perimeters and EDR servers to Telegram's native command autocomplete list.
 - **Rationale:** Guarantees that Telegram's native `/` popup command list strictly reflects only the security tools available in the environment.
+
+### 2026-08-28 10:15 WIB
+- **Problem:** IP dengan status *Clean* (Threat Intelligence reputasi 0% / < 50%) dan skor Machine Learning di bawah ambang batas kepercayaan 70% (`ml_prob < 0.70`) keliru didaftarkan ke EDR IoC repositories (Kaspersky KSC & Trend Micro Vision One) akibat evaluasi `pred_label == 1` (> 50%) dan *blanket bypass* pada detector type tertentu di `sync_edr_ioc_if_malicious` serta ketiadaan filter condition pada playbook webshell (`01_webshell_immediate.yml`).
+- **Solution:** 
+  1. Memperketat `sync_edr_ioc_if_malicious()` di `minisoar/daemon.py`: menambahkan parameter `ml_prob: float`, mewajibkan kriteria ketat (`is_permanent`, `rep_score >= 50`, atau `ml_prob >= 0.70`), dan menghapus blanket bypass detector type tanpa validasi sinyal reputasi.
+  2. Menerapkan step conditions `reputation_score >= 50 or ml_prob >= 0.70` pada `step_add_edr_ioc` di declarative playbooks (`01_webshell_immediate.yml`, `04_host_compromise_edr.yml`, `03_injection_attacks.yml`).
+  3. Menambahkan unit test komprehensif di `tests/test_edr.py` untuk memvalidasi bahwa IP Clean dengan ML < 70% di-reject dari EDR IoC registration.
+- **Rationale:** Menghilangkan false positive pendaftaran IoC pada EDR endpoint tanpa mengorbankan perlindungan perimeter WAF/Firewall.
+

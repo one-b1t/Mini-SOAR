@@ -172,3 +172,113 @@ def test_edr_playbook_execution(monkeypatch):
     assert pb_id == "pb-edr-host-compromise"
     assert "step_isolate_endpoint" in ctx.executed_steps
     assert "step_add_edr_ioc" in ctx.executed_steps
+
+
+def test_sync_edr_ioc_if_malicious_filter_clean_ip(monkeypatch):
+    os.environ["MINISOAR_MOCK"] = "1"
+    from minisoar.daemon import sync_edr_ioc_if_malicious
+
+    # 1. Clean IP with low/medium ML confidence (< 70%) and clean TI -> MUST NOT sync to EDR
+    res_clean_1 = sync_edr_ioc_if_malicious(
+        r=None,
+        ip="198.51.100.50",
+        rep_score=0,
+        is_permanent=False,
+        ml_prob=0.65,
+        event_id="ev-clean-1",
+        detector_type="alert_webshell_heur",
+    )
+    assert res_clean_1 is False
+
+    res_clean_2 = sync_edr_ioc_if_malicious(
+        r=None,
+        ip="198.51.100.51",
+        rep_score=20,
+        is_permanent=False,
+        ml_prob=0.45,
+        event_id="ev-clean-2",
+        detector_type="alert_rce_heur",
+    )
+    assert res_clean_2 is False
+
+    # 2. Confirmed Malicious IP (TI >= 50%) -> MUST sync to EDR
+    res_mal_ti = sync_edr_ioc_if_malicious(
+        r=None,
+        ip="198.51.100.52",
+        rep_score=85,
+        is_permanent=False,
+        ml_prob=0.30,
+        event_id="ev-mal-ti",
+        detector_type="alert_url_probe",
+    )
+    assert res_mal_ti is True
+
+    # 3. High ML confidence (>= 70%) even if TI clean -> MUST sync to EDR
+    res_mal_ml = sync_edr_ioc_if_malicious(
+        r=None,
+        ip="198.51.100.53",
+        rep_score=0,
+        is_permanent=False,
+        ml_prob=0.88,
+        event_id="ev-mal-ml",
+        detector_type="alert_webshell_name",
+    )
+    assert res_mal_ml is True
+
+    # 4. Permanent block -> MUST sync to EDR
+    res_perm = sync_edr_ioc_if_malicious(
+        r=None,
+        ip="198.51.100.54",
+        rep_score=0,
+        is_permanent=True,
+        ml_prob=0.10,
+        event_id="ev-perm",
+        detector_type="alert_generic",
+    )
+    assert res_perm is True
+
+
+def test_webshell_playbook_clean_ip_skips_edr_ioc(monkeypatch):
+    os.environ["MINISOAR_MOCK"] = "1"
+    monkeypatch.setattr("minisoar.playbook.actions.send_telegram", lambda *args, **kwargs: None)
+    monkeypatch.setattr("minisoar.playbook.actions.store_label", lambda *args, **kwargs: None)
+
+    playbooks_dir = Path(__file__).parent.parent / "minisoar" / "playbooks"
+    engine = PlaybookEngine(playbooks_dir=playbooks_dir)
+
+    # Webshell event with Clean IP (rep=0, ml_prob=0.55 < 0.70)
+    event = {
+        "alert": {
+            "type": "alert_webshell_heur",
+            "src_ip": "198.51.100.88",
+            "severity": "high",
+        },
+        "tags": ["alert_webshell_heur", "high"],
+    }
+
+    ctx = ExecutionContext(
+        event=event,
+        ip="198.51.100.88",
+        website="portal.internal.gov.id",
+        providers=["imperva"],
+        mapped=True,
+        whitelisted=False,
+        bypassed=False,
+        ml_prob=0.55,
+        ml_label=1,
+        reputation_score=0,
+        rep_str="Clean",
+        event_id="test_ev_clean_webshell",
+        redis_conn=None,
+    )
+
+    pb = engine.select_playbook(ctx)
+    assert pb is not None
+    assert pb.id == "pb-webshell-immediate"
+
+    ok, pb_id = engine.execute(ctx)
+    assert ok is True
+    assert pb_id == "pb-webshell-immediate"
+    assert "step_block_perimeter" in ctx.executed_steps
+    assert "step_add_edr_ioc" not in ctx.executed_steps  # MUST BE SKIPPED FOR CLEAN IP (<70% ML & 0% Rep)
+

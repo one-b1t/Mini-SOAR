@@ -66,28 +66,30 @@ def sync_edr_ioc_if_malicious(
     ip: str,
     rep_score: int,
     is_permanent: bool,
-    pred_label: int,
-    event_id: str,
-    detector_type: str,
+    ml_prob: float = 0.0,
+    pred_label: int | None = None,
+    event_id: str = "",
+    detector_type: str = "",
     logfile: str | None = None,
 ) -> bool:
-    """Auto-registers confirmed high-threat / C2 / malicious IPs to EDR IoC repositories (Kaspersky KSC & Trend Micro Vision One)."""
+    """Auto-registers confirmed high-threat / C2 / malicious IPs to EDR IoC repositories (Kaspersky KSC & Trend Micro Vision One).
+
+    IP is strictly registered only if confirmed malicious:
+    - is_permanent is True (confirmed permanent ban), OR
+    - rep_score >= 50 (high threat intelligence reputation), OR
+    - ml_prob >= 0.70 (high-confidence ML decision >= 70%), OR
+    - critical internal breach detector with non-clean signals.
+    Clean IPs (rep_score < 50 and ml_prob < 0.70) are NEVER auto-registered into EDR IoC.
+    """
     if not ip or ip == "(unknown)" or not valid_ip(ip):
         return False
 
-    # Kriteria: Reputasi ancaman intelijen tinggi (>= 50%), permanent block, ML prediction block, atau serangan webshell/RCE
+    # 2026-08-28 - Strict IoC Guardrail: Hanya registrasikan IP jika reputasi TI tinggi (>= 50%) atau ML confidence >= 70%
     is_malicious = (
         is_permanent
         or rep_score >= 50
-        or pred_label == 1
-        or detector_type in {
-            "alert_webshell_immediate",
-            "alert_webshell_name",
-            "alert_webshell_heur",
-            "alert_rce_heur",
-            "alert_c2_communication",
-            "alert_ransomware_activity",
-        }
+        or ml_prob >= 0.70
+        or (detector_type in {"alert_c2_communication", "alert_ransomware_activity"} and (rep_score >= 30 or ml_prob >= 0.50))
     )
     if not is_malicious:
         return False
@@ -103,7 +105,7 @@ def sync_edr_ioc_if_malicious(
             ioc_type="ip",
             ioc_value=ip,
             provider="all",
-            comment=f"ThreatIntel Rep:{rep_score}% - Event:{event_id or detector_type}",
+            comment=f"ThreatIntel Rep:{rep_score}% - ML:{ml_prob:.0%} - Event:{event_id or detector_type}",
         )
         if ok:
             if r:
@@ -120,7 +122,7 @@ def sync_edr_ioc_if_malicious(
                 f"🛡️ *EDR IOC AUTO-SYNC*\n"
                 f"• IP: `{ip}`\n"
                 f"• Target EDR: `Kaspersky KSC & Trend Micro Vision One`\n"
-                f"• Note: `ThreatIntel Rep: {rep_score}% - Event: {detector_type}`\n"
+                f"• Note: `ThreatIntel Rep: {rep_score}% - ML: {ml_prob:.0%} - Event: {detector_type}`\n"
                 f"• Status: `✅ Active / Blocked on EDR Repositories`"
             )
             logger.info("[EDR-IOC] Auto-registered IP %s to EDR Suspicious Objects: %s", ip, msg)
@@ -468,13 +470,14 @@ def main() -> None:
                         event["campaign"] = campaign_data
                         msg = f"🚨 *DISTRIBUTED CAMPAIGN ({campaign_data['attacker_count']} IPs targeting {website or 'asset'})*\n" + msg
 
-                    # 2026-08-21 - Otomasi Sinkronisasi IP Terkonfirmasi Ancaman/C2 ke EDR IoC (Kaspersky KSC & Trend Micro)
+                    # 2026-08-28 - Otomasi Sinkronisasi IP Terkonfirmasi Ancaman/C2 ke EDR IoC (Kaspersky KSC & Trend Micro)
                     if not whitelisted and not bypassed:
                         is_edr_synced = sync_edr_ioc_if_malicious(
                             r=r,
                             ip=ip,
                             rep_score=rep_score,
                             is_permanent=is_permanent,
+                            ml_prob=pred_prob,
                             pred_label=pred_label,
                             event_id=event_id,
                             detector_type=alert_type or "generic",

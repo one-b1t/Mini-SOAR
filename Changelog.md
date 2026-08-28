@@ -4,6 +4,13 @@ Semua perubahan penting pada proyek **MiniSOAR** akan dicatat di dokumen ini.
 
 Format changelog berbasis pada [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 
+## [1.3.5] - 2026-08-28
+
+### Changed
+- **Strict EDR IoC Auto-Sync Guardrail (`minisoar/daemon.py:sync_edr_ioc_if_malicious`)**: Memperketat kriteria auto-sync IoC EDR (Kaspersky KSC & Trend Micro) dengan mengharuskan validasi `ml_prob >= 0.70` (keyakinan $\ge 70\%$) atau reputasi Threat Intelligence `rep_score >= 50` (atau permanent block), serta mengeliminasi ketergantungan pada `pred_label == 1` (ambang batas dasar model > 50%) dan blanket bypass detector type. Mencegah IP yang Clean menurut Threat Intel dan berprobabilitas ML di bawah 70% keliru didaftarkan ke repositori IoC / Suspicious Objects EDR.
+- **Declarative Playbook Condition Gates (`minisoar/playbooks/`)**: Menambahkan condition guardrail `reputation_score >= 50 or ml_prob >= 0.70` pada `step_add_edr_ioc` di seluruh playbook (`01_webshell_immediate.yml`, `04_host_compromise_edr.yml`, `03_injection_attacks.yml`) sehingga aksi pendaftaran IoC EDR hanya dieksekusi pada indikasi ancaman berkeyakinan tinggi tanpa menghalangi mitigasi perimeter WAF/Firewall.
+- **Unit Test Coverage Expansion (`tests/test_edr.py`)**: Menambahkan test case komprehensif untuk memverifikasi penolakan registrasi IoC pada IP Clean (<70% ML & 0% Rep) dan keberhasilan registrasi IoC pada IP terkonfirmasi ancaman.
+
 ## [1.3.4] - 2026-08-26
 
 ### Added

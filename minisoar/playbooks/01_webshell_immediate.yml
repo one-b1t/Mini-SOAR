@@ -29,6 +29,8 @@ steps:
   - id: "step_add_edr_ioc"
     name: "Register Webshell Attacker IP to EDR IoC"
     action: "edr.add_ioc"
+    conditions:
+      - "reputation_score >= 50 or ml_prob >= 0.70"
     params:
       type: "ip"
       provider: "all"
