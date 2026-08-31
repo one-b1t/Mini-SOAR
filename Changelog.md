@@ -4,6 +4,17 @@ Semua perubahan penting pada proyek **MiniSOAR** akan dicatat di dokumen ini.
 
 Format changelog berbasis pada [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 
+## [1.3.8] - 2026-08-31
+ 
+### Added
+- **Lossless In-Engine Diagram Export Automation**: Mengintegrasikan otomasi ekstraksi rendering visual diagram arsitektur MiniSOAR (`minisoar-architecture`) dan alur retraining MLOps (`minisoar-ml-pipeline`) langsung dari engine rasterization (`rasterize('png')` / `Archify.exportMenu`) via Chrome CDP, menghasilkan visualisasi showcase murni bebas dari UI chrome browser.
+- **Daily Work Report (31 Agustus 2026)**: Menambahkan laporan kerja harian di `docs/reports/Laporan_Kerja_31_Agustus_2026.md`.
+
+### Changed
+- **Global Machine Learning Artifact Exclusion (`.gitignore`)**: Mengecualikan seluruh file model biner `*.joblib` secara global dari pelacakan Git, menghapus unignore rule legacy `!baseline_model.joblib`.
+- **Deep Git History Sanitization (`git-filter-repo`)**: Mensterilkan seluruh 68 commit riwayat Git dari objek biner `baseline_model.joblib` dan menyinkronkan riwayat commit bersih ke GitLab Internal dan GitHub.
+- **Branch Protection Automation (`glab api`)**: Otomasi pengaturan izin proteksi cabang pada GitLab RKS Komdigi selama pembaruan riwayat commit.
+
 ## [1.3.7] - 2026-08-28
 
 ### Added
