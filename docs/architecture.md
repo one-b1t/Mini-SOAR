@@ -1,76 +1,126 @@
 # MiniSOAR Architecture & System Design
 
-## 1. Diagram Arsitektur Sistem Terpadu
+## 1. Diagram Arsitektur Sistem Terpadu (Archify & Interactive Viewer)
 
 MiniSOAR mengadopsi pola arsitektur **Event-Driven & Micro-Engine Architecture** yang memisahkan lapisan *Ingestion*, *Buffer & State Caching*, *Correlation & Decision*, *Response & Containment*, serta *Triple-Interface Telegram & AI Intelligence Layer*.
 
+> [!TIP]
+> **Diagram Arsitektur Interaktif (Archify v2.16)**
+> - 🌐 **Buka Aplikasi Viewer Interaktif:** [`docs/minisoar-architecture.html`](./minisoar-architecture.html)
+> - 📄 **Spesifikasi JSON-IR Archify:** [`docs/minisoar-architecture.architecture.json`](./minisoar-architecture.architecture.json)
+> - ✨ **Fitur:** Dukungan Dark / Light theme, Pan & Zoom tak terbatas, 3 Guided Focus Views (*Threat-to-Mitigation*, *SOC Collaboration*, *Response Orchestration*), relationship tracing otomatis, dan ekspor instan (SVG / PNG / WebP / WebM).
+
+![MiniSOAR Architecture Diagram (Dark Preview)](./minisoar-architecture.visual-check.1440x900.dark.png)
+
+<details>
+<summary><b>🔍 Klik untuk melihat Diagram dalam Light Theme</b></summary>
+
+![MiniSOAR Architecture Diagram (Light Preview)](./minisoar-architecture.visual-check.1440x900.light.png)
+
+</details>
+
+---
+
+### Topologi Alur Kerja Komponen (Mermaid Flowchart)
+
 ```mermaid
 flowchart TD
-    subgraph INGESTION["1. Ingestion Layer"]
-        L1[Web Server / Proxy / WAF Logs] --> ES[(Elasticsearch 8.x Cluster)]
-        ES --> LS[Logstash Normalizer & Detection Pipeline]
+    %% Styling Classes
+    classDef ingest fill:#0d2030,stroke:#00bcd4,stroke-width:2px,color:#e0f7fa;
+    classDef buffer fill:#1a2332,stroke:#29b6f6,stroke-width:2px,color:#e1f5fe;
+    classDef core fill:#13281e,stroke:#00e676,stroke-width:2px,color:#e8f5e9;
+    classDef perimeter fill:#30141e,stroke:#ff5252,stroke-width:2px,color:#ffebee;
+    classDef edr fill:#261833,stroke:#ba68c8,stroke-width:2px,color:#f3e5f5;
+    classDef telegram fill:#0f2b38,stroke:#03a9f4,stroke-width:2px,color:#e1f5fe;
+    classDef ai fill:#2a1b3d,stroke:#ab47bc,stroke-width:2px,color:#f3e5f5;
+    classDef caseMgmt fill:#2e2412,stroke:#ffb300,stroke-width:2px,color:#fff8e1;
+
+    subgraph INGESTION["1. Ingestion & Detection Layer"]
+        L1["🌐 Web / Proxy / WAF Logs"]:::ingest
+        ES[("📊 Elasticsearch Cluster :9200")]:::ingest
+        LS["⚙️ Logstash Normalizer & Pipeline"]:::ingest
+        L1 -->|syslog / beats| ES
+        ES -->|query / index| LS
     end
 
     subgraph BUFFER["2. Async Buffer & State Cache"]
-        LS -->|LPUSH| RQ[(Redis: logstash_alert_queue)]
-        RD_STATE[(Redis: Sliding Window, Throttling & Block Cache)]
+        RQ[("⚡ Redis: logstash_alert_queue")]:::buffer
+        RD_STATE[("🗄️ Redis: Sliding-Window & State Cache")]:::buffer
+        LS -->|LPUSH alert| RQ
     end
 
     subgraph CORE_DAEMON["3. MiniSOAR Daemon Core Engine"]
-        RQ -->|LPOP| DAEMON[Alert Ingestion Daemon Worker]
-        DAEMON <--> RD_STATE
-        DAEMON --> CORR[Sliding-Window Correlation & Anti-Storm Engine]
-        DAEMON --> DUAL[Dual-Engine Decision System]
+        DAEMON["🛡️ Daemon Ingestion Worker"]:::core
+        CORR["📈 Sliding-Window Correlation & Anti-Storm"]:::core
         
-        subgraph DUAL_ENGINE["Dual-Engine Decision"]
-            ML_FAST[Fast ML Inference\nactive_model.joblib]
-            PLAYBOOK[Declarative Playbook Engine\nYAML Directed Acyclic Graph]
+        subgraph DUAL_ENGINE["Dual-Engine Decision System"]
+            ML_FAST["⚡ Fast ML Inference\n(active_model.joblib)"]:::core
+            PLAYBOOK["📜 Declarative Playbook Engine\n(Safe AST DAG)"]:::core
         end
-        DUAL --> ML_FAST
-        DUAL --> PLAYBOOK
+
+        RQ -->|LPOP| DAEMON
+        DAEMON <-->|Hit Aggregation| RD_STATE
+        DAEMON --> CORR
+        CORR --> DUAL_ENGINE
     end
 
     subgraph EXECUTION["4. Unified Response & Containment"]
-        PLAYBOOK --> PERIM_ROUTER[Unified Perimeter Router]
-        PLAYBOOK --> EDR_ROUTER[Unified EDR Router]
-        PLAYBOOK --> CASE_ENGINE[Case & SLA Management Engine]
-        
+        PERIM_ROUTER["🧱 Unified Perimeter Router"]:::perimeter
+        EDR_ROUTER["💻 Unified EDR Router"]:::edr
+        CASE_ENGINE["📋 Case & SLA Management"]:::caseMgmt
+
+        PLAYBOOK -->|block IP| PERIM_ROUTER
+        PLAYBOOK -->|isolate host| EDR_ROUTER
+        PLAYBOOK -->|create incident| CASE_ENGINE
+
         subgraph PERIMETER_LAYER["Perimeter Mitigations"]
-            PERIM_ROUTER --> PA[Palo Alto Firewall / DAG]
-            PERIM_ROUTER --> IMP[Imperva Cloud / On-Prem WAF]
-            PERIM_ROUTER --> AK[Akamai Kona Network List]
-            PERIM_ROUTER --> CF[Cloudflare Edge WAF Rules]
-            PERIM_ROUTER --> FG[Fortinet FortiGate Firewall]
+            PA["Palo Alto Firewall / DAG"]:::perimeter
+            IMP["Imperva Cloud / On-Prem WAF"]:::perimeter
+            AK["Akamai Kona Network List"]:::perimeter
+            CF["Cloudflare Edge WAF Rules"]:::perimeter
+            FG["Fortinet FortiGate Firewall"]:::perimeter
+            PERIM_ROUTER --> PA & IMP & AK & CF & FG
         end
-        
+
         subgraph EDR_LAYER["Endpoint Detection & Response"]
-            EDR_ROUTER --> KSC[Kaspersky KSC 15.1 OpenAPI]
-            EDR_ROUTER --> TM[TrendMicro Cloud One / Vision One]
+            KSC["Kaspersky KSC 15.1 OpenAPI"]:::edr
+            TM["TrendMicro Cloud / Vision One"]:::edr
+            EDR_ROUTER --> KSC & TM
         end
-        
-        subgraph TICKETING_LAYER["Optional 3rd-Party Ticketing"]
-            CASE_ENGINE -->|TICKETING_PROVIDER| TICKET[TheHive 4-5 / Jira / ServiceNow / Webhook]
+
+        subgraph TICKETING_LAYER["Ticketing & Cases"]
+            TICKET["TheHive / Jira / ServiceNow"]:::caseMgmt
+            CASE_ENGINE --> TICKET
         end
     end
 
-    subgraph TELEGRAM_3_INTERFACE["5. Triple-Interface Telegram Architecture"]
-        DAEMON -->|1. Broadcast Alert & Buttons| CH_NOTIF[📢 Channel Notif\nTELEGRAM_CHAT_ID]
-        PERIM_ROUTER -.->|2. Stream Audit Actions| CH_ACTION[📋 Channel Action Log\nTELEGRAM_PROCESS_CHAT_ID]
-        EDR_ROUTER -.->|2. Stream Audit Actions| CH_ACTION
-        CASE_ENGINE -.->|2. Stream Audit Actions| CH_ACTION
-        
-        ANALYST[👨‍💻 SOC Analyst] <-->|3. Interactive Commands & Direct Bot| BOT_CMD[🤖 Bot Message Interface\nminisoar.bot / Direct Commands]
+    subgraph TELEGRAM_3_INTERFACE["5. Triple-Interface Telegram Subsystem"]
+        CH_NOTIF["📢 Channel Notif\n(TELEGRAM_CHAT_ID)"]:::telegram
+        CH_ACTION["📋 Channel Action Log\n(TELEGRAM_PROCESS_CHAT_ID)"]:::telegram
+        BOT_CMD["🤖 Bot Command Handler\n(minisoar/bot.py)"]:::telegram
+        ANALYST["👨‍💻 SOC Analyst"]:::telegram
+        AI_COPILOT["🧠 AI SOC Copilot\n(Gemini / Claude / Local)"]:::ai
+
+        DAEMON -->|Broadcast Alerts| CH_NOTIF
+        PERIM_ROUTER -.->|Audit Trail Logs| CH_ACTION
+        EDR_ROUTER -.->|Audit Trail Logs| CH_ACTION
+        CASE_ENGINE -.->|Case Updates| CH_ACTION
+
+        ANALYST <-->|Inline Buttons & Commands| BOT_CMD
         BOT_CMD --> PERIM_ROUTER
         BOT_CMD --> EDR_ROUTER
         BOT_CMD --> CASE_ENGINE
-        BOT_CMD <--> AI_COPILOT[🧠 AI SOC Copilot\nGemini / Claude / OpenAI / Ollama]
+        BOT_CMD <--> AI_COPILOT
     end
 
-    subgraph MLOPS_FEEDBACK["6. Telemetry & MLOps Feedback Loop"]
-        DAEMON -->|Index Event| ES_EVENTS[(minisoar-events-*)]
-        ANALYST -->|Feedback Labeling| ES_LABELS[(minisoar-labels-*)]
-        ES_LABELS --> MLOPS[Continuous MLOps Auto-Retraining]
-        MLOPS -->|Champion-Challenger Quality Gate| ML_FAST
+    subgraph MLOPS_LOOP["6. Telemetry & Continuous MLOps"]
+        ES_EVENTS[("minisoar-events-*")]:::ingest
+        ES_LABELS[("minisoar-labels-*")]:::ingest
+        MLOPS["🔄 Automated Retraining Pipeline"]:::core
+        DAEMON -->|Index Event| ES_EVENTS
+        ANALYST -->|Feedback Labeling| ES_LABELS
+        ES_LABELS --> MLOPS
+        MLOPS -->|Champion-Challenger Gate| ML_FAST
     end
 ```
 
@@ -82,21 +132,30 @@ MiniSOAR mengimplementasikan pemisahan antarmuka Telegram menjadi **3 kanal inde
 
 ```mermaid
 flowchart LR
-    subgraph SYSTEM_ALERTS["MiniSOAR Core"]
-        D1[Alert Ingestion Daemon]
-        M1[Mitigation & Playbook Engine]
-        B1[Interactive Bot Handler]
+    classDef coreEngine fill:#13281e,stroke:#00e676,stroke-width:2px,color:#e8f5e9;
+    classDef tgChannel fill:#0f2b38,stroke:#03a9f4,stroke-width:2px,color:#e1f5fe;
+    classDef socActor fill:#2a1b3d,stroke:#ab47bc,stroke-width:2px,color:#f3e5f5;
+
+    subgraph SYSTEM_ALERTS["🛡️ MiniSOAR Core Engine"]
+        D1["Alert Ingestion Daemon"]:::coreEngine
+        M1["Mitigation & Playbook Engine"]:::coreEngine
+        B1["Interactive Bot Handler"]:::coreEngine
     end
 
-    subgraph TELEGRAM_CHANNELS["Telegram Subsystem (3 Interfaces)"]
-        D1 -->|Broadcast Alerts| IF1["📢 1. Channel Notification\n(TELEGRAM_CHAT_ID)"]
-        M1 -->|Audit Trail Logs| IF2["📋 2. Channel Action Log\n(TELEGRAM_PROCESS_CHAT_ID)"]
-        ANALYST[👨‍💻 SOC Analyst] <-->|Commands & Callbacks| IF3["🤖 3. Bot Message Interface\n(Private DM / Authorized Group)"]
+    subgraph TELEGRAM_CHANNELS["📱 Telegram Subsystem (3 Kanal Terpisah)"]
+        IF1["📢 1. Channel Notification\n(TELEGRAM_CHAT_ID)\n• Broadcast Feed Alert\n• Inline Buttons Action"]:::tgChannel
+        IF2["📋 2. Channel Action Log\n(TELEGRAM_PROCESS_CHAT_ID)\n• Audit Trail Mitigasi\n• Real-Time Stream Log"]:::tgChannel
+        IF3["🤖 3. Bot Command Interface\n(Private DM / Auth Group)\n• RBAC Command Console\n• GenAI SOC Copilot"]:::tgChannel
     end
 
-    IF1 -->|View Context & Click Buttons| ANALYST
-    IF2 -->|Monitor Execution Stream| ANALYST
-    IF3 -->|Execute Commands & AI Queries| SYSTEM_ALERTS
+    ANALYST["👨‍💻 SOC Analyst"]:::socActor
+
+    D1 -->|1. Siaran Alert Cepat| IF1
+    M1 -->|2. Audit Log Otomatis| IF2
+    IF1 -->|Lihat Konteks & Klik Tombol| ANALYST
+    IF2 -->|Monitor Eksekusi Tindakan| ANALYST
+    ANALYST <-->|3. Eksekusi Perintah & AI| IF3
+    IF3 -->|Perintah Eksekusi| B1
 ```
 
 ### A. Interface 1: Channel Notification (`TELEGRAM_CHAT_ID`)
@@ -131,16 +190,28 @@ flowchart LR
 ```mermaid
 sequenceDiagram
     autonumber
-    participant ES as Elasticsearch (Log Pool)
-    participant LS as Logstash Detection
-    participant RD as Redis (Queue & Cache)
-    participant DM as MiniSOAR Daemon
-    participant PB as Playbook Engine
-    participant PM as Perimeter & EDR Routers
-    participant TG_N as Telegram Channel Notif
-    participant TG_A as Telegram Channel Action
-    participant TG_B as Telegram Bot (Analyst)
-    participant AI as AI SOC Copilot
+    
+    box rgb(13, 32, 48) Ingestion & Cache
+        participant ES as Elasticsearch (Log Pool)
+        participant LS as Logstash Detection
+        participant RD as Redis (Queue & Cache)
+    end
+    
+    box rgb(19, 40, 30) MiniSOAR Core Engine
+        participant DM as MiniSOAR Daemon
+        participant PB as Playbook Engine
+    end
+    
+    box rgb(48, 20, 30) Enforcement
+        participant PM as Perimeter & EDR Routers
+    end
+    
+    box rgb(15, 43, 56) Telegram & Operations
+        participant TG_N as Telegram Notif
+        participant TG_A as Telegram Action Log
+        participant TG_B as Telegram Bot (Analyst)
+        participant AI as AI SOC Copilot
+    end
 
     ES->>LS: Ingest Raw Traffic Logs
     LS->>LS: Filter Regex, Webshell Heuristics, Gambling Pattern
@@ -154,7 +225,7 @@ sequenceDiagram
     else Alert Valid & Not Throttled
         DM->>PB: Evaluate YAML Playbook Rules (Safe AST)
         
-        alt Playbook Matches (e.g. Webshell Immediate)
+        alt Playbook Matches (Auto Containment)
             PB->>PM: Trigger Auto Containment (Perimeter Block + EDR Isolate)
             PM-->>TG_A: Send Audit Log: [AUTO-CONTAINED] IP on WAF & Host on EDR
             DM->>TG_N: Broadcast High Severity Alert + Containment Status

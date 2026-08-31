@@ -1,0 +1,278 @@
+{
+  "schema_version": 1,
+  "diagram_type": "architecture",
+  "meta": {
+    "title": "MiniSOAR Integrated System Architecture",
+    "output": "minisoar-architecture.html",
+    "quality_profile": "showcase",
+    "views": [
+      {
+        "id": "threat-containment",
+        "label": "Automated threat containment",
+        "focus": [
+          "traffic_logs",
+          "elastic_cluster",
+          "logstash_pipe",
+          "redis_bus",
+          "daemon_worker",
+          "decision_engine",
+          "perimeter_router",
+          "edr_router"
+        ],
+        "note": "Follow detection from raw log ingestion through correlation to automated firewall and EDR isolation."
+      },
+      {
+        "id": "soc-collaboration",
+        "label": "SOC command and copilot",
+        "focus": [
+          "soc_analyst",
+          "telegram_hub",
+          "ai_copilot",
+          "daemon_worker"
+        ],
+        "note": "Examine analyst commands, triple-interface Telegram dispatch, and conversational AI root-cause analysis."
+      },
+      {
+        "id": "mitigation-cases",
+        "label": "Perimeter, EDR, and cases",
+        "focus": [
+          "decision_engine",
+          "perimeter_router",
+          "edr_router",
+          "case_engine"
+        ],
+        "note": "Inspect response fan-out across Palo Alto/Cloudflare WAF, Kaspersky/TrendMicro EDR, and SLA case tracking."
+      }
+    ]
+  },
+  "components": [
+    {
+      "id": "traffic_logs",
+      "type": "external",
+      "label": "Traffic Logs",
+      "sublabel": "Web / Proxy / WAF",
+      "pos": [50, 80],
+      "size": [130, 56]
+    },
+    {
+      "id": "elastic_cluster",
+      "type": "database",
+      "label": "Elasticsearch",
+      "sublabel": "Cluster :9200",
+      "brand": "elasticsearch",
+      "pos": [50, 240],
+      "size": [130, 56]
+    },
+    {
+      "id": "logstash_pipe",
+      "type": "backend",
+      "label": "Logstash",
+      "sublabel": "Normalizer & Rules",
+      "pos": [250, 240],
+      "size": [130, 56]
+    },
+    {
+      "id": "ai_copilot",
+      "type": "backend",
+      "label": "AI Copilot",
+      "sublabel": "Gemini / Claude",
+      "pos": [450, 80],
+      "size": [130, 56]
+    },
+    {
+      "id": "redis_bus",
+      "type": "messagebus",
+      "label": "Redis Queue",
+      "sublabel": "LPUSH/LPOP & Throttle",
+      "brand": "redis",
+      "pos": [450, 240],
+      "size": [130, 56]
+    },
+    {
+      "id": "telegram_hub",
+      "type": "external",
+      "label": "Telegram Hub",
+      "sublabel": "Notif / Action / Bot",
+      "brand": "telegram",
+      "pos": [650, 80],
+      "size": [130, 56]
+    },
+    {
+      "id": "daemon_worker",
+      "type": "backend",
+      "label": "Daemon Core",
+      "sublabel": "Correlation & Storm",
+      "pos": [650, 240],
+      "size": [130, 56]
+    },
+    {
+      "id": "soc_analyst",
+      "type": "external",
+      "label": "SOC Analyst",
+      "sublabel": "Triage & Commands",
+      "pos": [850, 80],
+      "size": [140, 56]
+    },
+    {
+      "id": "decision_engine",
+      "type": "backend",
+      "label": "Decision Engine",
+      "sublabel": "Fast ML & Playbooks",
+      "pos": [850, 240],
+      "size": [140, 56]
+    },
+    {
+      "id": "perimeter_router",
+      "type": "security",
+      "label": "Perimeter Router",
+      "sublabel": "PAN-OS / WAF / Forti",
+      "pos": [1120, 150],
+      "size": [140, 56]
+    },
+    {
+      "id": "edr_router",
+      "type": "security",
+      "label": "EDR Router",
+      "sublabel": "Kaspersky / TrendMicro",
+      "pos": [1120, 240],
+      "size": [140, 56]
+    },
+    {
+      "id": "case_engine",
+      "type": "backend",
+      "label": "Case Engine",
+      "sublabel": "TheHive / Jira / Cases",
+      "pos": [1120, 330],
+      "size": [140, 56]
+    }
+  ],
+  "boundaries": [
+    {
+      "kind": "region",
+      "label": "Ingestion & Detection",
+      "wraps": ["traffic_logs", "elastic_cluster", "logstash_pipe", "redis_bus"],
+      "pad": 16
+    },
+    {
+      "kind": "security-group",
+      "label": "SOC Command & Copilot",
+      "wraps": ["ai_copilot", "telegram_hub", "soc_analyst"],
+      "pad": 16
+    },
+    {
+      "kind": "security-group",
+      "label": "MiniSOAR Core",
+      "wraps": ["daemon_worker", "decision_engine"],
+      "pad": 16
+    },
+    {
+      "kind": "region",
+      "label": "Containment & Response",
+      "wraps": ["perimeter_router", "edr_router", "case_engine"],
+      "pad": 16
+    }
+  ],
+  "connections": [
+    {
+      "from": "traffic_logs",
+      "to": "elastic_cluster",
+      "label": "syslog",
+      "fromSide": "bottom",
+      "toSide": "top",
+      "labelAt": [115, 185]
+    },
+    {
+      "from": "elastic_cluster",
+      "to": "logstash_pipe",
+      "label": "index stream"
+    },
+    {
+      "from": "logstash_pipe",
+      "to": "redis_bus",
+      "label": "LPUSH alerts",
+      "variant": "emphasis"
+    },
+    {
+      "from": "redis_bus",
+      "to": "daemon_worker",
+      "label": "LPOP alert"
+    },
+    {
+      "from": "daemon_worker",
+      "to": "decision_engine",
+      "label": "evaluate",
+      "variant": "emphasis"
+    },
+    {
+      "from": "daemon_worker",
+      "to": "telegram_hub",
+      "label": "alert feed",
+      "fromSide": "top",
+      "toSide": "bottom",
+      "labelAt": [715, 185]
+    },
+    {
+      "from": "soc_analyst",
+      "to": "telegram_hub",
+      "label": "commands"
+    },
+    {
+      "from": "telegram_hub",
+      "to": "ai_copilot",
+      "label": "copilot query"
+    },
+    {
+      "from": "decision_engine",
+      "to": "perimeter_router",
+      "label": "block IP",
+      "variant": "security",
+      "fromSide": "right",
+      "toSide": "left"
+    },
+    {
+      "from": "decision_engine",
+      "to": "edr_router",
+      "label": "isolate",
+      "variant": "security",
+      "fromSide": "right",
+      "toSide": "left",
+      "labelAt": [1085, 268]
+    },
+    {
+      "from": "decision_engine",
+      "to": "case_engine",
+      "label": "sync case",
+      "fromSide": "right",
+      "toSide": "left"
+    }
+  ],
+  "cards": [
+    {
+      "dot": "cyan",
+      "title": "Ingestion & Buffering",
+      "items": [
+        "Raw web/proxy/WAF telemetry indexed to Elasticsearch",
+        "Logstash heuristics and regex push high-fidelity alerts to Redis queue",
+        "Sliding window and anti-storm throttle prevent alert fatigue"
+      ]
+    },
+    {
+      "dot": "emerald",
+      "title": "Core & Decision Engine",
+      "items": [
+        "Daemon consumes alerts asynchronously with anti-storm state caching",
+        "Dual-engine decision pairs scikit-learn fast ML inference with declarative YAML playbooks",
+        "Safe AST condition evaluator protects execution boundaries"
+      ]
+    },
+    {
+      "dot": "rose",
+      "title": "Response & Telegram Ops",
+      "items": [
+        "Unified perimeter routers enforce IP blocks on Palo Alto, Cloudflare, Imperva, and Fortinet",
+        "EDR router isolates compromised endpoints via Kaspersky and TrendMicro",
+        "Triple-interface Telegram architecture separates broadcast alerts, action logs, and interactive bot commands"
+      ]
+    }
+  ]
+}
