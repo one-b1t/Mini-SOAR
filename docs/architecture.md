@@ -172,3 +172,68 @@ sequenceDiagram
 - **Fast-Path Traffic Processing:** Model machine learning lokal (`active_model.joblib`) berbasis scikit-learn untuk klasifikasi inferensi sub-milidetik pada lalu lintas data Redis real-time.
 - **GenAI Copilot:** Asisten analis interaktif multi-provider (Google Antigravity/Gemini, Anthropic Claude, OpenAI Codex, Local Ollama) dengan dukungan berkas autentikasi terisolasi (`AI_AUTH_FILE`, `GEMINI_AUTH_FILE`, `CLAUDE_AUTH_FILE`).
 - **Continuous Auto-Retraining (MLOps):** Pipeline otomatis yang mengekstrak label ground-truth analis dari `minisoar-labels-*`, melatih model Challenger, memvalidasi ambang batas kualitas (ROC-AUC $\ge 0.85$), dan me-reload model aktif secara hot-reload tanpa restart daemon.
+
+---
+
+### F. Alur & Metode Generasi Machine Learning Baseline (`minisoar/ml/`)
+
+Model baseline machine learning (`baseline_model.joblib`) berfungsi sebagai model *fallback* berkecepatan tinggi (*sub-millisecond local inference*) pada Core Daemon untuk memprediksi klasifikasi biner pemblokiran (`label: 0` = Allow/Ignore, `label: 1` = Block IP) ketika model dinamis `active_model.joblib` belum terbentuk atau saat inisialisasi lingkungan baru (*cold start*).
+
+#### 1. Diagram Arsitektur & Pipeline Baseline ML (Archify Interactive)
+
+> [!TIP]
+> **Diagram Alur Machine Learning Interaktif (Archify v2.16)**
+> - 🌐 **Buka Aplikasi Viewer Interaktif:** [`docs/minisoar-ml-pipeline.html`](./minisoar-ml-pipeline.html)
+> - 📄 **Spesifikasi JSON-IR Archify:** [`docs/minisoar-ml-pipeline.architecture.json`](./minisoar-ml-pipeline.architecture.json)
+> - ✨ **Fitur:** Tampilan Dark/Light theme, Pan & Zoom tak terbatas, 3 Guided Focus Views (*Dataset extraction*, *Training & validation*, *Runtime hot-reload*), tracing relasi otomatis, serta ekspor format SVG / PNG / WebP / WebM.
+
+![MiniSOAR ML Pipeline Diagram (Dark Preview)](./minisoar-ml-pipeline.visual-check.1440x900.dark.png)
+
+<details>
+<summary><b>🔍 Klik untuk melihat Diagram ML dalam Light Theme</b></summary>
+
+![MiniSOAR ML Pipeline Diagram (Light Preview)](./minisoar-ml-pipeline.visual-check.1440x900.light.png)
+
+</details>
+
+---
+
+#### 2. Rincian Metode & Algoritma
+
+1. **Ekstraksi Dataset & Fallback Bootstrap (`minisoar/ml/export.py`):**
+   - **Mode Ground-Truth:** Mengambil label analis SOC dari indeks `minisoar-labels-*`, kemudian melakukan join secara chunked (1.000 record/batch) ke indeks `minisoar-events-*` untuk mengumpulkan nilai telemetri sebenarnya.
+   - **Mode Fallback Bootstrap (`write_synthetic_dataset`):** Jika Elasticsearch kosong atau tidak dapat diakses, sistem secara deterministik (`Random(42)`) membangkitkan 10.000 sampel data latih yang mencerminkan profil ancaman dunia nyata:
+     - `alert_webshell_immediate`: Skor reputasi 80–100, hit count 10–150, probabilitas block 98%.
+     - `alert_webshell_name` & `alert_webshell_heur`: Skor reputasi 50–95, hit count 5–80, probabilitas block 85%.
+     - `alert_gambling_slot`: Skor reputasi 40–90, hit count 50–1000, probabilitas block 90%.
+     - `alert_distributed_error`: Skor reputasi 10–60, hit count 100–5000, probabilitas block 20%.
+     - `alert_url_probe`: Skor reputasi 20–85, hit count 1–50, probabilitas block 40%.
+     - Whitelisted Traffic: Skor reputasi 0–10, hit count 1–10, probabilitas block 0%.
+
+2. **Feature Engineering & Transformasi Data (`minisoar/ml/train.py`):**
+   - **Fitur Numerik:**
+     - `reputation_score`: Skor reputasi eksternal IP penyerang (rentang 0–100 dari AbuseIPDB / ip-api).
+     - `hit_count`: Frekuensi hit anomali dalam jendela waktu geser (*sliding window*).
+     - `is_whitelisted`: Flag biner (0 atau 1) penanda daftar putih aset internal/rekanan.
+     - `severity_encoded`: Ordinal encoding (`low: 0`, `medium: 1`, `high: 2`).
+   - **Fitur Kategorikal (One-Hot Encoding):**
+     - `detector_type`: Pola detektor yang memicu alert (contoh: `detector_type_alert_webshell_immediate`).
+     - `perimeter_vendor`: Vendor perimeter target (contoh: `perimeter_vendor_paloalto`, `perimeter_vendor_cloudflare`).
+   - **Pemisahan Data:** `train_test_split` dengan rasio 80:20, `random_state=42`, dan *stratified sampling* berdasarkan label kelas target untuk menjamin proporsi kelas yang seimbang.
+
+3. **Algoritma Model Baseline:**
+   - Menggunakan **Logistic Regression** (`sklearn.linear_model.LogisticRegression`) dengan parameter `max_iter=1000` dan `random_state=42`.
+   - Alasan pemilihan algoritma:
+     - **Interpretabilitas Tinggi:** Koefisien bobot fitur dapat diinspeksi secara langsung untuk audit keamanan SOC.
+     - **Latency Rendah:** Operasi dot-product linier memungkinkan waktu inferensi sub-milidetik ($< 1\text{ ms}$) tanpa beban komputasi GPU.
+     - **Stabilitas Output:** Menghasilkan nilai probabilitas terkalibrasi (`predict_proba`) yang langsung digunakan Playbook Engine sebagai skor keyakinan (*confidence score*).
+
+4. **Metrik Evaluasi & Quality Assurance:**
+   - **Accuracy & ROC-AUC:** Mengukur kapabilitas pemisahan sinyal serangan terhadap traffic benign.
+   - **Confusion Matrix:** Memastikan False Positive (FP) seminimal mungkin agar tidak terjadi pemblokiran salah sasaran pada IP bisnis yang sah.
+   - **Classification Report:** Memvalidasi metrik Precision, Recall, dan F1-Score untuk kedua kelas (`Allow = 0`, `Block = 1`).
+
+5. **Serialisasi Artifact & Hot-Reloading (`minisoar/ml/inference.py`):**
+   - Model disimpan ke berkas `baseline_model.joblib` bersama metadata kolom fitur (`feature_columns`), pemetaan severity, dan timestamp pelatihan.
+   - Fungsi `load_model_artifact()` memantau `st_mtime` berkas model. Ketika model diperbarui atau digantikan oleh model Challenger dari MLOps (`active_model.joblib`), daemon otomatis memuat ulang (*hot-reload*) bobot model ke dalam memori tanpa memerlukan *restart* proses daemon.
+
