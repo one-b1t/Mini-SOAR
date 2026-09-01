@@ -28,11 +28,13 @@
           "logstash_pipe",
           "redis_bus",
           "daemon_core",
+          "correlation_engine",
           "playbook_engine",
+          "ml_decision",
           "perimeter_router",
           "edr_router"
         ],
-        "note": "Alur penuh dari deteksi log mentah, buffering antrian, korelasi daemon, hingga mitigasi perimeter dan isolasi EDR."
+        "note": "Alur penuh deteksi log, buffering Redis, korelasi Threat Intel, inferensi ML, hingga mitigasi perimeter dan isolasi EDR."
       },
       {
         "id": "soc-collaboration",
