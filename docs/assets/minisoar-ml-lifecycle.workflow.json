@@ -10,22 +10,21 @@
         "id": "full-lifecycle",
         "label": "Complete 7-Step Lifecycle",
         "focus": ["s1_ingest", "s2_train", "s3_cv", "s4_eval", "s5_tune", "s6_gate", "s7_deploy"],
-        "note": "Standard 7-step MLOps workflow from data ingestion to model deployment."
+        "note": "Standard 7-step MLOps workflow from data ingestion to production hot-reload."
       },
       {
         "id": "refinement-loop",
-        "label": "Validation & Tuning Loop",
-        "focus": ["s5_tune", "s6_gate"],
-        "note": "Optimization loop between hyperparameter tuning and validation re-evaluation."
+        "label": "Training & Validation Cycle",
+        "focus": ["s2_train", "s3_cv", "s4_eval", "s5_tune", "s6_gate"],
+        "note": "Iterative training, cross-validation, evaluation, and tuning cycle."
       }
     ],
     "output": "docs/assets/minisoar-ml-lifecycle.html"
   },
   "lanes": [
-    { "id": "data", "label": "1. Data Management" },
-    { "id": "train", "label": "2. Training & Tuning" },
-    { "id": "eval", "label": "3. Validation & Evaluation" },
-    { "id": "deploy", "label": "4. Production Deployment" }
+    { "id": "data", "label": "Data Management" },
+    { "id": "modeling", "label": "Training & Validation Cycle" },
+    { "id": "deploy", "label": "Production Deployment" }
   ],
   "phases": [],
   "groups": [],
@@ -44,70 +43,70 @@
       "lane": "data",
       "col": 0,
       "type": "database",
-      "label": "Step 1: Ambil Data",
-      "sublabel": "ES MiniSOAR + WAF",
-      "tag": "70/15/15 split",
-      "width": 160
+      "label": "1. Ambil Data",
+      "sublabel": "ES & Split",
+      "tag": "70/15/15",
+      "width": 120
     },
     {
       "id": "s2_train",
-      "lane": "train",
+      "lane": "modeling",
       "col": 1,
       "type": "backend",
-      "label": "Step 2: Training Awal",
-      "sublabel": "Logistic Regression L2",
-      "tag": "baseline model",
-      "width": 160
+      "label": "2. Model Awal",
+      "sublabel": "Logistic Reg",
+      "tag": "baseline",
+      "width": 120
     },
     {
       "id": "s3_cv",
-      "lane": "eval",
+      "lane": "modeling",
       "col": 2,
       "type": "backend",
-      "label": "Step 3: Validasi Model",
-      "sublabel": "5-Fold Stratified CV",
-      "tag": "variance check",
-      "width": 160
+      "label": "3. Validasi",
+      "sublabel": "5-Fold CV",
+      "tag": "variance",
+      "width": 120
     },
     {
       "id": "s4_eval",
-      "lane": "eval",
+      "lane": "modeling",
       "col": 3,
       "type": "backend",
-      "label": "Step 4: Evaluasi Awal",
-      "sublabel": "Validation set metrics",
-      "tag": "ROC-AUC & FPR",
-      "width": 160
+      "label": "4. Evaluasi",
+      "sublabel": "ROC & FPR",
+      "tag": "metrics",
+      "width": 120
     },
     {
       "id": "s5_tune",
-      "lane": "train",
+      "lane": "modeling",
       "col": 4,
       "type": "backend",
-      "label": "Step 5: Tuning Model",
-      "sublabel": "Perbaikan & Retrain",
-      "tag": "target FPR <= 3%",
-      "width": 160
+      "label": "5. Retrain",
+      "sublabel": "Grid C & FPR",
+      "tag": "FPR <= 3%",
+      "width": 120
     },
     {
       "id": "s6_gate",
-      "lane": "eval",
+      "lane": "modeling",
       "col": 5,
       "type": "security",
-      "label": "Step 6: Validasi Ulang",
-      "sublabel": "Hold-Out Test & Gate",
-      "tag": "ROC-AUC >= 0.88",
-      "width": 160
+      "label": "6. Re-Eval",
+      "sublabel": "Quality Gate",
+      "tag": "ROC >= 0.88",
+      "width": 120
     },
     {
       "id": "s7_deploy",
       "lane": "deploy",
       "col": 5,
       "type": "cloud",
-      "label": "Step 7: Gunakan Model",
-      "sublabel": "Hot-Reload Serialization",
-      "tag": "active_model.joblib",
-      "width": 160
+      "label": "7. Gunakan Model",
+      "sublabel": "Hot-Reload",
+      "tag": "active_model",
+      "width": 120
     }
   ],
   "edges": [
@@ -150,7 +149,8 @@
       "id": "e_s6_s5_loop",
       "from": "s6_gate",
       "to": "s5_tune",
-      "label": "belum optimal (loop)",
+      "label": "loop jika < target",
+      "route": "up-channel",
       "variant": "dashed",
       "role": "return"
     },
