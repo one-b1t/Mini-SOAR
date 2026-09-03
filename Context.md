@@ -385,7 +385,21 @@ MiniSOAR still works as an alert delivery and mitigation pipeline, but its imple
 - **Solution:**
   1. **Relokasi Artefak ke `docs/assets/`:** Memindahkan seluruh 36 berkas artefak diagram Archify (`.html`, `.json`, `.png`, dan sidecar visual-check) ke direktori terdedikasi `docs/assets/`.
   2. **Ekspor Gambar Murni Archify:** Mengembangkan skrip otomatisasi headless Chrome CDP untuk memicu fungsi ekspor internal Archify (`Archify.exportMenu.run('png')`) dan menyadap stream `Blob` kanvas diagram murni (Lossless Hi-DPI, bebas dari frame browser/dock tombol).
-  3. **Pembersihan Layout 7-Step ML Lifecycle (`minisoar-ml-lifecycle.workflow.json`):** Merekonstruksi alur grid Archify menjadi monoton sekuensial (Col 0 s/d Col 5) sehingga menghilangkan 100% persilangan panah (*zero proper crossings*, *zero corridor overlaps*). Diagram SVG dan PNG (Dark & Light) telah diregenerasi secara presisi.
-  4. **Penyempurnaan Sequence Diagram (`docs/architecture.md` Section 3):** Mengganti nama berkas Mermaid export menjadi `docs/assets/minisoar-event-lifecycle-sequence.svg` dan `.png`, menyematkannya dengan tautan zoom interaktif, serta menyembunyikan source code Mermaid di dalam blok lipat `<details><summary>`.
-  5. **Verifikasi Zero Regression:** Seluruh test suite (53/53 test cases) lolos verifikasi 100%.
+  3. **Penyempurnaan Sequence Diagram (`docs/architecture.md` Section 3):** Mengganti nama berkas Mermaid export menjadi `docs/assets/minisoar-event-lifecycle-sequence.svg` dan `.png`, menyematkannya dengan tautan zoom interaktif, serta menyembunyikan source code Mermaid di dalam blok lipat `<details><summary>`.
+  4. **Verifikasi Zero Regression:** Seluruh test suite (53/53 test cases) lolos verifikasi 100%.
 - **Rationale:** Menghasilkan dokumentasi teknis dengan standar visual berkualitas tinggi yang profesional, bersih dari elemen UI browser, dan memiliki struktur direktori dokumentasi yang rapi.
+
+### 2026-09-03 15:18 WIB
+- **Problem:** 
+  1. Direktori `docs/reports/` perlu dikecualikan dari pelacakan repositori Git serta dihapus dari riwayat riil Git commit (*git history*) agar tidak membebani repositori pusat.
+  2. Alur garis pada diagram 7-Step ML Lifecycle sebelumnya mengalami pola zigzag naik-turun karena pemisahan jalur antara `train` dan `eval`, serta kotak pengelompokan (*grouping*) membuat diagram terlihat padat dan membingungkan.
+- **Solution:**
+  1. **Eksklusi & Purging Git History `docs/reports/`:** Menambahkan `docs/reports/` ke `.gitignore`, menghapus tracking cache via `git rm -r --cached docs/reports`, dan mengeksekusi `git-filter-repo --path docs/reports --invert-paths --force` untuk membersihkan berkas laporan dari seluruh 71 riwayat commit di repositori. Folder laporan fisik lokal dicadangkan dan dipulihkan kembali sebagai direktori untracked & ignored. Memulihkan konfigurasi remote origin ke GitLab dan GitHub.
+  2. **Konsolidasi Alur Diagram ML Lifecycle (`minisoar-ml-lifecycle.workflow.json`):**
+     - Menghilangkan elemen `groups` dan `phases` pembungkus yang kaku.
+     - Menggabungkan tahap Training dan Validation ke dalam satu lajur utama horizontal (`Training & Validation Cycle`) yang linear dan rapi (Step 2 $\rightarrow$ Step 3 $\rightarrow$ Step 4 $\rightarrow$ Step 5 $\rightarrow$ Step 6).
+     - Menambahkan panah perulangan balik (*flowchart loopback*) `up-channel` dari Step 6 kembali ke Step 5 (`loop jika < target`) untuk menggambarkan siklus perbaikan berulang hingga akurasi optimal tercapai sebelum turun ke Step 7 (`Gunakan Model`).
+     - Meregenerasi berkas HTML interaktif dan PNG Dark & Light murni.
+  3. **Verifikasi Zero Regression:** Seluruh test suite (53/53 test cases) lolos 100%.
+- **Rationale:** Memastikan repositori Git bersih dari berkas laporan operasional sementara alur Machine Learning lifecycle disajikan dengan tata letak flowchart standar yang intuitif, linear, dan bebas dari persilangan garis yang membingungkan.
+
