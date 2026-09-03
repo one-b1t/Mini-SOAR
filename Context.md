@@ -413,3 +413,27 @@ MiniSOAR still works as an alert delivery and mitigation pipeline, but its imple
   3. **Sinkronisasi Branch `dev`:** Memperbarui branch `dev` ke remote GitLab RKS dan GitHub pasca-pembersihan git history `docs/reports/`.
   4. **Verifikasi Zero Regression:** Seluruh modul test ML lulus 100% (12/12 di `test_ml.py` dan 53/53 test cases global).
 - **Rationale:** Memisahkan lingkungan rilis produksi yang ramping dan aman dari lingkungan pengembangan berkelanjutan (*separation of concerns* antara production deployment dan development scaffold).
+
+### 2026-09-03 18:43 WIB
+- **Problem:** Seluruh dokumentasi teknis MiniSOAR (`WIKI.md`, `Readme.md`, `Changelog.md`, dan seluruh direktori `docs/`) perlu dipublikasikan ke Wiki resmi di repositori GitLab RKS (`https://rks.komdigi.go.id/oneb1t/mini-soar/-/wikis`) serta disiapkan untuk repositori GitHub.
+- **Solution:**
+  1. **Publikasi ke GitLab RKS Wiki:**
+     - Mengembangkan skrip otomatisasi [`scripts/sync_gitlab_wiki.py`](file:///f:/Kantor/Program/MiniSOAR/scripts/sync_gitlab_wiki.py) yang memanfaatkan GitLab REST API (`/projects/242/wikis`).
+     - Mengunggah 11 halaman terstruktur lengkap dengan sidebar navigasi interaktif (`_sidebar`):
+       - `home` (Hub Dokumentasi Utama MiniSOAR: WIKI + Readme)
+       - `Overview` (`docs/overview.md`)
+       - `Architecture` (`docs/architecture.md`)
+       - `MLOps` (`docs/mlops.md`)
+       - `Database` (`docs/database.md`)
+       - `API-Reference` (`docs/api.md`)
+       - `Deployment` (`docs/deployment.md`)
+       - `Testing` (`docs/testing.md`)
+       - `Troubleshooting` (`docs/troubleshooting.md`)
+       - `Changelog` (`Changelog.md`)
+       - `_sidebar` (Navigasi cepat di panel samping setiap halaman)
+     - Seluruh internal link antar dokumen disesuaikan secara otomatis ke slug Wiki.
+  2. **Persiapan Ekspor GitHub Wiki:**
+     - Menyiapkan direktori [`docs/github-wiki/`](file:///f:/Kantor/Program/MiniSOAR/docs/github-wiki) yang memuat seluruh berkas Markdown (`Home.md`, `_Sidebar.md`, dan seluruh halaman dokumentasi).
+     - Menyediakan skrip pembantu [`push_to_github_wiki.ps1`](file:///f:/Kantor/Program/MiniSOAR/docs/github-wiki/push_to_github_wiki.ps1) untuk inisialisasi otomatis setelah owner repositori GitHub mencentang opsi Wikis di Settings.
+  3. **Verifikasi Zero Regression:** Seluruh test suite (53/53 test cases) tetap lulus 100%.
+- **Rationale:** Menghadirkan portal dokumentasi resmi yang tersentralisasi dan mudah diakses oleh seluruh tim analis SOC, insinyur keamanan, dan pengembang melalui web interface GitLab Wiki.
