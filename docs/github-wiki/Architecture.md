@@ -6,16 +6,16 @@ MiniSOAR mengadopsi pola arsitektur **Event-Driven & Micro-Engine Architecture**
 
 > [!TIP]
 > **Diagram Arsitektur Interaktif (Archify v2.16)**
-> - 🌐 **Buka Aplikasi Viewer Interaktif:** [`docs/assets/minisoar-architecture.html`](./assets/minisoar-architecture.html)
-> - 📄 **Spesifikasi JSON-IR Archify:** [`docs/assets/minisoar-architecture.architecture.json`](./assets/minisoar-architecture.architecture.json)
+> - 🌐 **Buka Aplikasi Viewer Interaktif:** [`docs/assets/minisoar-architecture.html`](assets/minisoar-architecture.html)
+> - 📄 **Spesifikasi JSON-IR Archify:** [`docs/assets/minisoar-architecture.architecture.json`](assets/minisoar-architecture.architecture.json)
 > - ✨ **Fitur:** Dukungan Dark / Light theme, Pan & Zoom tak terbatas, 3 Guided Focus Views (*Threat-to-Mitigation*, *SOC Collaboration*, *Response Orchestration*), relationship tracing otomatis, dan ekspor instan (SVG / PNG / WebP / WebM).
 
-![MiniSOAR Architecture Diagram (Dark Preview)](./assets/minisoar-architecture.dark.png)
+![MiniSOAR Architecture Diagram (Dark Preview)](assets/minisoar-architecture.dark.png)
 
 <details>
 <summary><b>🔍 Klik untuk melihat Diagram dalam Light Theme</b></summary>
 
-![MiniSOAR Architecture Diagram (Light Preview)](./assets/minisoar-architecture.light.png)
+![MiniSOAR Architecture Diagram (Light Preview)](assets/minisoar-architecture.light.png)
 
 </details>
 
@@ -77,10 +77,10 @@ Aliran siklus hidup pemrosesan event di MiniSOAR dirancang untuk merespons ancam
 
 > [!TIP]
 > **Diagram Alur Sekuensial Siklus Hidup Event (High-Resolution Zoomable)**
-> - 🔍 **Buka Berkas Vektor SVG (Zoom Tak Terbatas):** [`docs/assets/minisoar-event-lifecycle-sequence.svg`](./assets/minisoar-event-lifecycle-sequence.svg)
-> - 🖼️ **Buka Berkas Raster PNG Resolusi Tinggi (4.6 MB):** [`docs/assets/minisoar-event-lifecycle-sequence.png`](./assets/minisoar-event-lifecycle-sequence.png)
+> - 🔍 **Buka Berkas Vektor SVG (Zoom Tak Terbatas):** [`docs/assets/minisoar-event-lifecycle-sequence.svg`](assets/minisoar-event-lifecycle-sequence.svg)
+> - 🖼️ **Buka Berkas Raster PNG Resolusi Tinggi (4.6 MB):** [`docs/assets/minisoar-event-lifecycle-sequence.png`](assets/minisoar-event-lifecycle-sequence.png)
 
-[![MiniSOAR End-to-End Event Lifecycle Sequence Diagram](./assets/minisoar-event-lifecycle-sequence.png)](./assets/minisoar-event-lifecycle-sequence.svg)
+[![MiniSOAR End-to-End Event Lifecycle Sequence Diagram](assets/minisoar-event-lifecycle-sequence.png)](assets/minisoar-event-lifecycle-sequence.svg)
 
 <details>
 <summary><b>🔍 Klik untuk melihat Source Code Mermaid Sequence Diagram</b></summary>
@@ -224,16 +224,16 @@ Model machine learning baseline (`baseline_model.joblib`) dan challenger aktif (
 
 > [!TIP]
 > **Diagram Alur Machine Learning Interaktif (Archify v2.16)**
-> - 🌐 **Buka Aplikasi Viewer Interaktif:** [`docs/assets/minisoar-ml-pipeline.html`](./assets/minisoar-ml-pipeline.html)
-> - 📄 **Spesifikasi JSON-IR Archify:** [`docs/assets/minisoar-ml-pipeline.architecture.json`](./assets/minisoar-ml-pipeline.architecture.json)
+> - 🌐 **Buka Aplikasi Viewer Interaktif:** [`docs/assets/minisoar-ml-pipeline.html`](assets/minisoar-ml-pipeline.html)
+> - 📄 **Spesifikasi JSON-IR Archify:** [`docs/assets/minisoar-ml-pipeline.architecture.json`](assets/minisoar-ml-pipeline.architecture.json)
 > - ✨ **Fitur:** Tampilan Dark/Light theme, Pan & Zoom tak terbatas, Guided Focus Views, tracing relasi otomatis, serta ekspor format SVG / PNG / WebP / WebM.
 
-![MiniSOAR ML Pipeline Diagram (Dark Preview)](./assets/minisoar-ml-pipeline.dark.png)
+![MiniSOAR ML Pipeline Diagram (Dark Preview)](assets/minisoar-ml-pipeline.dark.png)
 
 <details>
 <summary><b>🔍 Klik untuk melihat Diagram ML dalam Light Theme</b></summary>
 
-![MiniSOAR ML Pipeline Diagram (Light Preview)](./assets/minisoar-ml-pipeline.light.png)
+![MiniSOAR ML Pipeline Diagram (Light Preview)](assets/minisoar-ml-pipeline.light.png)
 
 </details>
 
@@ -265,16 +265,16 @@ Proses pelatihan model baseline MiniSOAR mengadopsi alur kerja Machine Learning 
 
 > [!TIP]
 > **Diagram Alur 7-Step ML Lifecycle Interaktif (Archify v2.16)**
-> - 🌐 **Buka Aplikasi Viewer Interaktif:** [`docs/assets/minisoar-ml-lifecycle.html`](./assets/minisoar-ml-lifecycle.html)
-> - 📄 **Spesifikasi JSON-IR Archify:** [`docs/assets/minisoar-ml-lifecycle.workflow.json`](./assets/minisoar-ml-lifecycle.workflow.json)
+> - 🌐 **Buka Aplikasi Viewer Interaktif:** [`docs/assets/minisoar-ml-lifecycle.html`](assets/minisoar-ml-lifecycle.html)
+> - 📄 **Spesifikasi JSON-IR Archify:** [`docs/assets/minisoar-ml-lifecycle.workflow.json`](assets/minisoar-ml-lifecycle.workflow.json)
 > - ✨ **Fitur:** Dukungan Dark / Light theme, Pan & Zoom tak terbatas, 3 Guided Focus Views (*Complete 7-step lifecycle*, *Optimization & threshold calibration*, *Packaging & hot-reload*), tracing relasi otomatis, serta ekspor instan SVG / PNG / WebP / WebM.
 
-![MiniSOAR ML Lifecycle Workflow (Dark Preview)](./assets/minisoar-ml-lifecycle.dark.png)
+![MiniSOAR ML Lifecycle Workflow (Dark Preview)](assets/minisoar-ml-lifecycle.dark.png)
 
 <details>
 <summary><b>🔍 Klik untuk melihat Diagram ML Lifecycle dalam Light Theme</b></summary>
 
-![MiniSOAR ML Lifecycle Workflow (Light Preview)](./assets/minisoar-ml-lifecycle.light.png)
+![MiniSOAR ML Lifecycle Workflow (Light Preview)](assets/minisoar-ml-lifecycle.light.png)
 
 </details>
 

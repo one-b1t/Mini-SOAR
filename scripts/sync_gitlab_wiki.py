@@ -128,6 +128,8 @@ def adjust_links_for_wiki(content):
     adjusted = content
     for pattern, wiki_slug in link_map.items():
         adjusted = re.sub(rf"\[([^\]]+)\]\((?:file:///[^)]*|(?:\./)?)?{pattern}(?:#[^)]*)?\)", rf"[\1]({wiki_slug})", adjusted)
+    # Normalize image assets path
+    adjusted = adjusted.replace("(./assets/", "(assets/").replace("(docs/assets/", "(assets/")
     return adjusted
 
 def build_home_content():

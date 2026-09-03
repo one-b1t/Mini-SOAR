@@ -1,0 +1,358 @@
+{
+  "schema_version": 1,
+  "diagram_type": "architecture",
+  "meta": {
+    "title": "MiniSOAR Layered Architecture Topology",
+    "output": "minisoar-topology.html",
+    "quality_profile": "showcase",
+    "views": [
+      {
+        "id": "app-decision-deepdive",
+        "label": "Application & decision engine",
+        "focus": [
+          "redis_bus",
+          "daemon_core",
+          "correlation_engine",
+          "playbook_engine",
+          "ml_decision",
+          "perimeter_router"
+        ],
+        "note": "Rincian pemrosesan Daemon, korelasi sliding-window, evaluasi Safe AST playbook, dan inferensi ML lokal."
+      },
+      {
+        "id": "threat-containment",
+        "label": "Ingestion to containment",
+        "focus": [
+          "traffic_logs",
+          "elastic_cluster",
+          "logstash_pipe",
+          "redis_bus",
+          "daemon_core",
+          "correlation_engine",
+          "playbook_engine",
+          "ml_decision",
+          "perimeter_router",
+          "edr_router"
+        ],
+        "note": "Alur penuh deteksi log, buffering Redis, korelasi Threat Intel, inferensi ML, hingga mitigasi perimeter dan isolasi EDR."
+      },
+      {
+        "id": "soc-collaboration",
+        "label": "SOC command & AI copilot",
+        "focus": [
+          "soc_analyst",
+          "telegram_hub",
+          "ai_copilot",
+          "daemon_core"
+        ],
+        "note": "Interaksi analis via Triple-Interface Telegram, eksekusi command bot terotorisasi, dan analisis mendalam AI Copilot."
+      },
+      {
+        "id": "mitigation-cases",
+        "label": "Multi-perimeter, EDR & cases",
+        "focus": [
+          "playbook_engine",
+          "perimeter_router",
+          "edr_router",
+          "case_engine"
+        ],
+        "note": "Orkestrasi mitigasi simultan ke firewall, cloud WAF, endpoint EDR, dan integrasi tiket insiden."
+      }
+    ]
+  },
+  "components": [
+    {
+      "id": "traffic_logs",
+      "type": "external",
+      "label": "Traffic Logs",
+      "sublabel": "Web / Proxy / WAF",
+      "tag": "Layer Ingestion",
+      "pos": [50, 70],
+      "size": [130, 56]
+    },
+    {
+      "id": "elastic_cluster",
+      "type": "database",
+      "label": "Elasticsearch",
+      "sublabel": "Cluster :9200",
+      "brand": "elasticsearch",
+      "tag": "Layer Data",
+      "pos": [50, 240],
+      "size": [130, 56]
+    },
+    {
+      "id": "logstash_pipe",
+      "type": "backend",
+      "label": "Logstash",
+      "sublabel": "Normalizer & Rules",
+      "tag": "Layer Ingestion",
+      "pos": [260, 240],
+      "size": [130, 56]
+    },
+    {
+      "id": "ai_copilot",
+      "type": "backend",
+      "label": "AI Copilot",
+      "sublabel": "Gemini / Claude / Ollama",
+      "tag": "Layer User & AI",
+      "pos": [470, 70],
+      "size": [140, 56]
+    },
+    {
+      "id": "redis_bus",
+      "type": "messagebus",
+      "label": "Redis Queue",
+      "sublabel": "Queue & State Cache",
+      "brand": "redis",
+      "tag": "Layer Data / Buffer",
+      "pos": [470, 240],
+      "size": [140, 56]
+    },
+    {
+      "id": "telegram_hub",
+      "type": "external",
+      "label": "Telegram Hub",
+      "sublabel": "Notif / Action / Bot",
+      "brand": "telegram",
+      "tag": "Layer Telegram",
+      "pos": [690, 70],
+      "size": [140, 56]
+    },
+    {
+      "id": "daemon_core",
+      "type": "backend",
+      "label": "Daemon Core",
+      "sublabel": "Queue & Whitelist",
+      "tag": "Layer Aplikasi",
+      "pos": [690, 190],
+      "size": [140, 56]
+    },
+    {
+      "id": "correlation_engine",
+      "type": "backend",
+      "label": "Correlation Engine",
+      "sublabel": "AbuseIPDB & ip-api Intel",
+      "tag": "Layer Aplikasi",
+      "pos": [690, 310],
+      "size": [140, 56]
+    },
+    {
+      "id": "soc_analyst",
+      "type": "external",
+      "label": "SOC Analyst",
+      "sublabel": "Triage & Commands",
+      "tag": "Layer User",
+      "pos": [910, 70],
+      "size": [140, 56]
+    },
+    {
+      "id": "playbook_engine",
+      "type": "backend",
+      "label": "Playbook Engine",
+      "sublabel": "Safe AST & Workflows",
+      "tag": "Decision Engine",
+      "pos": [910, 190],
+      "size": [140, 56]
+    },
+    {
+      "id": "ml_decision",
+      "type": "backend",
+      "label": "ML Classifier",
+      "sublabel": "Sub-ms Scikit-Learn",
+      "tag": "Decision Engine",
+      "pos": [910, 310],
+      "size": [140, 56]
+    },
+    {
+      "id": "perimeter_router",
+      "type": "security",
+      "label": "Perimeter Router",
+      "sublabel": "PAN-OS / WAF / Forti",
+      "tag": "Layer Mitigasi",
+      "pos": [1160, 130],
+      "size": [140, 56]
+    },
+    {
+      "id": "edr_router",
+      "type": "security",
+      "label": "EDR Router",
+      "sublabel": "Kaspersky / TrendMicro",
+      "tag": "Layer Mitigasi",
+      "pos": [1160, 220],
+      "size": [140, 56]
+    },
+    {
+      "id": "case_engine",
+      "type": "backend",
+      "label": "Case Engine",
+      "sublabel": "TheHive / Jira / Cases",
+      "tag": "Layer Mitigasi",
+      "pos": [1160, 310],
+      "size": [140, 56]
+    }
+  ],
+  "boundaries": [
+    {
+      "kind": "region",
+      "label": "Layer Ingestion & Data Telemetri",
+      "wraps": ["traffic_logs", "elastic_cluster", "logstash_pipe", "redis_bus"],
+      "pad": 16
+    },
+    {
+      "kind": "security-group",
+      "label": "Layer Interaksi Telegram & SOC",
+      "wraps": ["ai_copilot", "telegram_hub", "soc_analyst"],
+      "pad": 16
+    },
+    {
+      "kind": "security-group",
+      "label": "Layer Aplikasi (MiniSOAR Core)",
+      "wraps": ["daemon_core", "correlation_engine"],
+      "pad": 14
+    },
+    {
+      "kind": "security-group",
+      "label": "Layer Decision Engine (AST & ML)",
+      "wraps": ["playbook_engine", "ml_decision"],
+      "pad": 14
+    },
+    {
+      "kind": "region",
+      "label": "Layer Mitigasi & Integrasi Respon",
+      "wraps": ["perimeter_router", "edr_router", "case_engine"],
+      "pad": 16
+    }
+  ],
+  "connections": [
+    {
+      "from": "traffic_logs",
+      "to": "elastic_cluster",
+      "label": "syslog",
+      "fromSide": "bottom",
+      "toSide": "top",
+      "labelAt": [115, 185]
+    },
+    {
+      "from": "elastic_cluster",
+      "to": "logstash_pipe",
+      "label": "index stream"
+    },
+    {
+      "from": "logstash_pipe",
+      "to": "redis_bus",
+      "label": "LPUSH alerts",
+      "variant": "emphasis"
+    },
+    {
+      "from": "redis_bus",
+      "to": "daemon_core",
+      "label": "LPOP queue"
+    },
+    {
+      "from": "daemon_core",
+      "to": "correlation_engine",
+      "fromSide": "bottom",
+      "toSide": "top"
+    },
+    {
+      "from": "correlation_engine",
+      "to": "daemon_core",
+      "fromSide": "top",
+      "toSide": "bottom"
+    },
+    {
+      "from": "daemon_core",
+      "to": "playbook_engine",
+      "label": "evaluate AST",
+      "variant": "emphasis"
+    },
+    {
+      "from": "playbook_engine",
+      "to": "ml_decision",
+      "fromSide": "bottom",
+      "toSide": "top"
+    },
+    {
+      "from": "ml_decision",
+      "to": "playbook_engine",
+      "fromSide": "top",
+      "toSide": "bottom"
+    },
+    {
+      "from": "daemon_core",
+      "to": "telegram_hub",
+      "fromSide": "top",
+      "toSide": "bottom"
+    },
+    {
+      "from": "telegram_hub",
+      "to": "daemon_core",
+      "fromSide": "bottom",
+      "toSide": "top"
+    },
+    {
+      "from": "soc_analyst",
+      "to": "telegram_hub",
+      "label": "commands"
+    },
+    {
+      "from": "telegram_hub",
+      "to": "ai_copilot",
+      "label": "copilot query"
+    },
+    {
+      "from": "playbook_engine",
+      "to": "perimeter_router",
+      "label": "block IP",
+      "variant": "security",
+      "fromSide": "right",
+      "toSide": "left"
+    },
+    {
+      "from": "playbook_engine",
+      "to": "edr_router",
+      "label": "isolate",
+      "variant": "security",
+      "fromSide": "right",
+      "toSide": "left",
+      "labelAt": [1075, 260]
+    },
+    {
+      "from": "playbook_engine",
+      "to": "case_engine",
+      "label": "sync case",
+      "fromSide": "right",
+      "toSide": "left"
+    }
+  ],
+  "cards": [
+    {
+      "dot": "cyan",
+      "title": "Layer Ingestion & Data Telemetri",
+      "items": [
+        "Log mentah web, proxy, dan WAF dialirkan ke indeks Elasticsearch (retensi 90 hari)",
+        "Logstash memfilter regex, webshell, dan slot judi lalu mendorong payload ke antrian Redis",
+        "Redis mengelola antrian asinkron logstash_alert_queue dan cache status mitigasi"
+      ]
+    },
+    {
+      "dot": "emerald",
+      "title": "Layer Aplikasi & Decision Engine Terperinci",
+      "items": [
+        "Daemon Core memvalidasi IP whitelist dan mengecek reputasi AbuseIPDB",
+        "Correlation Engine mengagregasi frekuensi serangan ZSET lintas waktu dan meredam badai alert",
+        "Playbook Engine mengevaluasi kondisi logika SOP deklaratif berbasis Safe AST tanpa kode berbahaya",
+        "ML Classifier mengeksekusi prediksi sub-milidetik (scikit-learn) dan continuous auto-retraining"
+      ]
+    },
+    {
+      "dot": "rose",
+      "title": "Layer Telegram, Komando SOC & Mitigasi",
+      "items": [
+        "Triple-Interface Telegram memisahkan kanal siaran alert, audit trail aksi, dan bot DM analis",
+        "AI Copilot multi-provider (Gemini, Claude, Ollama) membantu analis melakukan deobfuskasi & RCA",
+        "Router mitigasi mengeksekusi blokir terkoordinasi ke firewall, Cloudflare, EDR, dan sistem tiket"
+      ]
+    }
+  ]
+}

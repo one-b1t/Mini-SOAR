@@ -1,0 +1,165 @@
+{
+  "schema_version": 2,
+  "diagram_type": "workflow",
+  "meta": {
+    "title": "MiniSOAR 7-Step ML Lifecycle & Continuous Retraining Workflow",
+    "animation": "trace",
+    "quality_profile": "showcase",
+    "views": [
+      {
+        "id": "full-lifecycle",
+        "label": "Complete 7-Step Lifecycle",
+        "focus": ["s1_ingest", "s2_train", "s3_cv", "s4_eval", "s5_tune", "s6_gate", "s7_deploy"],
+        "note": "Standard 7-step MLOps workflow from data ingestion to production hot-reload."
+      },
+      {
+        "id": "refinement-loop",
+        "label": "Training & Validation Cycle",
+        "focus": ["s2_train", "s3_cv", "s4_eval", "s5_tune", "s6_gate"],
+        "note": "Iterative training, cross-validation, evaluation, and tuning cycle."
+      }
+    ],
+    "output": "docs/assets/minisoar-ml-lifecycle.html"
+  },
+  "lanes": [
+    { "id": "data", "label": "Data Management" },
+    { "id": "modeling", "label": "Training & Validation Cycle" },
+    { "id": "deploy", "label": "Production Deployment" }
+  ],
+  "phases": [],
+  "groups": [],
+  "mainPath": [
+    "s1_ingest",
+    "s2_train",
+    "s3_cv",
+    "s4_eval",
+    "s5_tune",
+    "s6_gate",
+    "s7_deploy"
+  ],
+  "nodes": [
+    {
+      "id": "s1_ingest",
+      "lane": "data",
+      "col": 0,
+      "type": "database",
+      "label": "1. Ambil Data",
+      "sublabel": "ES & Split",
+      "tag": "70/15/15",
+      "width": 120
+    },
+    {
+      "id": "s2_train",
+      "lane": "modeling",
+      "col": 1,
+      "type": "backend",
+      "label": "2. Model Awal",
+      "sublabel": "Logistic Reg",
+      "tag": "baseline",
+      "width": 120
+    },
+    {
+      "id": "s3_cv",
+      "lane": "modeling",
+      "col": 2,
+      "type": "backend",
+      "label": "3. Validasi",
+      "sublabel": "5-Fold CV",
+      "tag": "variance",
+      "width": 120
+    },
+    {
+      "id": "s4_eval",
+      "lane": "modeling",
+      "col": 3,
+      "type": "backend",
+      "label": "4. Evaluasi",
+      "sublabel": "ROC & FPR",
+      "tag": "metrics",
+      "width": 120
+    },
+    {
+      "id": "s5_tune",
+      "lane": "modeling",
+      "col": 4,
+      "type": "backend",
+      "label": "5. Retrain",
+      "sublabel": "Grid C & FPR",
+      "tag": "FPR <= 3%",
+      "width": 120
+    },
+    {
+      "id": "s6_gate",
+      "lane": "modeling",
+      "col": 5,
+      "type": "security",
+      "label": "6. Re-Eval",
+      "sublabel": "Quality Gate",
+      "tag": "ROC >= 0.88",
+      "width": 120
+    },
+    {
+      "id": "s7_deploy",
+      "lane": "deploy",
+      "col": 5,
+      "type": "cloud",
+      "label": "7. Gunakan Model",
+      "sublabel": "Hot-Reload",
+      "tag": "active_model",
+      "width": 120
+    }
+  ],
+  "edges": [
+    {
+      "id": "e_s1_s2",
+      "from": "s1_ingest",
+      "to": "s2_train",
+      "label": "training split",
+      "variant": "emphasis"
+    },
+    {
+      "id": "e_s2_s3",
+      "from": "s2_train",
+      "to": "s3_cv",
+      "label": "cross-validate",
+      "variant": "default"
+    },
+    {
+      "id": "e_s3_s4",
+      "from": "s3_cv",
+      "to": "s4_eval",
+      "label": "eval metrics",
+      "variant": "default"
+    },
+    {
+      "id": "e_s4_s5",
+      "from": "s4_eval",
+      "to": "s5_tune",
+      "label": "perlu perbaikan",
+      "variant": "emphasis"
+    },
+    {
+      "id": "e_s5_s6",
+      "from": "s5_tune",
+      "to": "s6_gate",
+      "label": "evaluasi ulang",
+      "variant": "emphasis"
+    },
+    {
+      "id": "e_s6_s5_loop",
+      "from": "s6_gate",
+      "to": "s5_tune",
+      "label": "loop jika < target",
+      "route": "up-channel",
+      "variant": "dashed",
+      "role": "return"
+    },
+    {
+      "id": "e_s6_s7",
+      "from": "s6_gate",
+      "to": "s7_deploy",
+      "label": "akurasi optimal (pass)",
+      "variant": "security"
+    }
+  ]
+}

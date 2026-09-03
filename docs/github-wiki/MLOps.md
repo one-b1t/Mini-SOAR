@@ -80,16 +80,16 @@ Proses pelatihan dan validasi model mengadopsi 7 tahapan sekuensial standar MLOp
 
 > [!TIP]
 > **Diagram Alur 7-Step ML Lifecycle Interaktif (Archify v2.16)**
-> - 🌐 **Buka Aplikasi Viewer Interaktif:** [`docs/assets/minisoar-ml-lifecycle.html`](./assets/minisoar-ml-lifecycle.html)
-> - 📄 **Spesifikasi JSON-IR Archify:** [`docs/assets/minisoar-ml-lifecycle.workflow.json`](./assets/minisoar-ml-lifecycle.workflow.json)
+> - 🌐 **Buka Aplikasi Viewer Interaktif:** [`docs/assets/minisoar-ml-lifecycle.html`](assets/minisoar-ml-lifecycle.html)
+> - 📄 **Spesifikasi JSON-IR Archify:** [`docs/assets/minisoar-ml-lifecycle.workflow.json`](assets/minisoar-ml-lifecycle.workflow.json)
 > - ✨ **Fitur:** Dukungan Dark / Light theme, Pan & Zoom tak terbatas, 3 Guided Focus Views (*Complete 7-step lifecycle*, *Optimization & threshold calibration*, *Packaging & hot-reload*), tracing relasi otomatis, serta ekspor instan SVG / PNG / WebP / WebM.
 
-![MiniSOAR ML Lifecycle Workflow (Dark Preview)](./assets/minisoar-ml-lifecycle.dark.png)
+![MiniSOAR ML Lifecycle Workflow (Dark Preview)](assets/minisoar-ml-lifecycle.dark.png)
 
 <details>
 <summary><b>🔍 Klik untuk melihat Diagram ML Lifecycle dalam Light Theme</b></summary>
 
-![MiniSOAR ML Lifecycle Workflow (Light Preview)](./assets/minisoar-ml-lifecycle.light.png)
+![MiniSOAR ML Lifecycle Workflow (Light Preview)](assets/minisoar-ml-lifecycle.light.png)
 
 </details>
 

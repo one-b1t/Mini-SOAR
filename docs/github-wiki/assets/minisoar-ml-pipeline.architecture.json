@@ -1,0 +1,269 @@
+{
+  "schema_version": 1,
+  "diagram_type": "architecture",
+  "meta": {
+    "title": "MiniSOAR Multi-Source ML Pipeline & Architecture",
+    "subtitle": "Multi-Source ES Ingestion, 7-Step Training Lifecycle, Threshold Calibration, and Hot-Reload Inference",
+    "output": "docs/minisoar-ml-pipeline.html",
+    "viewBox": [1320, 470],
+    "animation": "trace",
+    "quality_profile": "showcase",
+    "views": [
+      {
+        "id": "dataset-pipeline",
+        "label": "Multi-source ingestion",
+        "focus": ["es_securesphere", "es_minisoar", "synth_gen", "extractor", "dataset_csv"],
+        "note": "Imperva SecureSphere WAF (46M+ events) and MiniSOAR labels extracted via balanced sampling."
+      },
+      {
+        "id": "training-loop",
+        "label": "7-step training & tuning",
+        "focus": ["dataset_csv", "feature_eng", "trainer", "evaluator", "model_artifact"],
+        "note": "Stratified 70/15/15 split, 5-fold CV, grid search tuning, and decision threshold calibration."
+      },
+      {
+        "id": "runtime-inference",
+        "label": "Hot-reload & inference",
+        "focus": ["model_artifact", "hot_reload", "inference_engine"],
+        "note": "Daemon watches st_mtime to hot-reload in-memory weights for sub-millisecond classification."
+      }
+    ]
+  },
+  "components": [
+    {
+      "id": "es_securesphere",
+      "type": "database",
+      "label": "SecureSphere WAF",
+      "sublabel": "logs-imperva.securesphere-*",
+      "pos": [60, 130],
+      "size": [240, 50]
+    },
+    {
+      "id": "es_minisoar",
+      "type": "database",
+      "label": "MiniSOAR Telemetry",
+      "sublabel": "minisoar-labels & events",
+      "pos": [60, 220],
+      "size": [240, 50]
+    },
+    {
+      "id": "synth_gen",
+      "type": "backend",
+      "label": "Synthetic Bootstrap",
+      "sublabel": "deterministic fallback",
+      "pos": [60, 310],
+      "size": [240, 50]
+    },
+    {
+      "id": "extractor",
+      "type": "backend",
+      "label": "Multi-Source Extractor",
+      "sublabel": "minisoar.ml.export (balanced)",
+      "pos": [380, 130],
+      "size": [240, 50]
+    },
+    {
+      "id": "dataset_csv",
+      "type": "database",
+      "label": "Balanced Dataset CSV",
+      "sublabel": "10,000 multi-source rows",
+      "pos": [380, 220],
+      "size": [240, 50]
+    },
+    {
+      "id": "feature_eng",
+      "type": "backend",
+      "label": "Feature Engineering",
+      "sublabel": "Stratified 70/15/15 Split",
+      "pos": [380, 310],
+      "size": [240, 50]
+    },
+    {
+      "id": "trainer",
+      "type": "backend",
+      "label": "7-Step ML Trainer",
+      "sublabel": "Grid C & Retrain",
+      "pos": [700, 175],
+      "size": [240, 50]
+    },
+    {
+      "id": "evaluator",
+      "type": "security",
+      "label": "CV & Threshold Optimizer",
+      "sublabel": "5-Fold CV & FPR <= 3%",
+      "pos": [700, 310],
+      "size": [240, 50]
+    },
+    {
+      "id": "model_artifact",
+      "type": "database",
+      "label": "Model Artifact Bundle",
+      "sublabel": "active_model.joblib",
+      "pos": [1020, 130],
+      "size": [240, 50]
+    },
+    {
+      "id": "hot_reload",
+      "type": "backend",
+      "label": "Hot-Reload Loader",
+      "sublabel": "st_mtime file cache",
+      "pos": [1020, 220],
+      "size": [240, 50]
+    },
+    {
+      "id": "inference_engine",
+      "type": "security",
+      "label": "Fast-Path Inference",
+      "sublabel": "predict_block (<1ms)",
+      "pos": [1020, 310],
+      "size": [240, 50]
+    }
+  ],
+  "boundaries": [
+    {
+      "kind": "region",
+      "label": "1. Multi-Source ES Telemetry",
+      "wraps": ["es_securesphere", "es_minisoar", "synth_gen"],
+      "pad": 16
+    },
+    {
+      "kind": "region",
+      "label": "2. Balanced Extraction & Prep",
+      "wraps": ["extractor", "dataset_csv", "feature_eng"],
+      "pad": 16
+    },
+    {
+      "kind": "security-group",
+      "label": "3. 7-Step Training & Tuning",
+      "wraps": ["trainer", "evaluator"],
+      "pad": 16
+    },
+    {
+      "kind": "region",
+      "label": "4. Model Registry & Serving",
+      "wraps": ["model_artifact", "hot_reload", "inference_engine"],
+      "pad": 16
+    }
+  ],
+  "connections": [
+    {
+      "from": "es_securesphere",
+      "to": "extractor",
+      "label": "46M+ WAF events",
+      "variant": "security",
+      "fromSide": "right",
+      "toSide": "left",
+      "labelAt": [340, 145]
+    },
+    {
+      "from": "es_minisoar",
+      "to": "extractor",
+      "label": "MiniSOAR labels",
+      "variant": "default",
+      "fromSide": "right",
+      "toSide": "left",
+      "labelAt": [340, 196]
+    },
+    {
+      "from": "synth_gen",
+      "to": "dataset_csv",
+      "label": "fallback seed",
+      "variant": "dashed",
+      "fromSide": "right",
+      "toSide": "left",
+      "labelAt": [340, 280]
+    },
+    {
+      "from": "extractor",
+      "to": "dataset_csv",
+      "label": "balanced sample",
+      "variant": "emphasis",
+      "fromSide": "bottom",
+      "toSide": "top",
+      "labelAt": [500, 195]
+    },
+    {
+      "from": "dataset_csv",
+      "to": "feature_eng",
+      "label": "split & encode",
+      "variant": "default",
+      "fromSide": "bottom",
+      "toSide": "top",
+      "labelAt": [500, 285]
+    },
+    {
+      "from": "feature_eng",
+      "to": "trainer",
+      "label": "train & val sets",
+      "variant": "emphasis",
+      "fromSide": "right",
+      "toSide": "left",
+      "labelAt": [660, 290]
+    },
+    {
+      "from": "trainer",
+      "to": "evaluator",
+      "label": "tune & calibrate",
+      "variant": "security",
+      "fromSide": "bottom",
+      "toSide": "top",
+      "labelAt": [820, 260]
+    },
+    {
+      "from": "trainer",
+      "to": "model_artifact",
+      "label": "atomic dump",
+      "variant": "emphasis",
+      "fromSide": "right",
+      "toSide": "left",
+      "labelAt": [980, 175]
+    },
+    {
+      "from": "model_artifact",
+      "to": "hot_reload",
+      "label": "detect st_mtime",
+      "variant": "default",
+      "fromSide": "bottom",
+      "toSide": "top",
+      "labelAt": [1140, 195]
+    },
+    {
+      "from": "hot_reload",
+      "to": "inference_engine",
+      "label": "in-memory weights",
+      "variant": "security",
+      "fromSide": "bottom",
+      "toSide": "top",
+      "labelAt": [1140, 285]
+    }
+  ],
+  "cards": [
+    {
+      "dot": "emerald",
+      "title": "Multi-Source Elasticsearch Ingestion",
+      "items": [
+        "Consumes 46M+ events from logs-imperva.securesphere-* and internal analyst labels",
+        "Stratified balanced sampling extracts 5,000 Block and 5,000 None events",
+        "Deterministic generator ensures reliable offline bootstrap fallback"
+      ]
+    },
+    {
+      "dot": "rose",
+      "title": "7-Step Training & Calibration",
+      "items": [
+        "Partitions dataset into 70% Train, 15% Validation, and 15% Hold-Out Test",
+        "5-Fold Stratified Cross-Validation validates model generalization",
+        "Threshold optimization minimizes False Positives (FPR <= 3%)"
+      ]
+    },
+    {
+      "dot": "orange",
+      "title": "Zero-Downtime Hot-Reload",
+      "items": [
+        "Artifact bundle packages model, features, mappings, and decision threshold",
+        "Daemon monitors file timestamp (st_mtime) on every processing batch",
+        "Sub-millisecond inference (<1ms) without restarting active service"
+      ]
+    }
+  ]
+}
