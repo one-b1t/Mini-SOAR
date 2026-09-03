@@ -364,9 +364,10 @@ interactive_menu() {
     echo -e "  ${BOLD}6)${NC} ${BLUE}Sensitive URL Probe (/.env / Medium)${NC}        -> Trigger Playbook: ${CYAN}pb-bruteforce-probing${NC}"
     echo -e "  ${BOLD}7)${NC} ${GREEN}Custom Input (Tentukan IP, Domain & Attack Type)${NC}"
     echo -e "  ${BOLD}8)${NC} ${CYAN}Simulasi Burst (Kirim 5 Serangan Sekaligus)${NC}"
+    echo -e "  ${BOLD}9)${NC} ${MAGENTA}SecureSphere WAF Attack Replay & ML Validation (Elasticsearch)${NC}"
     echo -e "  ${BOLD}0)${NC} Keluar"
     echo ""
-    read -p "Masukkan pilihan [1-8]: " choice
+    read -p "Masukkan pilihan [0-9]: " choice
 
     case "$choice" in
         1)
@@ -413,6 +414,17 @@ interactive_menu() {
             run_scenario "c2" "4/5: C2 Communication"
             sleep 1
             run_scenario "bruteforce" "5/5: Brute Force Burst"
+            ;;
+        9|securesphere)
+            echo -e "\n${BOLD}${CYAN}=== Replay Serangan Riil SecureSphere & Validasi Model ML ===${NC}\n"
+            read -p "Jumlah sampel serangan yang akan diambil dari Elasticsearch [default: 500]: " spl_size
+            spl_size="${spl_size:-500}"
+            read -p "Apakah ingin menginjeksi sample serangan ke antrean Redis juga? (y/N): " inj_opt
+            if [[ "$inj_opt" =~ ^[Yy]$ ]]; then
+                "$PYTHON_BIN" -m minisoar.ml.replay --samples "$spl_size" --inject-redis
+            else
+                "$PYTHON_BIN" -m minisoar.ml.replay --samples "$spl_size"
+            fi
             ;;
         0|q|exit)
             echo "Keluar."
@@ -473,6 +485,10 @@ else
             sleep 1
             run_scenario "c2" "3/5: C2 Communication"
             ;;
+        securesphere|securesphere-replay|replay)
+            shift || true
+            "$PYTHON_BIN" -m minisoar.ml.replay "$@"
+            ;;
         help|--help|-h)
             echo "Penggunaan: ./simulate_alert.sh [skenario] [ip] [domain]"
             echo ""
@@ -484,11 +500,11 @@ else
             echo "  c2            : Simulasi C2 Communication & EDR IoC Push (Critical)"
             echo "  probe         : Simulasi Exploit Scanner /.env (Medium)"
             echo "  all           : Simulasi pengiriman beberapa jenis serangan sekaligus"
+            echo "  securesphere  : Replay trafik serangan riil SecureSphere & validasi Model ML"
             echo ""
             echo "Contoh:"
             echo "  ./simulate_alert.sh webshell"
-            echo "  ./simulate_alert.sh sqli 198.51.100.44 portal.komdigi.go.id"
-            echo "  ./simulate_alert.sh"
+            echo "  ./simulate_alert.sh securesphere --samples 500"
             ;;
         *)
             echo -e "${RED}[ERROR] Skenario '$cmd_sc' tidak dikenali.${NC}"

@@ -21,6 +21,189 @@ def test_predict_block_whitelisted():
     assert prob == 0.95
 
 
+def test_securesphere_normalization():
+    from minisoar.ml.export import (
+        estimate_securesphere_reputation,
+        normalize_securesphere_detector,
+        normalize_securesphere_severity,
+    )
+
+    # Test detector normalizations
+    assert normalize_securesphere_detector("SQL injection on parameter id", "Web Policy") == "alert_sqli"
+    assert normalize_securesphere_detector("Cross-site scripting", "Web Policy") == "alert_xss"
+    assert normalize_securesphere_detector("WebShell execution detected", "Web Policy") == "alert_webshell"
+    assert normalize_securesphere_detector("Directory traversal attempt", "Web Policy") == "alert_dir_traversal"
+    assert normalize_securesphere_detector("Unauthorized Method POST", "Web Profile Policy") == "alert_web_profile"
+    assert normalize_securesphere_detector("Generic threat", "Web Correlation Policy") == "alert_web_correlation"
+    assert normalize_securesphere_detector("Scanner detected", "Rule") == "alert_url_probe"
+    assert normalize_securesphere_detector("Unknown rule", "Custom") == "alert_securesphere_waf"
+
+    # Test severity normalizations
+    assert normalize_securesphere_severity("High") == "high"
+    assert normalize_securesphere_severity("Critical") == "high"
+    assert normalize_securesphere_severity("7") == "high"
+    assert normalize_securesphere_severity("Low") == "low"
+    assert normalize_securesphere_severity("Medium") == "medium"
+
+    # Test reputation estimation
+    assert estimate_securesphere_reputation("high", "Block") >= 80
+    assert estimate_securesphere_reputation("low", "None") <= 20
+
+
+def test_train_baseline_7_steps_workflow():
+    import tempfile
+    from pathlib import Path
+    import pandas as pd
+    from minisoar.ml.train import train_baseline
+
+    with tempfile.TemporaryDirectory() as tmp_dir:
+        tmp_path = Path(tmp_dir)
+        csv_file = tmp_path / "test_dataset_7step.csv"
+        art_file = tmp_path / "test_baseline_model.joblib"
+
+        # Create balanced dataset mimicking MiniSOAR + SecureSphere data
+        rows = []
+        for i in range(100):
+            # Class 1 (Block)
+            rows.append({
+                "event_id": f"sec_blk_{i}",
+                "detector_type": "alert_sqli" if i % 2 == 0 else "alert_webshell",
+                "severity": "high",
+                "reputation_score": 90,
+                "hit_count": 10,
+                "perimeter_vendor": "imperva",
+                "is_whitelisted": 0,
+                "source_ip": f"1.1.1.{i}",
+                "destination_ip": "10.0.0.1",
+                "domain": "target.internal",
+                "url_path": "/api",
+                "source_port": 1234,
+                "target_port": 80,
+                "label": 1,
+            })
+            # Class 0 (Allow/None)
+            rows.append({
+                "event_id": f"sec_alw_{i}",
+                "detector_type": "alert_url_probe" if i % 2 == 0 else "alert_web_profile",
+                "severity": "low",
+                "reputation_score": 10,
+                "hit_count": 1,
+                "perimeter_vendor": "imperva",
+                "is_whitelisted": 0,
+                "source_ip": f"2.2.2.{i}",
+                "destination_ip": "10.0.0.1",
+                "domain": "target.internal",
+                "url_path": "/index",
+                "source_port": 5678,
+                "target_port": 80,
+                "label": 0,
+            })
+        df = pd.DataFrame(rows)
+        df.to_csv(csv_file, index=False)
+
+        artifact = train_baseline(csv_path=csv_file, artifact_path=art_file, auto_export_if_missing=False)
+
+        assert artifact is not None
+        assert art_file.exists()
+        assert "model" in artifact
+        assert "decision_threshold" in artifact
+        assert "cv_scores" in artifact
+        assert artifact["metrics"]["roc_auc"] >= 0.85
+        assert artifact["metrics"]["f1_score"] >= 0.85
+
+        # Test inference with the newly trained artifact and decision threshold
+        pred_blk, prob_blk = predict_block(
+            event={"alert": {"type": "alert_sqli", "count": 10, "severity": "high"}},
+            ip="1.1.1.5",
+            provider="imperva",
+            whitelisted=False,
+            rep_str="🛑 Malicious (90/100, 10 rep)",
+            model_artifact=artifact,
+        )
+        assert pred_blk == 1
+        assert prob_blk >= artifact["decision_threshold"]
+
+        pred_alw, prob_alw = predict_block(
+            event={"alert": {"type": "alert_url_probe", "count": 1, "severity": "low"}},
+            ip="2.2.2.5",
+            provider="imperva",
+            whitelisted=False,
+            rep_str="✅ Clean (10/100, 0 rep)",
+            model_artifact=artifact,
+        )
+        assert pred_alw == 0
+
+
+def test_securesphere_attack_replay_validation():
+    from minisoar.ml.replay import (
+        build_mimicked_soar_event,
+        categorize_attack,
+        validate_model_against_attacks,
+    )
+
+    # 1. Test Attack Categorization
+    assert categorize_attack("SQL injection", "Web Policy", "param id") == "SQL Injection (SQLi)"
+    assert categorize_attack("Cross-site scripting", "Web Policy", "<script>") == "Cross-Site Scripting (XSS)"
+    assert categorize_attack("HTTP Signature Violation", "Policy", "Distributed Generic protection for php code injection") == "Remote Code Execution / WebShell"
+    assert categorize_attack("Directory Traversal", "Policy", "../../../etc/passwd") == "Directory / Path Traversal"
+    assert categorize_attack("Unauthorized Method", "Web Profile Policy", "POST") == "Web Profile / Policy Violation"
+    assert categorize_attack("Web Leech", "Policy", "Crawler") == "Reconnaissance / Web Leech"
+    assert categorize_attack("Illegal Content Length", "Policy", "0") == "HTTP Protocol / Header Violation"
+
+    # 2. Test Mimicked Event Construction
+    sample_log = {
+        "@timestamp": "2026-09-03T10:00:00.000Z",
+        "source": {"ip": "198.51.100.77", "port": 45678},
+        "destination": {"ip": "172.30.103.45", "port": 443},
+        "message": "SQL injection",
+        "rule": {"name": "Web Correlation Policy"},
+        "event": {"id": "999888777", "action": "Block", "severity": 7},
+        "imperva": {
+            "securesphere": {
+                "application": {"name": "portal.komdigi.go.id"},
+                "violation": {"description": "SQL injection on parameter user in /login"},
+                "severity": "High",
+            }
+        },
+    }
+
+    event = build_mimicked_soar_event(sample_log)
+    assert event["detector_type"] == "alert_sqli"
+    assert event["attack_category"] == "SQL Injection (SQLi)"
+    assert event["alert"]["src_ip"] == "198.51.100.77"
+    assert event["alert"]["server_name"] == "portal.komdigi.go.id"
+    assert event["alert"]["reputation_score"] >= 80
+
+    # 3. Test Attack Validation Runner against Model Artifact
+    mock_attacks = [
+        sample_log,
+        {
+            "@timestamp": "2026-09-03T10:01:00.000Z",
+            "source": {"ip": "198.51.100.88", "port": 51234},
+            "destination": {"ip": "172.30.103.45", "port": 443},
+            "message": "Cross-site scripting",
+            "rule": {"name": "Web Correlation Policy"},
+            "event": {"id": "999888778", "action": "Block", "severity": 7},
+            "imperva": {
+                "securesphere": {
+                    "application": {"name": "data.komdigi.go.id"},
+                    "violation": {"description": "Cross-site scripting in /search?q=<script>"},
+                    "severity": "High",
+                }
+            },
+        },
+    ]
+
+    report = validate_model_against_attacks(mock_attacks, model_artifact=None)
+    assert report["total_attacks_tested"] == 2
+    assert report["total_detected_blocks"] == 2
+    assert report["overall_detection_rate_pct"] == 100.0
+    assert "SQL Injection (SQLi)" in report["category_summary"]
+    assert "Cross-Site Scripting (XSS)" in report["category_summary"]
+
+
+
+
 # ---------------------------------------------
 # Tier 3: Case Management & Ticketing Tests
 # ---------------------------------------------

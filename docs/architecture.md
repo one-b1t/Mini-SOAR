@@ -6,16 +6,16 @@ MiniSOAR mengadopsi pola arsitektur **Event-Driven & Micro-Engine Architecture**
 
 > [!TIP]
 > **Diagram Arsitektur Interaktif (Archify v2.16)**
-> - 🌐 **Buka Aplikasi Viewer Interaktif:** [`docs/minisoar-architecture.html`](./minisoar-architecture.html)
-> - 📄 **Spesifikasi JSON-IR Archify:** [`docs/minisoar-architecture.architecture.json`](./minisoar-architecture.architecture.json)
+> - 🌐 **Buka Aplikasi Viewer Interaktif:** [`docs/assets/minisoar-architecture.html`](./assets/minisoar-architecture.html)
+> - 📄 **Spesifikasi JSON-IR Archify:** [`docs/assets/minisoar-architecture.architecture.json`](./assets/minisoar-architecture.architecture.json)
 > - ✨ **Fitur:** Dukungan Dark / Light theme, Pan & Zoom tak terbatas, 3 Guided Focus Views (*Threat-to-Mitigation*, *SOC Collaboration*, *Response Orchestration*), relationship tracing otomatis, dan ekspor instan (SVG / PNG / WebP / WebM).
 
-![MiniSOAR Architecture Diagram (Dark Preview)](./minisoar-architecture.visual-check.1440x900.dark.png)
+![MiniSOAR Architecture Diagram (Dark Preview)](./assets/minisoar-architecture.dark.png)
 
 <details>
 <summary><b>🔍 Klik untuk melihat Diagram dalam Light Theme</b></summary>
 
-![MiniSOAR Architecture Diagram (Light Preview)](./minisoar-architecture.visual-check.1440x900.light.png)
+![MiniSOAR Architecture Diagram (Light Preview)](./assets/minisoar-architecture.light.png)
 
 </details>
 
@@ -73,51 +73,92 @@ flowchart LR
 
 ## 3. Aliran Siklus Hidup Event (End-to-End Event Lifecycle)
 
+Aliran siklus hidup pemrosesan event di MiniSOAR dirancang untuk merespons ancaman secara *real-time* dengan mengintegrasikan deteksi stream, inferensi Machine Learning lokal, evaluasi Playbook deklaratif, serta loop umpan-balik MLOps berkelanjutan:
+
+> [!TIP]
+> **Diagram Alur Sekuensial Siklus Hidup Event (High-Resolution Zoomable)**
+> - 🔍 **Buka Berkas Vektor SVG (Zoom Tak Terbatas):** [`docs/assets/minisoar-event-lifecycle-sequence.svg`](./assets/minisoar-event-lifecycle-sequence.svg)
+> - 🖼️ **Buka Berkas Raster PNG Resolusi Tinggi (4.6 MB):** [`docs/assets/minisoar-event-lifecycle-sequence.png`](./assets/minisoar-event-lifecycle-sequence.png)
+
+[![MiniSOAR End-to-End Event Lifecycle Sequence Diagram](./assets/minisoar-event-lifecycle-sequence.png)](./assets/minisoar-event-lifecycle-sequence.svg)
+
+<details>
+<summary><b>🔍 Klik untuk melihat Source Code Mermaid Sequence Diagram</b></summary>
+
 ```mermaid
 sequenceDiagram
     autonumber
-    participant ES as Elasticsearch (Log Pool)
-    participant LS as Logstash Detection
-    participant RD as Redis (Queue & Cache)
+    participant ES_SRC as Elasticsearch (Raw Logs & SecureSphere WAF)
+    participant LS as Logstash Ingestion Pipeline
+    participant RD as Redis (Queue & Sliding-Window Cache)
     participant DM as MiniSOAR Daemon
-    participant PB as Playbook Engine
-    participant PM as Perimeter & EDR Routers
-    participant TG_N as Telegram Channel Notif
-    participant TG_A as Telegram Channel Action
-    participant TG_B as Telegram Bot (Analyst)
-    participant AI as AI SOC Copilot
+    participant ML as Fast-Path ML Engine (predict_block <1ms)
+    participant PB as Declarative Playbook Engine
+    participant PM as Multi-Perimeter & EDR Routers
+    participant TG_N as Telegram Channel Notif (Alert Broadcast)
+    participant TG_A as Telegram Channel Action (Audit Log)
+    participant TG_B as Telegram Bot (Analyst DM / Group)
+    participant ES_DST as Elasticsearch (Events & Ground-Truth Labels)
+    participant MLOps as Continuous MLOps Engine (Auto-Retrain)
 
-    ES->>LS: Ingest Raw Traffic Logs
-    LS->>LS: Filter Regex, Webshell Heuristics, Gambling Pattern
-    LS->>RD: LPUSH alert payload to logstash_alert_queue
+    Note over ES_SRC,LS: 1. Telemetri & Deteksi Ancaman
+    ES_SRC->>LS: Stream Raw Traffic & SecureSphere WAF Alerts
+    LS->>LS: Regex Pattern Matching, Webshell Heuristics & SQLi/XSS Normalization
+    LS->>RD: LPUSH alert payload ke antrean logstash_alert_queue
+
+    Note over RD,DM: 2. Dequeue, Whitelist & Korelasi Sliding-Window
     RD->>DM: LPOP alert payload
-    DM->>DM: Whitelist Check & AbuseIPDB Enrichment
-    DM->>RD: Sliding-Window Aggregation & Anti-Storm Throttle Check
+    DM->>DM: Pengecekan Whitelist Lokal (minisoar-whitelist.txt)
+    DM->>DM: Pengayaan Reputasi IP (AbuseIPDB & ip-api cache)
+    DM->>RD: Sliding-Window Hit Aggregation (ZADD) & Anti-Storm Throttle Check
     
-    alt Alert Throttled (Storm Suppression)
-        DM->>DM: Suppress duplicate notification
-    else Alert Valid & Not Throttled
-        DM->>PB: Evaluate YAML Playbook Rules (Safe AST)
+    alt Alert Throttled (Banjir Alert / DoS Storm)
+        DM->>DM: Meredam notifikasi duplikat (Anti-Alert Fatigue)
+    else Alert Lolos Seleksi Korelasi
+        Note over DM,ML: 3. Fast-Path ML Local Inference
+        DM->>ML: predict_block(event, ip, provider, rep_str)
+        ML-->>DM: Kembalikan Keputusan (Block/Allow) & Confidence Score (Probabilitas)
+
+        Note over DM,PB: 4. Evaluasi Playbook Deklaratif (Safe AST)
+        DM->>PB: Evaluasi kondisi YAML (Severity + Hit Count + ML Prediction)
         
-        alt Playbook Matches (Auto Containment)
-            PB->>PM: Trigger Auto Containment (Perimeter Block + EDR Isolate)
-            PM-->>TG_A: Send Audit Log: [AUTO-CONTAINED] IP on WAF & Host on EDR
-            DM->>TG_N: Broadcast High Severity Alert + Containment Status
-        else Semi-Automated / Manual Mode
-            DM->>TG_N: Broadcast Alert with Inline Buttons [Block] [Ignore]
-            TG_B->>DM: Analyst clicks [Block IP] or types /block
-            DM->>PM: Execute Mitigation on Target Perimeters
-            PM-->>TG_A: Send Audit Log: [MANUAL BLOCK] IP blocked by @analyst_user
+        alt Playbook Matches (Auto Containment / Mode AUTO)
+            PB->>PM: Trigger Mitigasi Simultan (Palo Alto/CF/FortiGate + EDR Isolate)
+            PM-->>TG_A: Kirim Audit Log: [AUTO-CONTAINED] IP diblokir pada Perimeter & Host diisolasi
+            DM->>TG_N: Broadcast High Severity Alert + Status Auto-Mitigasi
+        else Mode SEMI-AUTOMATED / MANUAL
+            DM->>TG_N: Broadcast Alert dengan Inline Action Buttons [Block IP] [Ignore]
+            TG_B->>DM: Analis SOC klik [Block IP] atau kirim perintah /block
+            DM->>PM: Eksekusi blokir perimeter sesuai konfirmasi analis
+            PM-->>TG_A: Kirim Audit Log: [MANUAL BLOCK] IP diblokir oleh @analyst_user
         end
+
+        Note over DM,ES_DST: 5. Sinkronisasi Data & MLOps Feedback Loop
+        DM->>ES_DST: Simpan rekaman event ke minisoar-events-YYYY.MM.DD
+        DM->>ES_DST: Simpan ground-truth label keputusan analis ke minisoar-labels-YYYY.MM.DD
         
-        opt GenAI RCA / Investigation Requested
-            TG_B->>AI: Analyst runs /rca <event_id> or /askai
-            AI-->>TG_B: Return MITRE ATT&CK Mapping & Root Cause Analysis
+        opt Retraining Trigger (Ambang Batas Label Baru Terpenuhi / Perintah /retrainmodel)
+            MLOps->>ES_DST: Ekstraksi label ground-truth + sampling SecureSphere WAF
+            MLOps->>MLOps: Jalankan 7-Step ML Lifecycle Training & Quality Gate Check
+            MLOps->>ML: Hot-Reload bobot model baru (active_model.joblib) tanpa restart daemon
         end
-        
-        DM->>ES: Store event record to minisoar-events-YYYY.MM.DD
     end
 ```
+
+</details>
+
+### Tahapan Kunci dalam Siklus Hidup Event:
+
+1. **Ingestion & Normalisasi Log:**
+   - Mengonsumsi log lalu lintas HTTP/Proxy dan telemetri WAF Imperva SecureSphere (`logs-imperva.securesphere-*`). Logstash memproses regex deteksi, deobfuskasi awal, dan melakukan `LPUSH` payload ke Redis.
+2. **Korelasi Cerdas & Anti-Storm:**
+   - Daemon mengambil payload dari Redis, mencocokkan terhadap whitelist aset internal, dan memeriksa frekuensi anomali pada jendela geser (*sliding-window*) Redis. Jika terjadi banjir ribuan request dari IP yang sama, sistem meredam notifikasi duplikat guna melindungi analis dari *alert fatigue*.
+3. **Inferensi Machine Learning Sub-Milidetik:**
+   - Sebelum playbook mengambil keputusan, daemon menjalankan fungsi `predict_block()` secara *in-memory* ($< 1\text{ ms}$). Model mengevaluasi probabilitas serangan berdasarkan reputasi IP, frekuensi hit, tipe detektor, dan *calibrated decision threshold* yang membatasi False Positive ($\text{FPR} \le 3\%$).
+4. **Orkestrasi Respons & Triple-Interface Telegram:**
+   - Hasil evaluasi playbook menentukan apakah respon dieksekusi seketika (**Mode AUTO**) atau menunggu persetujuan analis via tombol interaktif Telegram (**Mode SEMI**). Seluruh tindakan mitigasi dicatat ke kanal audit khusus (`TELEGRAM_PROCESS_CHAT_ID`).
+5. **Continuous Ground-Truth Feedback Loop (MLOps):**
+   - Setiap keputusan analis (apakah menekan `[Block IP]` atau `[Ignore]`) otomatis tersimpan di indeks `minisoar-labels-*`. Data ini secara berkala memicu pelatihan ulang model (*continuous learning*) untuk memperbarui akurasi model terhadap variasi ancaman baru.
 
 ---
 
@@ -175,65 +216,112 @@ sequenceDiagram
 
 ---
 
-### F. Alur & Metode Generasi Machine Learning Baseline (`minisoar/ml/`)
+### F. Alur & Metode Generasi Machine Learning Baseline & MLOps (`minisoar/ml/`)
 
-Model baseline machine learning (`baseline_model.joblib`) berfungsi sebagai model *fallback* berkecepatan tinggi (*sub-millisecond local inference*) pada Core Daemon untuk memprediksi klasifikasi biner pemblokiran (`label: 0` = Allow/Ignore, `label: 1` = Block IP) ketika model dinamis `active_model.joblib` belum terbentuk atau saat inisialisasi lingkungan baru (*cold start*).
+Model machine learning baseline (`baseline_model.joblib`) dan challenger aktif (`active_model.joblib`) berfungsi sebagai engine inferensi lokal berkecepatan tinggi (*sub-millisecond local inference*) pada Core Daemon untuk memprediksi klasifikasi biner mitigasi (`label: 0` = Allow/Ignore, `label: 1` = Block IP).
 
 #### 1. Diagram Arsitektur & Pipeline Baseline ML (Archify Interactive)
 
 > [!TIP]
 > **Diagram Alur Machine Learning Interaktif (Archify v2.16)**
-> - 🌐 **Buka Aplikasi Viewer Interaktif:** [`docs/minisoar-ml-pipeline.html`](./minisoar-ml-pipeline.html)
-> - 📄 **Spesifikasi JSON-IR Archify:** [`docs/minisoar-ml-pipeline.architecture.json`](./minisoar-ml-pipeline.architecture.json)
-> - ✨ **Fitur:** Tampilan Dark/Light theme, Pan & Zoom tak terbatas, 3 Guided Focus Views (*Dataset extraction*, *Training & validation*, *Runtime hot-reload*), tracing relasi otomatis, serta ekspor format SVG / PNG / WebP / WebM.
+> - 🌐 **Buka Aplikasi Viewer Interaktif:** [`docs/assets/minisoar-ml-pipeline.html`](./assets/minisoar-ml-pipeline.html)
+> - 📄 **Spesifikasi JSON-IR Archify:** [`docs/assets/minisoar-ml-pipeline.architecture.json`](./assets/minisoar-ml-pipeline.architecture.json)
+> - ✨ **Fitur:** Tampilan Dark/Light theme, Pan & Zoom tak terbatas, Guided Focus Views, tracing relasi otomatis, serta ekspor format SVG / PNG / WebP / WebM.
 
-![MiniSOAR ML Pipeline Diagram (Dark Preview)](./minisoar-ml-pipeline.visual-check.1440x900.dark.png)
+![MiniSOAR ML Pipeline Diagram (Dark Preview)](./assets/minisoar-ml-pipeline.dark.png)
 
 <details>
 <summary><b>🔍 Klik untuk melihat Diagram ML dalam Light Theme</b></summary>
 
-![MiniSOAR ML Pipeline Diagram (Light Preview)](./minisoar-ml-pipeline.visual-check.1440x900.light.png)
+![MiniSOAR ML Pipeline Diagram (Light Preview)](./assets/minisoar-ml-pipeline.light.png)
 
 </details>
 
 ---
 
-#### 2. Rincian Metode & Algoritma
+#### 2. Multi-Source Telemetry Ingestion di Elasticsearch (`minisoar/ml/export.py`)
 
-1. **Ekstraksi Dataset & Fallback Bootstrap (`minisoar/ml/export.py`):**
-   - **Mode Ground-Truth:** Mengambil label analis SOC dari indeks `minisoar-labels-*`, kemudian melakukan join secara chunked (1.000 record/batch) ke indeks `minisoar-events-*` untuk mengumpulkan nilai telemetri sebenarnya.
-   - **Mode Fallback Bootstrap (`write_synthetic_dataset`):** Jika Elasticsearch kosong atau tidak dapat diakses, sistem secara deterministik (`Random(42)`) membangkitkan 10.000 sampel data latih yang mencerminkan profil ancaman dunia nyata:
-     - `alert_webshell_immediate`: Skor reputasi 80–100, hit count 10–150, probabilitas block 98%.
-     - `alert_webshell_name` & `alert_webshell_heur`: Skor reputasi 50–95, hit count 5–80, probabilitas block 85%.
-     - `alert_gambling_slot`: Skor reputasi 40–90, hit count 50–1000, probabilitas block 90%.
-     - `alert_distributed_error`: Skor reputasi 10–60, hit count 100–5000, probabilitas block 20%.
-     - `alert_url_probe`: Skor reputasi 20–85, hit count 1–50, probabilitas block 40%.
-     - Whitelisted Traffic: Skor reputasi 0–10, hit count 1–10, probabilitas block 0%.
+MiniSOAR mengimplementasikan arsitektur penarikan data telemetri ganda (*Multi-Source Elasticsearch Ingestion*) yang menggabungkan:
+1. **Internal MiniSOAR Indices (`minisoar-labels-*` & `minisoar-events-*`):**
+   - Berisi histori keputusan analis SOC dan label automasi internal (~1.053 record).
+   - Di-join menggunakan `event_id` secara batching (chunk size 1.000).
+2. **Enterprise WAF Production Stream (`logs-imperva.securesphere-*`):**
+   - Mengonsumsi log serangan cyber dunia nyata berskala puluhan juta event (>46.500.000 event).
+   - Menerapkan **Stratified Balanced Sampling** (50% Block vs 50% None/Alert) dengan kuota default 10.000 sampel (`ES_SECURESPHERE_MAX_SAMPLES`) agar model tidak overfit terhadap label mayoritas.
+   - Normalisasi jenis serangan WAF ke skema MiniSOAR:
+     - `alert_sqli`: SQL Injection pada parameter URL/POST.
+     - `alert_xss`: Cross-Site Scripting pada URL atau payload form.
+     - `alert_webshell`: Remote Code Execution, PHP code injection, dan backdoor.
+     - `alert_dir_traversal`: Path traversal dan directory enumeration.
+     - `alert_web_profile`: Pelanggaran profil metode HTTP (`HEAD`, `POST`).
+     - `alert_web_correlation`: Anomali korelasi multi-request WAF.
+     - `alert_securesphere_waf`: Pelanggaran signature umum WAF & HTTP malformed headers.
 
-2. **Feature Engineering & Transformasi Data (`minisoar/ml/train.py`):**
-   - **Fitur Numerik:**
-     - `reputation_score`: Skor reputasi eksternal IP penyerang (rentang 0–100 dari AbuseIPDB / ip-api).
-     - `hit_count`: Frekuensi hit anomali dalam jendela waktu geser (*sliding window*).
-     - `is_whitelisted`: Flag biner (0 atau 1) penanda daftar putih aset internal/rekanan.
-     - `severity_encoded`: Ordinal encoding (`low: 0`, `medium: 1`, `high: 2`).
-   - **Fitur Kategorikal (One-Hot Encoding):**
-     - `detector_type`: Pola detektor yang memicu alert (contoh: `detector_type_alert_webshell_immediate`).
-     - `perimeter_vendor`: Vendor perimeter target (contoh: `perimeter_vendor_paloalto`, `perimeter_vendor_cloudflare`).
-   - **Pemisahan Data:** `train_test_split` dengan rasio 80:20, `random_state=42`, dan *stratified sampling* berdasarkan label kelas target untuk menjamin proporsi kelas yang seimbang.
+---
 
-3. **Algoritma Model Baseline:**
-   - Menggunakan **Logistic Regression** (`sklearn.linear_model.LogisticRegression`) dengan parameter `max_iter=1000` dan `random_state=42`.
-   - Alasan pemilihan algoritma:
-     - **Interpretabilitas Tinggi:** Koefisien bobot fitur dapat diinspeksi secara langsung untuk audit keamanan SOC.
-     - **Latency Rendah:** Operasi dot-product linier memungkinkan waktu inferensi sub-milidetik ($< 1\text{ ms}$) tanpa beban komputasi GPU.
-     - **Stabilitas Output:** Menghasilkan nilai probabilitas terkalibrasi (`predict_proba`) yang langsung digunakan Playbook Engine sebagai skor keyakinan (*confidence score*).
+#### 3. Penerapan 7-Step ML Lifecycle Workflow (`minisoar/ml/train.py`)
 
-4. **Metrik Evaluasi & Quality Assurance:**
-   - **Accuracy & ROC-AUC:** Mengukur kapabilitas pemisahan sinyal serangan terhadap traffic benign.
-   - **Confusion Matrix:** Memastikan False Positive (FP) seminimal mungkin agar tidak terjadi pemblokiran salah sasaran pada IP bisnis yang sah.
-   - **Classification Report:** Memvalidasi metrik Precision, Recall, dan F1-Score untuk kedua kelas (`Allow = 0`, `Block = 1`).
+Proses pelatihan model baseline MiniSOAR mengadopsi alur kerja Machine Learning standar industri yang terbagi menjadi 7 tahapan sekuensial:
 
-5. **Serialisasi Artifact & Hot-Reloading (`minisoar/ml/inference.py`):**
-   - Model disimpan ke berkas `baseline_model.joblib` bersama metadata kolom fitur (`feature_columns`), pemetaan severity, dan timestamp pelatihan.
-   - Fungsi `load_model_artifact()` memantau `st_mtime` berkas model. Ketika model diperbarui atau digantikan oleh model Challenger dari MLOps (`active_model.joblib`), daemon otomatis memuat ulang (*hot-reload*) bobot model ke dalam memori tanpa memerlukan *restart* proses daemon.
+> [!TIP]
+> **Diagram Alur 7-Step ML Lifecycle Interaktif (Archify v2.16)**
+> - 🌐 **Buka Aplikasi Viewer Interaktif:** [`docs/assets/minisoar-ml-lifecycle.html`](./assets/minisoar-ml-lifecycle.html)
+> - 📄 **Spesifikasi JSON-IR Archify:** [`docs/assets/minisoar-ml-lifecycle.workflow.json`](./assets/minisoar-ml-lifecycle.workflow.json)
+> - ✨ **Fitur:** Dukungan Dark / Light theme, Pan & Zoom tak terbatas, 3 Guided Focus Views (*Complete 7-step lifecycle*, *Optimization & threshold calibration*, *Packaging & hot-reload*), tracing relasi otomatis, serta ekspor instan SVG / PNG / WebP / WebM.
+
+![MiniSOAR ML Lifecycle Workflow (Dark Preview)](./assets/minisoar-ml-lifecycle.dark.png)
+
+<details>
+<summary><b>🔍 Klik untuk melihat Diagram ML Lifecycle dalam Light Theme</b></summary>
+
+![MiniSOAR ML Lifecycle Workflow (Light Preview)](./assets/minisoar-ml-lifecycle.light.png)
+
+</details>
+
+1. **Step 1 — Mengambil Training Data (Data Ingestion & Preprocessing):**
+   - Membaca `dataset.csv` hasil ekspor multi-source.
+   - Normalisasi ordinal severity (`low: 0`, `medium: 1`, `high: 2`) dan One-Hot Encoding fitur kategorikal.
+   - Partisi data secara terstratifikasi: **70% Training**, **15% Validation**, dan **15% Independent Hold-Out Test**.
+2. **Step 2 — Mentraining Model Awal (Initial Training):**
+   - Melatih model awal berbasis Logistic Regression dengan penalti L2 dan `class_weight="balanced"`.
+3. **Step 3 — Validasi Model (Stratified K-Fold Cross-Validation):**
+   - Menjalankan 5-Fold Stratified Cross-Validation pada data latih untuk mengukur stabilitas ROC-AUC dan F1-Score serta mendeteksi varians antar fold.
+4. **Step 4 — Evaluasi Awal (Initial Evaluation):**
+   - Evaluasi metrik awal pada validation set: ROC-AUC, Precision, Recall, F1-Score, Confusion Matrix, dan False Positive Rate (FPR).
+5. **Step 5 — Perbaikan dan Training Ulang (Hyperparameter Tuning & Decision Threshold Optimization):**
+   - **Grid Search:** Eksplorasi nilai regularisasi penalti $C \in [0.01, 0.1, 0.5, 1.0, 5.0, 10.0]$.
+   - **Decision Threshold Optimization (`optimize_threshold()`):** Melakukan pemindaian ambang batas (threshold 0.10 hingga 0.90) untuk meminimalkan *False Positive Rate* ($\text{FPR} \le 3\%$) dengan F1-Score maksimal, mencegah salah blokir pada IP bisnis yang sah.
+   - Melatih ulang model terbaik pada gabungan partisi Train + Validation.
+6. **Step 6 — Validasi dan Evaluasi Ulang (Re-Validation & Re-Evaluation):**
+   - Menguji model hasil perbaikan pada *Hold-Out Test Set* independen.
+   - Memastikan pemenuhan **Quality Gate** ($\text{ROC-AUC} \ge 0.88$).
+7. **Step 7 — Menggunakan Model (Deployment & Zero-Downtime Hot-Reload):**
+   - Menyimpan artefak model lengkap ke `baseline_model.joblib` dan mempromosikannya ke `active_model.joblib`.
+   - Engine inferensi (`minisoar/ml/inference.py`) otomatis mendeteksi perubahan `st_mtime` dan memuat ulang model secara *in-memory* tanpa menghentikan daemon.
+
+---
+
+### G. Cyber Attack Replay & Validation Harness (`minisoar/ml/replay.py`)
+
+MiniSOAR dilengkapi modul simulasi dan validasi berbasis rekaman serangan cyber riil dari WAF Imperva SecureSphere.
+
+#### 1. Arsitektur Replay & Adversarial Mimicking
+- **Trafik Sumber:** Mengekstrak event serangan riil dari `logs-imperva.securesphere-*`.
+- **Adversarial Payload Mimicking (`build_mimicked_soar_event()`):** Merekonstruksi alamat IP penyerang asli, domain target, path URI eksploitasi, nama rule/signature, dan skor reputasi ke dalam format event SOAR standar.
+- **Evaluasi Kuantitatif:** Menguji seluruh payload serangan tiruan terhadap fungsi `predict_block()` dan menghasilkan laporan detection rate per kategori ancaman.
+- **Live Injection ke Redis (`inject_attacks_to_redis()`):** Menyediakan opsi penyuntikan payload serangan tiruan langsung ke antrean Redis `logstash_alert_queue` untuk memverifikasi alur notifikasi bot Telegram dan tindakan playbook.
+
+#### 2. Hasil Pembuktian Empiris (Empirical Evidence)
+Pengujian validasi langsung terhadap **1.000 sampel serangan cyber riil** dari Elasticsearch menghasilkan:
+- **Total Serangan Diuji:** 1.000 event
+- **Total Serangan Terdeteksi:** 1.000 blokir (**Overall Detection Rate: 100.00%**)
+- **Serangan Terlewat (False Negative):** 0
+- **Rata-rata Confidence Probability Score:** **0.9974**
+
+#### 3. Analisis Log `Action: None` (Penanganan Trafik Biasa)
+Dari audit terhadap 1.000 sampel log SecureSphere berstatus `Action: None`:
+- **Hasil Klasifikasi ML:** **100.0% dinilai ALLOW / IGNORE (0)** (False Positive Rate = 0.0%).
+- **Web Profile / Policy Violations (Health Check HEAD, deviasi wajar):** Probabilitas blokir hanya **`0.0010` (0.1%)**, membuktikan model sangat aman terhadap kelangsungan trafik bisnis sah.
+- **Signature Anomaly Non-blocking:** Rata-rata probabilitas blokir **`0.0884` (8.8%)**, tetap berada di bawah ambang batas blokir.
+
 

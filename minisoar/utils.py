@@ -92,6 +92,11 @@ def extract_reputation_score(rep_str: str) -> int:
     match = re.search(r"(\d+)/100", rep_str)
     if match:
         return int(match.group(1))
+    match_alt = re.search(r"(?:reputation|score)[\s:]*(\d+)", rep_str, re.IGNORECASE)
+    if match_alt:
+        return int(match_alt.group(1))
+    if str(rep_str).strip().isdigit():
+        return int(str(rep_str).strip())
     return 0
 
 

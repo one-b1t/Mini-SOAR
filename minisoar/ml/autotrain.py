@@ -102,6 +102,7 @@ def evaluate_and_promote_model(
         "model": challenger,
         "feature_columns": list(x.columns),
         "severity_map": severity_map,
+        "decision_threshold": 0.50,
         "metrics": metrics,
         "trained_date": metrics["trained_date"],
         "model_version": f"v_{datetime.now(timezone.utc).strftime('%Y%m%d_%H%M%S')}",

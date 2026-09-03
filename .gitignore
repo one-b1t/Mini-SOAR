@@ -108,5 +108,7 @@ dataset.csv
 minisoar-bypass.txt
 minisoar-whitelist.txt
 /Reports/
+docs/reports/
+reports/
 *.joblib
 

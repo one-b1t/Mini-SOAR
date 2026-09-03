@@ -88,12 +88,13 @@ MiniSOAR/
 ├── docs/                    # Dokumentasi Teknis Lengkap
 │   ├── overview.md          # Gambaran umum & peta kemampuan 5-Tier
 │   ├── architecture.md      # Arsitektur sistem, aliran data & diagram
+│   ├── mlops.md             # Panduan lengkap MLOps, 7-Step Workflow & Attack Replay
 │   ├── database.md          # Skema indeks Elasticsearch & namespace Redis
 │   ├── api.md               # Referensi command Telegram & CLI minisoar.sh
 │   ├── testing.md           # Strategi pengujian & panduan test suite
 │   ├── deployment.md        # Panduan deployment produksi & hardening
 │   └── troubleshooting.md   # Diagnostik masalah umum & solusinya
-├── tests/                   # Automated Pytest Suite (37 unit tests)
+├── tests/                   # Automated Pytest Suite (53 unit tests)
 ├── env.example              # Template variabel lingkungan
 └── requirements.txt         # Dependensi Python
 ```
@@ -102,7 +103,7 @@ MiniSOAR/
 
 ## Running Tests
 
-Jalankan seluruh 37 unit test suite yang mencakup seluruh layer arsitektur:
+Jalankan seluruh 53 unit test suite yang mencakup seluruh layer arsitektur:
 
 ```bash
 # Menggunakan script manajemen

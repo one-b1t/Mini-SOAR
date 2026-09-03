@@ -61,7 +61,10 @@ graph TD
 - **Security Reasoning Capabilities:** Deobfuskasi skrip/payload serangan, pemetaan taktik & teknik MITRE ATT&CK, Root Cause Analysis (RCA), dan rekomendasi aturan mitigasi.
 - **Flexible Auth File Resolution:** Mendukung API key langsung, Service Account JSON, OAuth token, atau berkas autentikasi pengguna (`chmod 600`).
 - **Dual-Engine Processing:** Inferensi ML lokal sub-milidetik (`active_model.joblib`) untuk lalu lintas data real-time + LLM Copilot untuk investigasi mendalam.
-- **Continuous Auto-Retraining (MLOps):** Pipeline otomatis yang melatih model Challenger dari label keputusan analis dengan Champion-Challenger Quality Gate (ROC-AUC $\ge 0.85$) dan zero-downtime hot-reloading.
+- **Multi-Source Telemetry Ingestion:** Menggabungkan label analis internal MiniSOAR dengan puluhan juta telemetri serangan riil dari WAF Imperva SecureSphere (`logs-imperva.securesphere-*`) di Elasticsearch.
+- **7-Step ML Lifecycle Workflow:** Pipeline pelatihan komprehensif (Data Ingestion, Initial Training, 5-Fold Stratified CV, Holistic Evaluation, Hyperparameter Tuning & Threshold Calibration, Re-Evaluation, dan Zero-Downtime Hot-Reload).
+- **Cyber Attack Replay & Validation Engine:** Mesin peniru serangan siber riil untuk memvalidasi akurasi deteksi model ML secara kuantitatif (Overall Detection Rate: 100%).
+- **Dokumentasi Lengkap MLOps:** Lihat panduan terdedikasi di [`docs/mlops.md`](./mlops.md) dan [`docs/architecture.md`](./architecture.md).
 
 ---
 

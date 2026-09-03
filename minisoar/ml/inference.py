@@ -98,8 +98,9 @@ def predict_block(event: dict, ip: str, provider: str, whitelisted: bool, rep_st
 
     try:
         df_input = pd.DataFrame([row], columns=feature_columns)
-        pred = int(model.predict(df_input)[0])
         prob = float(model.predict_proba(df_input)[0][1])
+        decision_th = float(model_artifact.get("decision_threshold", 0.50))
+        pred = 1 if prob >= decision_th else 0
         return pred, prob
     except Exception as e:
         logger.warning("Inference error, fallback heuristic used: %s", e)
