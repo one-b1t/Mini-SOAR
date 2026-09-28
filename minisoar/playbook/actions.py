@@ -6,7 +6,7 @@ import logging
 from collections.abc import Callable
 from typing import Any
 
-from ..config import norm_provider
+from ..config import is_perimeter_active, norm_provider, perimeter_disabled_message
 from ..database import store_label
 from ..mitigation.core import (
     extend_block_state,
@@ -359,6 +359,13 @@ def action_update_case(ctx: ExecutionContext, params: dict[str, Any]) -> tuple[b
 @register_action("mitigation.cloudflare_block")
 def action_cloudflare_block(ctx: ExecutionContext, params: dict[str, Any]) -> tuple[bool, Any]:
     """Action to block an attacker IP directly on Cloudflare WAF."""
+    # Cloudflare dimatikan total, jadi action ini harus menolak SEBELUM
+    # connector diimpor. Kalau connectortetap dipanggil, is_configured() di
+    # dalamnya masih bisa menembak API sungguhan begitu kredensial sisa
+    # ada di .env. Sumber kebenaran tetap PERIMETER_NONAKTIF di config.py.
+    if not is_perimeter_active("cloudflare"):
+        return False, perimeter_disabled_message("cloudflare")
+
     from ..mitigation.cloudflare import block_ip
 
     ip = params.get("ip") or ctx.ip
@@ -371,6 +378,11 @@ def action_cloudflare_block(ctx: ExecutionContext, params: dict[str, Any]) -> tu
 @register_action("mitigation.fortigate_block")
 def action_fortigate_block(ctx: ExecutionContext, params: dict[str, Any]) -> tuple[bool, Any]:
     """Action to block an attacker IP directly on Fortinet FortiGate."""
+    # Sama seperti Cloudflare: guard dulu, baru connector. is_configured()
+    # di dalam connector hanya mengecek env, bukan apakah perimeter-nya hidup.
+    if not is_perimeter_active("fortigate"):
+        return False, perimeter_disabled_message("fortigate")
+
     from ..mitigation.fortigate import block_ip
 
     ip = params.get("ip") or ctx.ip
