@@ -6,6 +6,7 @@ Reference: https://support.kaspersky.com/ksc/15.1/211453
 """
 
 import base64
+import ipaddress
 import logging
 import os
 from typing import Any
@@ -132,13 +133,62 @@ def check_connectivity() -> dict[str, Any]:
     }
 
 
+def _match_and_format_ip(
+    raw_ip_val: Any,
+    target_ip: ipaddress.IPv4Address | ipaddress.IPv6Address,
+) -> tuple[bool, str | None]:
+    """Checks if raw_ip_val matches target_ip (supporting int big/little-endian, signed int, or string).
+    Returns (is_match, formatted_ip_str).
+    """
+    if raw_ip_val is None:
+        return False, None
+
+    # Handle string representation (e.g. "10.0.0.50" or "167772210")
+    if isinstance(raw_ip_val, str):
+        cleaned = raw_ip_val.strip()
+        if not cleaned:
+            return False, None
+        if cleaned.isdigit() or (cleaned.startswith("-") and cleaned[1:].isdigit()):
+            raw_ip_val = int(cleaned)
+        else:
+            try:
+                parsed = ipaddress.ip_address(cleaned)
+                return (parsed == target_ip), str(parsed)
+            except ValueError:
+                return False, None
+
+    # Handle integer representation (typically IPv4 32-bit unsigned or signed)
+    if isinstance(raw_ip_val, (int, float)):
+        val_u32 = int(raw_ip_val) & 0xFFFFFFFF
+        if isinstance(target_ip, ipaddress.IPv4Address):
+            be = int.from_bytes(target_ip.packed, "big")
+            le = int.from_bytes(target_ip.packed, "little")
+            if val_u32 == be or val_u32 == le:
+                return True, str(target_ip)
+        try:
+            formatted = str(ipaddress.IPv4Address(val_u32))
+        except ValueError:
+            formatted = None
+        return False, formatted
+
+    return False, None
+
+
 def find_host_by_ip(ip: str) -> tuple[list[dict[str, Any]], str | None]:
     """Searches for managed hosts by IP address in Kaspersky Security Center 15.1."""
+    if not ip or not isinstance(ip, str) or not ip.strip():
+        return [], "Missing or invalid IP address"
+
+    try:
+        target_ip = ipaddress.ip_address(ip.strip())
+    except ValueError:
+        return [], f"Invalid IP address format: {ip}"
+
     if os.getenv("MINISOAR_MOCK", "").lower() in {"1", "true", "yes"}:
         mock_host = {
             "hostId": "ksc-host-10928",
-            "hostName": f"SRV-KL-{ip.replace('.', '-')}",
-            "ipAddress": ip,
+            "hostName": f"SRV-KL-{str(target_ip).replace('.', '-')}",
+            "ipAddress": str(target_ip),
             "osName": "Microsoft Windows Server 2019",
             "networkIsolated": False,
             "kesVersion": "12.2.0.452",
@@ -193,11 +243,17 @@ def find_host_by_ip(ip: str) -> tuple[list[dict[str, Any]], str | None]:
         normalized = []
         for it in raw_items:
             val = it.get("value", {}) if isinstance(it, dict) and "value" in it else it
+            raw_ip = val.get("KLHST_WKS_IP_LONG") or val.get("ipAddress") or val.get("ip") or val.get("KLHST_WKS_IP")
+            matched, formatted_ip = _match_and_format_ip(raw_ip, target_ip)
+            if not matched:
+                continue
+
             h_name = val.get("KLHST_WKS_HOSTNAME")
             h_id = val.get("KLHST_WKS_ID") or h_name
             normalized.append({
                 "hostId": h_id,
                 "hostName": h_name,
+                "ipAddress": formatted_ip or str(target_ip),
                 "osName": val.get("KLHST_WKS_OS_NAME", "Unknown OS"),
                 "networkIsolated": bool(val.get("KLHST_WKS_ISOLATED")),
             })
@@ -216,10 +272,11 @@ def isolate_host(
     target_id = host_id
     if not target_id and ip:
         hosts, err = find_host_by_ip(ip)
-        if hosts:
-            target_id = hosts[0].get("hostId") or hosts[0].get("hostName")
-        elif err:
+        if err:
             return False, f"Could not find host for IP {ip}: {err}", {}
+        if not hosts:
+            return False, f"No host found matching IP {ip}", {}
+        target_id = hosts[0].get("hostId") or hosts[0].get("hostName")
 
     if not target_id:
         return False, "Missing target host ID or IP", {}
@@ -261,10 +318,11 @@ def restore_host(
     target_id = host_id
     if not target_id and ip:
         hosts, err = find_host_by_ip(ip)
-        if hosts:
-            target_id = hosts[0].get("hostId") or hosts[0].get("hostName")
-        elif err:
+        if err:
             return False, f"Could not find host for IP {ip}: {err}", {}
+        if not hosts:
+            return False, f"No host found matching IP {ip}", {}
+        target_id = hosts[0].get("hostId") or hosts[0].get("hostName")
 
     if not target_id:
         return False, "Missing target host ID or IP", {}

@@ -455,3 +455,21 @@ MiniSOAR still works as an alert delivery and mitigation pipeline, but its imple
   3. **Regression Test Suite:**
      - Menulis [`tests/test_blocked_regression.py`](file:///F:/Kantor/Program/MiniSOAR/tests/test_blocked_regression.py) dengan 10 unit/regression test cases yang memverifikasi konfigurasi timeout Redis, deteksi error offline pada `get_active_blocklist`, proteksi cascading query, respons informatif pada `blocked_cmd`, ketahanan `_safe_reply_text`, serta kelanjutan mitigasi `blockonpalo` dan `restorehost` saat terjadi timeout pada pesan progres. Seluruh 10 test lulus 100%.
 - **Rationale:** Menghilangkan single point of failure (SPOF) pada koneksi socket Redis dan Telegram, mencegah silent failure serta misinformasi status blokir kepada analis SOC saat infrastruktur pendukung sedang mengalami degradasi.
+
+### 2026-09-28 21:10 WIB
+- **Problem (P0 Production Bug - EDR IP Filtering & Target Isolation):**
+  1. `minisoar/edr/kaspersky.py` `find_host_by_ip(ip)` mengabaikan parameter `ip`, mengirim `"wstrFilter": ""` ke KSC (`HostGroup.FindHosts`), tidak menyaring hasil di Python, dan mengabaikan atribut IP dari normalisasi. Akibatnya seluruh managed hosts dikembalikan tanpa filter.
+  2. Fungsi `isolate_host(ip=...)` dan `restore_host(ip=...)` mengambil `hosts[0]`. Karena `find_host_by_ip` mengembalikan seluruh host tanpa filter, perintah `/isolate_host <any_ip>` dan auto-containment playbook berpotensi mengisolasi host pertama dari klaster KSC secara acak (misalnya Domain Controller atau Database Server).
+  3. `minisoar/edr/trendmicro.py` memiliki fallback `legacy eiqs` (`v3.0/eiqs/endpoints`) yang mengembalikan item mentah tanpa normalisasi konsisten dan tanpa validasi IP di Python, serta `isolate_endpoint` / `restore_endpoint` tidak memberikan penanganan kegagalan yang aman jika host tidak ditemukan berdasarkan IP.
+- **Solution:**
+  1. **Strict IP Filtering & Byte-Order Support in Kaspersky EDR:**
+     - Menambahkan fungsi helper `_match_and_format_ip(raw_ip_val, target_ip)` yang memvalidasi target IP menggunakan `ipaddress.ip_address()`, serta mendukung konversi alamat IPv4 integer 32-bit big-endian (network byte order), little-endian (host byte order Windows/x86), signed integer 32-bit (representasi negatif pada MSB aktif), dan string dot-decimal.
+     - Menyimpan `"ipAddress"` pada dictionary host ternormalisasi dan menyaring daftar host secara presisi per-IP sebelum dikembalikan (`return normalized, None`). Jika tidak ada host yang cocok, mengembalikan list kosong `[]`.
+     - Memperbaiki `isolate_host` dan `restore_host` agar memvalidasi hasil pencarian IP: jika host tidak ditemukan (`not hosts`), fungsi segera mengembalikan `False, f"No host found matching IP {ip}", {}` dan sama sekali TIDAK mengeksekusi request isolasi/restorasi ke KSC.
+  2. **Trend Micro Legacy Eiqs Normalization & Safe Error Handling:**
+     - Memperbarui jalur fallback `legacy eiqs` pada `minisoar/edr/trendmicro.py` agar menyaring endpoint secara presisi berdasarkan IP dan menstandarkan struktur kamus endpoint (`endpointId`, `endpointName`, `hostName`, `osName`, `ip`, `agentVersion`, `isolationStatus`).
+     - Mengamankan `isolate_endpoint` dan `restore_endpoint` agar gagal secara aman (`False, f"No endpoint found matching IP {ip}", {}`) jika tidak ada endpoint yang cocok dengan IP target.
+  3. **TDD & Comprehensive Verification:**
+     - Membuat test suite [`tests/test_kaspersky_ip_filter.py`](file:///F:/Kantor/Program/MiniSOAR/tests/test_kaspersky_ip_filter.py) dengan 9 test cases komprehensif yang memverifikasi kegagalan awal pada kode lama, penanganan integer big/little-endian, signed int, string, deteksi host tidak ditemukan, pencegahan isolasi host pertama, serta isolasi host target yang tepat. Seluruh 9 test lulus 100%.
+     - Menjalankan seluruh test suite inti (350 test cases lulus, 6 deselected, 0 failure).
+- **Rationale:** Mencegah insiden *unintended network outage* / *containment failure* di lingkungan produksi SOC akibat isolasi salah sasaran pada host kritis saat proses investigasi atau respons insiden otomatis berjalan.

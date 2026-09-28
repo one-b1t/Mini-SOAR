@@ -180,7 +180,24 @@ def find_endpoint_by_ip(ip: str) -> tuple[list[dict[str, Any]], str | None]:
             if resp_legacy.status_code == 200:
                 data = resp_legacy.json()
                 items = data.get("items") or data.get("endpoints") or []
-                return items, None
+                matched_legacy = []
+                for it in items:
+                    ips = list(it.get("ipAddresses") or it.get("ip") or [])
+                    if isinstance(ips, str):
+                        ips = [ips]
+                    if it.get("lastUsedIp") and it.get("lastUsedIp") not in ips:
+                        ips.append(it.get("lastUsedIp"))
+                    if not ips or ip in ips:
+                        matched_legacy.append({
+                            "endpointId": it.get("agentGuid") or it.get("endpointId") or it.get("entityId") or it.get("id"),
+                            "endpointName": it.get("endpointName") or it.get("displayName") or it.get("hostName"),
+                            "hostName": it.get("hostName") or it.get("endpointName"),
+                            "osName": it.get("osName", "Unknown OS"),
+                            "ip": ips if ips else [ip],
+                            "agentVersion": it.get("eppAgent", {}).get("version") or it.get("edrSensor", {}).get("version") or it.get("agentVersion", ""),
+                            "isolationStatus": "isolated" if it.get("isolationStatus") in ("on", "isolated") else "normal",
+                        })
+                return matched_legacy, None
             return [], f"HTTP {resp.status_code}: {resp.text[:400]}"
     except Exception as e:
         return [], f"Query failed: {e}"
@@ -196,10 +213,11 @@ def isolate_endpoint(
     target_id = endpoint_id
     if not target_id and ip:
         endpoints, err = find_endpoint_by_ip(ip)
-        if endpoints:
-            target_id = endpoints[0].get("endpointId")
-        elif err:
+        if err:
             return False, f"Could not find endpoint for IP {ip}: {err}", {}
+        if not endpoints:
+            return False, f"No endpoint found matching IP {ip}", {}
+        target_id = endpoints[0].get("endpointId")
 
     if not target_id:
         return False, "Missing target endpoint ID or IP", {}
@@ -244,10 +262,11 @@ def restore_endpoint(
     target_id = endpoint_id
     if not target_id and ip:
         endpoints, err = find_endpoint_by_ip(ip)
-        if endpoints:
-            target_id = endpoints[0].get("endpointId")
-        elif err:
+        if err:
             return False, f"Could not find endpoint for IP {ip}: {err}", {}
+        if not endpoints:
+            return False, f"No endpoint found matching IP {ip}", {}
+        target_id = endpoints[0].get("endpointId")
 
     if not target_id:
         return False, "Missing target endpoint ID or IP", {}
