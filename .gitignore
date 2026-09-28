@@ -47,6 +47,9 @@ wheels/
 # --- Virtual Environments ---
 .venv/
 venv/
+# Dependency tool E2E (telethon). Dipasang via `pip install --target` karena
+# external drive tidak mendukung symlink sehingga venv biasa tidak bisa dibuat.
+.tools/
 ENV/
 env/
 ENV*/
