@@ -1,7 +1,7 @@
 # PANDUAN OPERASIONAL DEPLOYMENT (RUNBOOK)
 ## Prosedur & Mitigasi Risiko Rilis MiniSOAR Enterprise (Branch `dev` -> Produksi)
 
-Dokumen ini ditujukan bagi **Operator Sistem / Tim DevOps** yang mengeksekusi pembaruan sistem MiniSOAR di server produksi Linux. Dokumen ini merangkum seluruh potensi bahaya operasional, dependensi jalur berkas, dan perubahan perilaku runtime yang berasal dari 11 commit terakhir di branch `dev`.
+Dokumen ini ditujukan bagi **Operator Sistem / Tim DevOps** yang mengeksekusi pembaruan sistem MiniSOAR di server produksi Linux. Dokumen ini merangkum seluruh potensi bahaya operasional, dependensi jalur berkas, dan perubahan perilaku runtime yang berasal dari serangkaian commit terbaru di branch `dev`. Rincian commit ada di `git log`; dokumen ini sengaja **tidak** mengunci jumlah commit tertentu karena akan cepat basi.
 
 ---
 
@@ -49,7 +49,7 @@ Mulai commit `0771e41`, fungsi `resolve_whitelist_path()` menyatukan jalur baca 
 
 > [!CAUTION]
 > **BAHAYA FALSE POSITIVE / PEMUTUSAN AKSES INFRASTRUKTUR:**
-> Berkas `./minisoar-whitelist.txt` di server produksi saat ini memuat **20 entri IP/CIDR infrastruktur nyata** (termasuk segmen gateway `192.168.1.1`, jaringan internal `10.0.0.0/8`, `172.30.*`, dan subnet publik `103.8.76.0/24`). Jika operator melakukan deploy tanpa memindahkan entri ini, daemon akan membaca berkas `/etc/logstash/minisoar-whitelist.txt` yang kosong. Akibatnya, lalu lintas server internal dapat dianggap ancaman dan diblokir otomatis oleh WAF/Firewall!
+> Berkas `./minisoar-whitelist.txt` di server produksi saat ini memuat **19 entri IP/CIDR infrastruktur nyata** (termasuk segmen gateway `192.168.1.1`, jaringan internal `10.0.0.0/8`, `172.30.*`, dan subnet publik `103.8.76.0/24`). Angka ini hasil hitung pada 2026-09-28; **verifikasi ulang dengan perintah di bawah**, jangan memakai angka ini sebagai acuan tetap karena daftar bisa bertambah. Yang penting: berkas lokal **tidak boleh kosong**. Jika operator melakukan deploy tanpa memindahkan entri ini, daemon akan membaca berkas `/etc/logstash/minisoar-whitelist.txt` yang kosong. Akibatnya, lalu lintas server internal dapat dianggap ancaman dan diblokir otomatis oleh WAF/Firewall!
 
 #### Cara Memeriksa Sebelum Deploy
 Jalankan perintah berikut di server produksi:
@@ -59,7 +59,8 @@ Jalankan perintah berikut di server produksi:
 ls -la /etc/logstash/minisoar-whitelist.txt 2>/dev/null || echo "PERINGATAN: /etc/logstash/minisoar-whitelist.txt BELUM ADA!"
 ls -la ./minisoar-whitelist.txt 2>/dev/null || echo "INFO: ./minisoar-whitelist.txt lokal tidak ditemukan."
 
-# 2. Hitung jumlah entri aktif di berkas lokal (harus ada ~20 entri IP/CIDR produksi)
+# 2. Hitung jumlah entri aktif di berkas lokal (harus NON-ZEROL; 19 pada 2026-09-28)
+#    Yang wajib dicek adalah berkas ini tidak kosong. Jangan memakai angka tetap.
 if [ -f "./minisoar-whitelist.txt" ]; then
     echo -n "Jumlah entri IP aktif lokal: "
     grep -vE '^\s*(#|$)' ./minisoar-whitelist.txt | wc -l
@@ -125,7 +126,7 @@ awk -F'#' '!seen[$1]++' /etc/logstash/minisoar-whitelist.txt.bak_* > /etc/logsta
 ### Poin 3: Mekanisme Auto-Reload Whitelist pada Daemon
 
 #### Apa yang Terjadi (Informational)
-Mulai pembaruan sesi ini, worker `daemon.py` dilengkapi fungsi `reload_cidr_list_if_changed`. Worker memantau metadata berkas (`st_mtime_ns` dan `st_size`). Setiap kali analis menambahkan IP via Telegram (`/whitelist_add`), daemon langsung memuat entri baru tersebut pada event berikutnya tanpa perlu di-restart.
+Mulai pembaruan sesi ini, `minisoar/daemon.py` mengimpor dan memakai fungsi `reload_cidr_list_if_changed` yang defensive-IP-nya berada di `minisoar/utils.py` (baris ~864). Worker memantau metadata berkas (`st_mtime_ns` dan `st_size`). Setiap kali analis menambahkan IP via Telegram (`/whitelist_add`), daemon langsung memuat entri baru tersebut pada event berikutnya tanpa perlu di-restart.
 
 #### Tindakan Operator
 - **Operasional Harian:** Operator **TIDAK PERLU** me-restart service `minisoar-daemon` saat analis SOC menambah atau menghapus whitelist via bot Telegram.
@@ -142,8 +143,10 @@ Mulai pembaruan sesi ini, worker `daemon.py` dilengkapi fungsi `reload_cidr_list
 Pada commit `05ad34d`, penambahan parameter `socket_timeout=2.0s` pada `database.py:redis_client()` menimbulkan *regresi blocking* pada loop worker `daemon.py:318` (`item = r.blpop(redis_key, timeout=10)`). Karena batas timeout soket client (2 detik) lebih pendek dari timeout tunggu BLPOP (10 detik), daemon mengalami error timeout setiap 2 detik saat antrean sedang kosong (kondisi idle normal), lalu tertidur 5 detik dan menunda proses alert baru.
 
 #### Status Perbaikan
-- **Status Perbaikan:** Perubahan sudah masuk, baca commit-nya.
-- **Catatan Operasional:** Solusi pemisahan timeout untuk operasi blocking (`blpop`) vs connect timeout saat ini sedang difinalisasi di branch `dev`. Operator **DILARANG** mengasumsikan detail implementasi internal tanpa memverifikasi commit log resmi terbaru.
+- **Status:** Belum final. Status ini **berlaku sampai ada catatan pembaruan di dokumen ini** — jangan dianggap selesai hanya karena terlihat di commit lama.
+- **Yang sudah ada (verifikasi kode 2026-09-28):** `database.py:redis_client()` kini sudah memasang `retry=Retry(NoBackoff(), 1)`, `socket_connect_timeout=5.0s`, dan `health_check_interval=30`. Jadi pernyataan lama bahwa "belum ada mekanisme retry" **tidak lagi akurat** — percobaan ulang sudah terpasang di kode.
+- **Yang belum terbukti:** apakah `retry` tersebut benar-benar menyelesaikan kasus BLPOP blocking, dan bagaimana sisi daemon dikonfigurasi. Modul `tests/test_redis_timeouts.py` ada di working tree tetapi **belum di-commit**, jadi perilakunya belum tercakup regresi terverifikasi.
+- **Tindakan operator:** DILARANG mengasumsikan perbaikan sudah final. Verifikasi commit log resmi terbaru dan pastikan tes regresi di atas sudah masuk repo sebelum menyatakan aman.
 
 #### Cara Memeriksa Sebelum Deploy
 ```bash
@@ -248,8 +251,15 @@ sudo chmod 660 /var/log/tele-soar-actions.log
 2. Ingatkan analis SOC untuk **TIDAK MENGGUNAKAN** perintah Telegram `/retrain_model` di lingkungan produksi live hingga arsitektur model diverifikasi tuntas.
 3. Pastikan berkas model yang digunakan saat ini tetap merujuk pada model stabil yang ada di repositori:
    ```bash
-   ls -la minisoar/ml/*.joblib
+   # PENTING: berkas .joblib berada di ROOT repo, bukan di minisoar/ml/.
+   # minisoar/ml/train.py dan autotrain.py menulis ke root_dir.
+   ls -la ./*.joblib
    ```
+   Yang diharapkan: ada `baseline_model.joblib` (model stabil, sekitar 827 KB pada 2026-09-28). Berkas `.joblib` tidak disimpan di Git (sudah di-`.gitignore`), jadi harus ada salinan di server.
+
+   > **CATATAN PENTING (verifikasi 2026-09-28):** `active_model.joblib` di root repo saat ini **rusak** — ukurannya hanya 2251 byte, bukan ~827 KB, dan isinya sebuah `LogisticRegression` dengan `n_features_in_=9`, sedangkan `baseline_model.joblib` (utuh, 827493 byte) memakai `RandomForestClassifier` dengan `n_features_in_=14`. Jumlah feature tidak cocok, sehingga model aktif **tidak kompatibel** dengan pipeline bot. Aslinya sudah hilang: tidak ada di Git dan tidak ada salinan di disk.
+   >
+   > **Tindakan operator:** JANGAN mengandalkan `active_model.joblib` yang ada sekarang. Salinkan `baseline_model.joblib` sebagai `active_model.joblib` (sebagai model stabil) sampai retraining yang benar sudah dijalankan, dan **jangan** menjalankan cron autotrain lebih dulu karena itu yang menghasilkan model dengan jumlah feature salah.
 
 ---
 
@@ -330,7 +340,10 @@ sudo systemctl enable minisoar-bot minisoar-daemon
 2. **Periksa log inisialisasi bot:**
    ```bash
    sudo journalctl -u minisoar-bot -n 30 --no-pager
-   # Pastikan ada pesan: "[BOT] Successfully updated Telegram Bot interactive menu with 34 commands."
+   # Pastikan ada pesan: "[BOT] Successfully updated Telegram Bot interactive menu with N commands."
+   # (Jumlah N berubah sesuai provider yang dikonfigurasi di .env; 38 adalah nilai
+   #  maksimal saat semua provider aktif. Yang wajib dicek hanya pesan ini MUNCUL,
+   #  bukan angka spesifik di dalamnya.)
    # Pastikan TIDAK ADA: "TOKEN TELEGRAM DITOLAK" atau "AttributeError"
    ```
 3. **Periksa log daemon:**
@@ -341,4 +354,4 @@ sudo systemctl enable minisoar-bot minisoar-daemon
 4. **Verifikasi Interaktif Telegram:**
    - Kirim perintah `/health` dari akun Telegram analis yang terdaftar di `ALLOWED_USERS`.
    - Pastikan bot membalas dengan status kesehatan modul SOAR (Redis, ES, AI).
-   - Kirim perintah `/whitelists` dan pastikan daftar 20 entri IP/CIDR tampil lengkap.
+   - Kirim perintah `/whitelists` dan pastikan daftar entri IP/CIDR tampil lengkap (jumlahnya sesuai isi berkas whitelist di server; 19 pada 2026-09-28 — yang penting tidak kosong).
