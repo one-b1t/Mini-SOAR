@@ -473,3 +473,13 @@ MiniSOAR still works as an alert delivery and mitigation pipeline, but its imple
      - Membuat test suite [`tests/test_kaspersky_ip_filter.py`](file:///F:/Kantor/Program/MiniSOAR/tests/test_kaspersky_ip_filter.py) dengan 9 test cases komprehensif yang memverifikasi kegagalan awal pada kode lama, penanganan integer big/little-endian, signed int, string, deteksi host tidak ditemukan, pencegahan isolasi host pertama, serta isolasi host target yang tepat. Seluruh 9 test lulus 100%.
      - Menjalankan seluruh test suite inti (350 test cases lulus, 6 deselected, 0 failure).
 - **Rationale:** Mencegah insiden *unintended network outage* / *containment failure* di lingkungan produksi SOC akibat isolasi salah sasaran pada host kritis saat proses investigasi atau respons insiden otomatis berjalan.
+
+### 2026-09-29 04:05 WIB
+- **Problem (Stale Pending Updates on Startup):**
+  Saat bot Telegram MiniSOAR dinyalakan kembali setelah periode offline atau restart, Telegram API secara default akan mengirimkan seluruh antrean pesan (*pending updates*) yang terakumulasi selama bot mati. Hal ini menyebabkan bot memproses ulang perintah lama yang sudah usang (misalnya permintaan status atau mitigasi lama) dan mengirim balasan basi ke ruang obrolan operator.
+- **Solution:**
+  1. **Configurable Drop Pending Updates:** Menambahkan parameter `drop_pending_updates: bool = True` pada dataclass `TelegramConfig` dan fungsi `telegram_config()` di [`minisoar/config.py`](file:///F:/Kantor/Program/MiniSOAR/minisoar/config.py). Nilai dapat dikontrol melalui environment variable `TELEGRAM_DROP_PENDING_UPDATES` (dengan fallback `DROP_PENDING_UPDATES`), yang mengenali representasi falsy (`0`, `false`, `no`, `off`).
+  2. **Application Startup Wiring:** Meneruskan argumen `drop_pending_updates=cfg.drop_pending_updates` secara native ke `app.run_polling()` di [`minisoar/bot.py`](file:///F:/Kantor/Program/MiniSOAR/minisoar/bot.py).
+  3. **Preserved Startup Error Resilience:** Seluruh penanganan exception startup yang telah ada (`telegram.error.InvalidToken`, `telegram.error.NetworkError`, dan `KeyboardInterrupt`) tetap dipertahankan utuh dan aktif.
+  4. **Regression Test Suite:** Menambahkan [`tests/test_polling_drop_updates.py`](file:///F:/Kantor/Program/MiniSOAR/tests/test_polling_drop_updates.py) (15 test cases) yang menguji perilaku default aktif, penonaktifan via env var, pengaktifan eksplisit, konfigurasi fallback, serta keutuhan penanganan error startup.
+- **Rationale:** Mencegah eksekusi aksi mitigasi basi dan membanjiri ruang obrolan operator dengan balasan usang ketika bot baru dihidupkan, dengan tetap memberikan opsi fleksibel bagi operator jika sewaktu-waktu perlu memproses pesan tertunda via konfigurasi env var.
