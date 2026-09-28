@@ -78,6 +78,43 @@ def no_egress(monkeypatch):
     return blocker
 
 
+# --- getaddrinfo: DNS tidak boleh jadi celah egress ---------------------------
+#
+# connect yang diblokir saja tidak cukup: hostname produksi sudah terkirim ke
+# resolver DNS pada saat getaddrinfo dipanggil, jauh sebelum connect ditolak.
+# Conftest memblokir getaddrinfo; test di sini membuktikan kedua lapisan
+# (conftest dan fixture no_egress di modul ini) memakai aturan yang sama, agar
+# keduanya tidak bisa berbeda pendapat diam-diam.
+
+# Fixture no_egress modul ini sengaja menambal socket.getaddrinfo di ATAS
+# fixture conftest yang autouse. Kalau hanya conftest yang diuji, tidak ada
+# yang memastikan fixture lokal ini ikut menutup pintu yang sama.
+def test_no_egress_catches_dns_lookup(no_egress):
+    with pytest.raises(OSError, match="EGRESS"):
+        socket.getaddrinfo("es.prod.minisoar.test", 9200)
+    assert no_egress.attempts == ["getaddrinfo:es.prod.minisoar.test"]
+
+
+def test_no_egress_allows_loopback_dns(no_egress):
+    """Arah sebaliknya: resolver untuk loopback harus tetap boleh."""
+    infos = socket.getaddrinfo("127.0.0.1", 9200)
+    assert infos, "getaddrinfo untuk loopback harus tetap berfungsi"
+    assert no_egress.attempts == []
+
+
+def test_conftest_blocks_external_dns_but_allows_loopback():
+    """Meta-test untuk conftest itu sendiri (tanpa fixture no_egress di atas).
+
+    Dua arah, karena pemblokir yang terlalu rakus sama berbahayanya: kalau
+    getaddrinfo ikut tertutup, asyncio.run() mati lagi di Windows.
+    """
+    with pytest.raises(RuntimeError, match="mencoba resolve DNS"):
+        socket.getaddrinfo("akxm-xxx.luna.akamaiapis.net", 443)
+
+    # Loopback tetap diizinkan — ini yang membuat asyncio.run() hidup di Windows.
+    assert socket.getaddrinfo("127.0.0.1", 80)
+
+
 class _SpyResponse:
     status_code = 200
     text = "{}"
