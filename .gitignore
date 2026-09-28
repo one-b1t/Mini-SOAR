@@ -16,6 +16,12 @@ secrets/
 credentials/
 config/local.*
 
+# Kredensial Telethon / MTProto userbot. tests/telegram_testing.session
+# berisi auth key yang cukup untuk login sebagai user Telegram tersebut --
+# setara password. Jangan pernah di-commit.
+*.session
+tests/tg_credentials.json
+
 # --- Python & Dependencies ---
 __pycache__/
 *.py[cod]
