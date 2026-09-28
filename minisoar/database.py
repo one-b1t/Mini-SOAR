@@ -44,6 +44,10 @@ def es_verify_value():
 
 
 def es_index(index_name: str, doc_id: str, payload: dict[str, Any]) -> None:
+    if os.getenv("MINISOAR_MOCK", "").lower() in {"1", "true", "yes"}:
+        logger.info("[MOCK] ES index: index=%s, doc_id=%s", index_name, doc_id)
+        return
+
     host = es_host()
     if not host:
         return
@@ -62,6 +66,10 @@ def es_index(index_name: str, doc_id: str, payload: dict[str, Any]) -> None:
 
 
 def es_find_latest_event_id_by_ip(ip: str, approx_dt: datetime.datetime | None = None, window_minutes: int = 30) -> str | None:
+    if os.getenv("MINISOAR_MOCK", "").lower() in {"1", "true", "yes"}:
+        logger.info("[MOCK] ES event lookup: IP=%s", ip)
+        return None
+
     host = es_host()
     if not host or not ip:
         return None
@@ -260,6 +268,10 @@ def parse_ts_epoch(event: dict) -> int | None:
 
 
 def es_get_event_website_by_id(event_id: str) -> str | None:
+    if os.getenv("MINISOAR_MOCK", "").lower() in {"1", "true", "yes"}:
+        logger.info("[MOCK] ES website lookup: event_id=%s", event_id)
+        return None
+
     host = es_host()
     if not host or not event_id:
         return None
@@ -309,6 +321,10 @@ def es_get_event_website_by_id(event_id: str) -> str | None:
 
 
 def es_get_latest_event_website_by_ip(ip: str) -> str | None:
+    if os.getenv("MINISOAR_MOCK", "").lower() in {"1", "true", "yes"}:
+        logger.info("[MOCK] ES website lookup: IP=%s", ip)
+        return None
+
     host = es_host()
     if not host or not ip:
         return None
@@ -368,6 +384,10 @@ def es_get_latest_event_website_by_ip(ip: str) -> str | None:
 
 def es_count_hits_by_ip(ip: str) -> tuple[int, str | None]:
     """Query total incident count and latest attack description for an IP in Elasticsearch."""
+    if os.getenv("MINISOAR_MOCK", "").lower() in {"1", "true", "yes"}:
+        logger.info("[MOCK] ES hit count: IP=%s", ip)
+        return 0, None
+
     host = es_host()
     if not host or not ip:
         return 0, None
@@ -427,7 +447,10 @@ def get_system_health() -> dict[str, Any]:
 
     # 2. Elasticsearch
     host = es_host()
-    if host:
+    if host and os.getenv("MINISOAR_MOCK", "").lower() in {"1", "true", "yes"}:
+        logger.info("[MOCK] ES cluster health: host=%s", host)
+        health["elasticsearch"] = {"status": "MOCK", "host": host}
+    elif host:
         try:
             es_user = os.getenv("ES_USER", "")
             es_pass = os.getenv("ES_PASS", "")

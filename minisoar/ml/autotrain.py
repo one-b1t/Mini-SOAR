@@ -10,6 +10,7 @@ Provides:
 """
 
 import logging
+import os
 from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any
@@ -29,6 +30,14 @@ def evaluate_and_promote_model(
     min_auc_threshold: float = 0.85,
 ) -> tuple[bool, dict[str, Any], str]:
     """Trains a new Challenger model, evaluates it against the Quality Gate, and promotes it."""
+    # Mock: hanya path eksplisit dari pemanggil yang boleh ditulis. Model
+    # produksi di root repo (active_model.joblib / baseline_model.joblib)
+    # tidak boleh tertimpa.
+    is_mock = os.getenv("MINISOAR_MOCK", "").lower() in {"1", "true", "yes"}
+    if is_mock and active_artifact_path is None:
+        logger.info("[MOCK] Model promotion skipped: no explicit artifact path")
+        return False, {}, "[MOCK] Model promotion skipped (production artifact path)."
+
     root_dir = Path(__file__).resolve().parent.parent.parent
     if active_artifact_path is None:
         active_artifact_path = root_dir / "active_model.joblib"
@@ -115,15 +124,26 @@ def evaluate_and_promote_model(
 
     # Also keep fallback baseline_model.joblib updated
     baseline_path = root_dir / "baseline_model.joblib"
-    joblib.dump(model_artifact, baseline_path)
+    if is_mock:
+        logger.info("[MOCK] Baseline model write skipped: %s", baseline_path)
+    else:
+        joblib.dump(model_artifact, baseline_path)
 
     msg = f"SUCCESS: Challenger model promoted to {active_artifact_path.name} (ROC-AUC={auc:.4f}, Accuracy={acc:.4f}, Samples={len(df)})"
     logger.info(msg)
     return True, metrics, msg
 
 
-def run_autotrain_from_file(csv_path: Path | None = None, auto_export_elk: bool = True) -> tuple[bool, dict[str, Any], str]:
+def run_autotrain_from_file(
+    csv_path: Path | None = None,
+    auto_export_elk: bool = True,
+    active_artifact_path: Path | None = None,
+) -> tuple[bool, dict[str, Any], str]:
     """Extracts latest training data from Elasticsearch and runs the retraining pipeline."""
+    if os.getenv("MINISOAR_MOCK", "").lower() in {"1", "true", "yes"} and csv_path is None:
+        logger.info("[MOCK] Autotrain skipped: no explicit dataset path")
+        return False, {}, "[MOCK] Autotrain skipped (production dataset path)."
+
     root_dir = Path(__file__).resolve().parent.parent.parent
     path = csv_path or (root_dir / "dataset.csv")
 
@@ -138,5 +158,5 @@ def run_autotrain_from_file(csv_path: Path | None = None, auto_export_elk: bool 
         return False, {}, f"Dataset file could not be generated at {path}"
 
     df = pd.read_csv(path)
-    return evaluate_and_promote_model(df)
+    return evaluate_and_promote_model(df, active_artifact_path=active_artifact_path)
 

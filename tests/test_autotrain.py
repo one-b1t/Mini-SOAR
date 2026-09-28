@@ -89,10 +89,14 @@ def test_run_autotrain_from_file_auto_export():
 
     with tempfile.TemporaryDirectory() as tmp_dir:
         tmp_csv = Path(tmp_dir) / "test_dataset_auto.csv"
-        ok, metrics, msg = run_autotrain_from_file(csv_path=tmp_csv, auto_export_elk=True)
+        tmp_model = Path(tmp_dir) / "test_active_model.joblib"
+        ok, metrics, msg = run_autotrain_from_file(
+            csv_path=tmp_csv, auto_export_elk=True, active_artifact_path=tmp_model
+        )
 
         assert ok is True
         assert "SUCCESS" in msg
         assert tmp_csv.exists()
+        assert tmp_model.exists()
         assert metrics["roc_auc"] >= 0.85
 

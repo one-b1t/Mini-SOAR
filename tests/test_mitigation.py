@@ -145,9 +145,13 @@ def test_get_active_blocklist():
     assert data["edr_iocs"][0]["ip"] == "185.220.101.5"
 
 
-def test_es_website_lookups():
+def test_es_website_lookups(monkeypatch):
     import unittest.mock
     from minisoar.database import es_get_event_website_by_id, es_get_latest_event_website_by_ip
+
+    # Yang diuji jalur produksi (parsing hit ES); conftest.py memasang
+    # MINISOAR_MOCK=1 yang kini membuat lookup ini short-circuit.
+    monkeypatch.delenv("MINISOAR_MOCK", raising=False)
 
     with unittest.mock.patch("requests.get") as mock_get:
         # Mock search response by ID

@@ -128,6 +128,13 @@ def train_baseline(
     6. Validasi dan Evaluasi Ulang (Re-Validation & Quality Gate Verification)
     7. Menggunakan Model (Packaging, Atomic Deployment, & Hot-Reload Artifact)
     """
+    # Mock: hanya path eksplisit dari pemanggil yang boleh dibaca/ditulis.
+    # Dataset & model produksi di root repo tidak boleh tertimpa.
+    is_mock = os.getenv("MINISOAR_MOCK", "").lower() in {"1", "true", "yes"}
+    if is_mock and (csv_path is None or artifact_path is None):
+        logger.info("[MOCK] Baseline training skipped: no explicit dataset/artifact path")
+        return {}
+
     load_env()
     root_dir = Path(__file__).resolve().parent.parent.parent
     csv_target = csv_path or (root_dir / "dataset.csv")
@@ -299,11 +306,14 @@ def train_baseline(
     print(f"Baseline Model tersimpan di: {artifact_target}")
 
     # Also promote to active_model.joblib for production hot-reload
-    tmp_active = active_target.with_suffix(".tmp")
-    joblib.dump(model_artifact, tmp_active)
-    tmp_active.replace(active_target)
-    print(f"Active Model dipromosikan di: {active_target}")
-    print("Engine inferensi SOAR telah siap menggunakan model yang diperbarui secara hot-reload.")
+    if is_mock:
+        logger.info("[MOCK] Active model promotion skipped: %s", active_target)
+    else:
+        tmp_active = active_target.with_suffix(".tmp")
+        joblib.dump(model_artifact, tmp_active)
+        tmp_active.replace(active_target)
+        print(f"Active Model dipromosikan di: {active_target}")
+        print("Engine inferensi SOAR telah siap menggunakan model yang diperbarui secara hot-reload.")
     print("=" * 70)
 
     return model_artifact

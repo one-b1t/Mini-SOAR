@@ -228,6 +228,10 @@ def inject_attacks_to_redis(
     limit: int = 10,
 ) -> int:
     """Injects mimicked attack payloads into Redis queue for end-to-end integration testing."""
+    if os.getenv("MINISOAR_MOCK", "").lower() in {"1", "true", "yes"}:
+        logger.info("[MOCK] Redis inject attacks: host=%s, key=%s, count=%d", redis_host, redis_key, len(events[:limit]))
+        return 0
+
     import redis
 
     r = redis.Redis(host=redis_host, port=redis_port, password=redis_password or None, socket_timeout=5)

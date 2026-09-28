@@ -205,6 +205,10 @@ def abuseipdb_lookup(ip: str) -> tuple[str, str]:
 
 
 def ipapi_lookup(ip: str) -> tuple[str, str]:
+    if os.getenv("MINISOAR_MOCK", "").lower() in {"1", "true", "yes"}:
+        logger.info("[MOCK] ip-api geo lookup: IP=%s", ip)
+        return ip, "--/[MOCK] (-)"
+
     cache_ttl = int(os.environ.get("IPAPI_CACHE_TTL", str(12 * 3600)))
     lookup_timeout = int(os.environ.get("LOOKUP_TIMEOUT", "4"))
 

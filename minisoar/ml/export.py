@@ -13,6 +13,10 @@ logger = logging.getLogger(__name__)
 
 
 def es_request(method: str, path: str, body: dict[str, Any] | None = None) -> dict[str, Any]:
+    if os.getenv("MINISOAR_MOCK", "").lower() in {"1", "true", "yes"}:
+        logger.info("[MOCK] ES request: %s %s", method, path)
+        return {"hits": {"total": {"value": 0}, "hits": []}}
+
     load_env()
     hosts_str = os.getenv("ES_HOSTS", "") or os.getenv("ES_HOST", "http://127.0.0.1:9200")
     host = hosts_str.split(",")[0].strip()
@@ -305,6 +309,12 @@ def export_dataset_from_es(csv_path: Path | None = None, fallback_synthetic: boo
     Returns:
         (success: bool, sample_count: int, status_message: str)
     """
+    # Mock: jangan timpa dataset.csv produksi di root repo; path eksplisit
+    # dari pemanggil (mis. tmp dir test) tetap boleh.
+    if os.getenv("MINISOAR_MOCK", "").lower() in {"1", "true", "yes"} and csv_path is None:
+        logger.info("[MOCK] Dataset export skipped: no explicit dataset path")
+        return False, 0, "[MOCK] Dataset export skipped (production dataset path)."
+
     load_env()
     root_dir = Path(__file__).resolve().parent.parent.parent
     target_path = csv_path or (root_dir / "dataset.csv")

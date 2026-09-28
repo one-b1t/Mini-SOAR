@@ -113,6 +113,10 @@ def ip_blocklist_api(base_url: str, group_name: str, api_cookies: dict, ip_addre
 
 
 def get_blocked_ip_list(base_url: str, group_name: str, api_cookies: dict) -> list[str] | None:
+    if os.getenv("MINISOAR_MOCK", "").lower() in {"1", "true", "yes"}:
+        logger.info("[MOCK] Imperva get blocked IP list: group=%s", group_name)
+        return []
+
     api_url = f"{base_url}/SecureSphere/api/v1/conf/ipGroups/{group_name}/data"
     headers = {"Content-Type": "application/json", "Accept": "application/json"}
     try:
