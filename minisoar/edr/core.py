@@ -5,6 +5,7 @@ from __future__ import annotations
 import logging
 from typing import Any
 
+from ..config import is_perimeter_active, perimeter_disabled_message
 from . import kaspersky, trendmicro
 
 logger = logging.getLogger(__name__)
@@ -21,12 +22,35 @@ def norm_edr_provider(provider: str | None) -> str:
     return s or "all"
 
 
+def _expand_providers(p_norm: str) -> tuple[list[str], str]:
+    """Peta 'all' -> provider yang masih hidup; provider mati menghasilkan penolakan.
+
+    Mengembalikan (daftar_provider, pesan_penolakan). Pesan tidak kosong berarti
+    operator menyebut provider nonaktif secara eksplisit, jadi jangan diam-diam
+    lolos ke fallback "tidak ada aksi" yang menyesatkan.
+    """
+    if p_norm == "all":
+        return [p for p in ("kaspersky", "trendmicro") if is_perimeter_active(p)], ""
+    if is_perimeter_active(p_norm):
+        return [p_norm], ""
+    return [], perimeter_disabled_message(p_norm)
+
+
 def check_all_edr_connectivity() -> list[dict[str, Any]]:
     """Runs diagnostics across all configured EDR providers."""
-    results = [
-        kaspersky.check_connectivity(),
-        trendmicro.check_connectivity(),
+    # Kaspersky DIMATIKAN TOTAL: tidak diprobe. Baris tetap dikembalikan dengan
+    # disabled=True supaya /edrstatus tetap menampilkan accounting yang jujur.
+    results: list[dict[str, Any]] = [
+        {
+            "provider": "kaspersky",
+            "configured": False,
+            "ok": None,
+            "error": None,
+            "hint": perimeter_disabled_message("kaspersky"),
+            "disabled": True,
+        }
     ]
+    results.append(trendmicro.check_connectivity())
     return results
 
 
@@ -44,7 +68,9 @@ def isolate_endpoint(
     target can be an IP address or an endpoint host ID.
     """
     p_norm = norm_edr_provider(provider)
-    providers_to_run = ["kaspersky", "trendmicro"] if p_norm == "all" else [p_norm]
+    providers_to_run, ditolak = _expand_providers(p_norm)
+    if ditolak:
+        return False, ditolak, {}
 
     overall_success = False
     messages: list[str] = []
@@ -75,7 +101,9 @@ def restore_endpoint(
 ) -> tuple[bool, str, dict[str, Any]]:
     """Restores network connectivity for an isolated endpoint across EDR providers."""
     p_norm = norm_edr_provider(provider)
-    providers_to_run = ["kaspersky", "trendmicro"] if p_norm == "all" else [p_norm]
+    providers_to_run, ditolak = _expand_providers(p_norm)
+    if ditolak:
+        return False, ditolak, {}
 
     overall_success = False
     messages: list[str] = []
@@ -108,7 +136,9 @@ def add_edr_ioc(
 ) -> tuple[bool, str]:
     """Adds suspicious object / IoC to EDR server blocklists."""
     p_norm = norm_edr_provider(provider)
-    providers_to_run = ["kaspersky", "trendmicro"] if p_norm == "all" else [p_norm]
+    providers_to_run, ditolak = _expand_providers(p_norm)
+    if ditolak:
+        return False, ditolak
 
     overall_success = False
     messages: list[str] = []
@@ -140,12 +170,14 @@ def query_endpoint(ip: str, *, provider: str = "all") -> dict[str, Any]:
         else:
             results["trendmicro"] = tm_hosts
 
-    if p_norm in {"all", "kaspersky"}:
+    if p_norm in {"all", "kaspersky"} and is_perimeter_active("kaspersky"):
         kl_hosts, kl_err = kaspersky.find_host_by_ip(ip)
         if kl_err:
             results["errors"].append(f"Kaspersky: {kl_err}")
         else:
             results["kaspersky"] = kl_hosts
+    elif p_norm in {"all", "kaspersky"}:
+        results["errors"].append(f"Kaspersky: {perimeter_disabled_message('kaspersky')}")
 
     return results
 

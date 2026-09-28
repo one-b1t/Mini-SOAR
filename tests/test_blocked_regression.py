@@ -192,7 +192,10 @@ async def test_restorehost_proceeds_even_if_progress_reply_times_out(monkeypatch
         httpx.ConnectTimeout("Progress message timeout"),
         "final_reply_ok",
     ])
-    context = MagicMock(args=["10.0.0.50", "ksc"])
+    # "ksc" tidak bisa dipakai: kaspersky DIMATIKAN TOTAL (PERIMETER_NONAKTIF),
+    # jadi handler menolak sebelum reply. Yang diuji di sini regresi progress-reply
+    # timeout, jadi pakai EDR yang masih hidup.
+    context = MagicMock(args=["10.0.0.50", "tm"])
 
     monkeypatch.setattr("minisoar.bot.edr.restore_endpoint", lambda target, provider: (True, "Host restored", {}))
     monkeypatch.setattr("minisoar.bot.log_user_action", lambda *args, **kwargs: None)

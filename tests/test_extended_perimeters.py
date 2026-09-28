@@ -54,27 +54,31 @@ def test_unified_perimeter_orchestration_extended():
 
     # Block on Cloudflare via orchestrator
     ok_cf, msg_cf = trigger_auto_block("103.20.10.5", "cloudflare")
-    assert ok_cf is True
-    assert "Cloudflare" in msg_cf
+    assert ok_cf is False
+    assert "tidak aktif" in msg_cf.lower()
+    assert "No mitigation action configured" not in msg_cf
 
     # Unblock on Cloudflare via orchestrator
     ok_cf_un, msg_cf_un = trigger_auto_unblock("103.20.10.5", "cloudflare")
-    assert ok_cf_un is True
+    assert ok_cf_un is False
+    assert "tidak aktif" in msg_cf_un.lower()
 
     # Block on FortiGate via orchestrator
     ok_fg, msg_fg = trigger_auto_block("103.20.10.5", "fortigate")
-    assert ok_fg is True
-    assert "FortiGate" in msg_fg
+    assert ok_fg is False
+    assert "tidak aktif" in msg_fg.lower()
 
     # Unblock on FortiGate via orchestrator
     ok_fg_un, msg_fg_un = trigger_auto_unblock("103.20.10.5", "fortigate")
-    assert ok_fg_un is True
+    assert ok_fg_un is False
+    assert "tidak aktif" in msg_fg_un.lower()
 
     # Check perimeter connectivity includes all 5 perimeters
     results = check_perimeter_connectivity()
     providers = {r["provider"] for r in results}
-    assert "cloudflare" in providers
-    assert "fortigate" in providers
+    by_provider = {r["provider"]: r for r in results}
+    assert by_provider["cloudflare"]["disabled"] is True
+    assert by_provider["fortigate"]["disabled"] is True
     assert "imperva" in providers
     assert "paloalto" in providers
     assert "akamai" in providers

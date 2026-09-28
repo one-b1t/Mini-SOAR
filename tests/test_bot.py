@@ -326,32 +326,6 @@ def test_unblockonakamai_stores_unblock_label(monkeypatch):
     assert labels == [("evt-1", "unblock", "telegram_command")]
 
 
-def test_unblockoncf_cmd_stores_unblock_label(monkeypatch):
-    import asyncio
-    import minisoar.bot as botmod
-
-    labels = []
-    _stub_unblock_deps(monkeypatch, [], labels)
-    monkeypatch.setattr(botmod.cloudflare, "unblock_ip", lambda ip: (True, "sukses"))
-
-    asyncio.run(botmod.unblockoncf_cmd(_fake_update(12345), _Ctx("10.0.0.1")))
-
-    assert labels == [("evt-1", "unblock", "telegram_command")]
-
-
-def test_unblockonforti_cmd_stores_unblock_label(monkeypatch):
-    import asyncio
-    import minisoar.bot as botmod
-
-    labels = []
-    _stub_unblock_deps(monkeypatch, [], labels)
-    monkeypatch.setattr(botmod.fortigate, "unblock_ip", lambda ip: (True, "sukses"))
-
-    asyncio.run(botmod.unblockonforti_cmd(_fake_update(12345), _Ctx("10.0.0.1")))
-
-    assert labels == [("evt-1", "unblock", "telegram_command")]
-
-
 def test_unblock_failed_does_not_store_label(monkeypatch):
     """Label hanya ditulis kalau unblock benar-benar sukses."""
     import asyncio

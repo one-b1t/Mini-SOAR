@@ -102,30 +102,40 @@ def test_edr_core_router():
     # 1. Check all connectivity
     conns = check_all_edr_connectivity()
     assert len(conns) == 2
-    assert all(c["ok"] is True for c in conns)
+    # kaspersky tetap muncul sebagai disabled=True (bukan dihapus) supaya accounting jujur
+    ksc = [c for c in conns if c["provider"] == "kaspersky"]
+    assert ksc and ksc[0]["disabled"] is True
+    assert [c for c in conns if c["provider"] == "trendmicro"][0]["ok"] is True
 
     # 2. Query endpoint across both EDRs
     res = query_endpoint("192.168.1.100", provider="all")
     assert len(res["trendmicro"]) == 1
-    assert len(res["kaspersky"]) == 1
+    # "all" tidak lagi menyentuh kaspersky
+    assert res["kaspersky"] == []
+    assert any("Kaspersky" in e for e in res["errors"])
 
     # 3. Isolate across all EDRs
     ok_all, msg_all, details = isolate_endpoint("192.168.1.100", provider="all")
     assert ok_all is True
     assert "trendmicro" in details
-    assert "kaspersky" in details
+    assert "kaspersky" not in details
 
     # 4. Restore across all EDRs
     ok_rst, msg_rst, details_rst = restore_endpoint("192.168.1.100", provider="all")
     assert ok_rst is True
     assert "trendmicro" in details_rst
-    assert "kaspersky" in details_rst
+    assert "kaspersky" not in details_rst
 
     # 5. Add IoC across all EDRs
     ok_ioc, msg_ioc = add_edr_ioc("ip", "198.51.100.77", provider="all")
     assert ok_ioc is True
     assert "TrendMicro" in msg_ioc
-    assert "Kaspersky" in msg_ioc
+    assert "Kaspersky" not in msg_ioc
+
+    # Pemanggilan kaspersky eksplisit ditolak eksplisit, bukan diam-diam lolos
+    for prov in ("ksc", "kl", "kaspersky"):
+        ok_x, msg_x, _ = isolate_endpoint("192.168.1.100", provider=prov)
+        assert ok_x is False and "tidak aktif" in msg_x.lower()
 
 
 def test_edr_playbook_execution(monkeypatch):

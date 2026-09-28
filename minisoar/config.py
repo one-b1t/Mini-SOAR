@@ -74,9 +74,43 @@ def norm_provider(provider: str | None) -> str:
         return "cloudflare"
     if s in {"fortigate", "forti", "fg", "fortios"}:
         return "fortigate"
+    if s in {"ksc", "kaspersky", "kl"}:
+        return "kaspersky"
     if s in {"none", "external", "eksternal", "outside", "off"}:
         return "none"
     return s or "none"
+
+
+# Provider yang DIMATIKAN TOTAL — sumber kebenaran tunggal, semua jalur (mitigation,
+# EDR, bot, diagnostics) wajib populate dari sini sebelum menyentuh API.
+# Alasan: ketiganya tidak dimiliki di tempat kerja ini (Kaspersky: belum jelas dari
+# mana IoC ditambahkan), jadi blokir lewat MiniSOAR hanya menimbulkan rasa aman
+# semu. Perimeter aktif & terkonfirmasi: PaloAlto, Akamai, TrendMicro Vision One.
+# Boleh dihapus dari daftar ini kalau kredensial resmi dimiliki DAN operator
+# mengonfirmasi ada kebutuhan nyata memblokir lewat perimeter tersebut.
+PERIMETER_NONAKTIF: frozenset[str] = frozenset({"cloudflare", "fortigate", "kaspersky"})
+
+
+def canonical_perimeter(provider: str | None) -> str:
+    """Nama kanonik lintas jalur; alias EDR (ksc/kl) ikut dinormalkan."""
+    return norm_provider(provider)
+
+
+def is_perimeter_active(provider: str | None) -> bool:
+    """False bila provider ada di PERIMETER_NONAKTIF (alias ikut dikenali)."""
+    return canonical_perimeter(provider) not in PERIMETER_NONAKTIF
+
+
+def perimeter_disabled_message(provider: str | None) -> str:
+    """Pesan penolakan baku untuk provider nonaktif, atau string kosong bila aktif."""
+    p = canonical_perimeter(provider)
+    if p not in PERIMETER_NONAKTIF:
+        return ""
+    return (
+        f"Provider '{p}' TIDAK AKTIF / DIMATIKAN TOTAL di MiniSOAR: perimeter ini "
+        f"tidak dimiliki di tempat kerja, jadi tidak ada panggilan API yang dikirim. "
+        f"Perimeter aktif: paloalto, akamai, trendmicro."
+    )
 
 
 def parse_allowed_users(raw: str | None) -> list[int]:
@@ -105,8 +139,12 @@ def telegram_config() -> TelegramConfig:
 
 
 def get_configured_providers() -> dict[str, bool]:
-    """Returns a dictionary indicating which perimeter security and EDR providers have valid credentials configured in .env."""
-    return {
+    """Returns a dictionary indicating which perimeter security and EDR providers have valid credentials configured in .env.
+
+    Provider di PERIMETER_NONAKTIF selalu False walau env var-nya terisi: kredensial
+    sisa di .env tidak boleh membuat MiniSOAR berpikir jalur itu hidup.
+    """
+    configured = {
         "imperva": bool(os.getenv("IMPERVA_BASE_URL") or os.getenv("IMPERVA_API_ID") or os.getenv("IMPERVA_USERNAME")),
         "paloalto": bool(os.getenv("PA_HOST") or os.getenv("PALO_ALTO_HOST") or os.getenv("PA_API_KEY")),
         "akamai": bool(os.getenv("AKAMAI_BASEURL") or os.getenv("AKAMAI_HOST") or os.getenv("AKAMAI_CLIENT_TOKEN")),
@@ -115,3 +153,4 @@ def get_configured_providers() -> dict[str, bool]:
         "kaspersky": bool(os.getenv("KSC_SERVER_URL") or os.getenv("KASPERSKY_KSC_HOST") or os.getenv("KSC_HOST")),
         "trendmicro": bool(os.getenv("TRENDMICRO_API_KEY") or os.getenv("TRENDMICRO_VISION_ONE_URL")),
     }
+    return {p: False if p in PERIMETER_NONAKTIF else v for p, v in configured.items()}

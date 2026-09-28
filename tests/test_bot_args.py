@@ -63,17 +63,10 @@ STRICT_IP_COMMANDS = [
     ("unblockonakamai", "unblock_akamai"),
 ]
 
-# Perimeter tambahan: `not context.args` — argumen ke-2 dst diam-diam diabaikan.
-# Beda perilaku ini disengaja didokumentasikan, bukan diasumsikan benar; lihat
-# test_extra_args_behaviour_is_documented di bawah.
-LENIENT_IP_COMMANDS = [
-    ("blockoncf_cmd", "block_cf"),
-    ("unblockoncf_cmd", "unblock_cf"),
-    ("blockonforti_cmd", "block_forti"),
-    ("unblockonforti_cmd", "unblock_forti"),
-]
-
-IP_COMMANDS = STRICT_IP_COMMANDS + LENIENT_IP_COMMANDS
+# cloudflare/fortigate sengaja TIDAK lagi diuji sebagai perimeter hidup: keduanya
+# DIMATIKAN TOTAL (PERIMETER_NONAKTIF di minisoar/config.py), jadi handler-nya
+# menolak sebelum validasi IP. Penolakannya diuji di tests/test_perimeter_disabled.py.
+IP_COMMANDS = STRICT_IP_COMMANDS
 
 
 @pytest.mark.parametrize("fn_name,cmd", IP_COMMANDS)
@@ -108,24 +101,6 @@ def test_strict_ip_command_rejects_extra_args(fn_name, cmd):
 
     assert len(update.replies) == 1
     assert "Format Tidak Valid" in update.replies[0]
-
-
-@pytest.mark.parametrize("fn_name,cmd", LENIENT_IP_COMMANDS)
-def test_lenient_ip_command_ignores_extra_args(fn_name, cmd, monkeypatch):
-    """Dokumentasi perilaku, bukan pembenaran: cf/forti hanya cek args[0] jadi
-    `/block_cf 1.2.3.4 5.6.7.8` memblokir 1.2.3.4 dan membuang sisanya tanpa
-    peringatan. Kalau nanti diseragamkan ke `len(args) != 1`, test ini yang
-    pertama merah — pindahkan command-nya ke STRICT_IP_COMMANDS."""
-    seen = []
-    for mod in (botmod.cloudflare, botmod.fortigate):
-        for api in ("block_ip", "unblock_ip"):
-            monkeypatch.setattr(mod, api, lambda ip, **kw: seen.append(ip) or (True, "OK"))
-
-    update = _fake_update()
-    _run(getattr(botmod, fn_name), update, "1.2.3.4", "5.6.7.8")
-
-    assert seen == ["1.2.3.4"], "hanya argumen pertama yang dipakai, sisanya dibuang diam-diam"
-    assert "Format Tidak Valid" not in " ".join(update.replies)
 
 
 # --- validasi argumen: command non-IP ----------------------------------------------

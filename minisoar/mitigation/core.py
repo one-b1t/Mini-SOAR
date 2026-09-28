@@ -7,7 +7,7 @@ import os
 import time
 import traceback
 
-from ..config import norm_provider
+from ..config import is_perimeter_active, norm_provider, perimeter_disabled_message
 from . import akamai, cloudflare, fortigate, imperva, paloalto
 
 logger = logging.getLogger(__name__)
@@ -66,6 +66,10 @@ def trigger_commit(provider: str) -> tuple[bool, str]:
 
 def trigger_auto_block(ip: str, provider: str, commit: bool = True) -> tuple[bool, str]:
     p = norm_provider(provider)
+    # Provider di PERIMETER_NONAKTIF ditolak di sini, SEBELUM cabang eksekusi,
+    # supaya operator dapat pesan jelas dan bukan "No mitigation action configured".
+    if not is_perimeter_active(p):
+        return False, perimeter_disabled_message(p)
 
     # Imperva
     if p == "imperva":
@@ -143,6 +147,10 @@ def trigger_auto_block(ip: str, provider: str, commit: bool = True) -> tuple[boo
 
 def trigger_auto_unblock(ip: str, provider: str, commit: bool = True) -> tuple[bool, str]:
     p = norm_provider(provider)
+    # Provider di PERIMETER_NONAKTIF ditolak di sini, SEBELUM cabang eksekusi,
+    # supaya operator dapat pesan jelas dan bukan "No mitigation action configured".
+    if not is_perimeter_active(p):
+        return False, perimeter_disabled_message(p)
 
     # Imperva
     if p == "imperva":
@@ -449,11 +457,20 @@ def check_perimeter_connectivity() -> list[dict]:
     else:
         results.append({"provider": "akamai", "configured": False, "ok": None, "error": None, "hint": None})
 
-    # Cloudflare
-    results.append(cloudflare.check_connectivity())
-
-    # FortiGate
-    results.append(fortigate.check_connectivity())
+    # Cloudflare & FortiGate: DIMATIKAN TOTAL. Tidak diprobe sama sekali supaya tidak
+    # ada panggilan API ke perimeter yang tidak dimiliki. Baris tetap ditampilkan
+    # sebagai "disabled" supaya operator tidak mengira Simply not configured.
+    for dead in ("cloudflare", "fortigate"):
+        results.append(
+            {
+                "provider": dead,
+                "configured": False,
+                "ok": None,
+                "error": None,
+                "hint": perimeter_disabled_message(dead),
+                "disabled": True,
+            }
+        )
 
     return results
 

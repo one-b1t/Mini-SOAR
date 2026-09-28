@@ -35,6 +35,7 @@ from .config import (
     load_env,
     norm_provider,
     parse_allowed_users,
+    perimeter_disabled_message,
     telegram_config,
 )
 from .database import (
@@ -891,6 +892,10 @@ async def isolatehost(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
     target = context.args[0].strip()
     provider = context.args[1].strip() if len(context.args) > 1 else "all"
+    tolak = perimeter_disabled_message(provider)
+    if tolak:
+        await _safe_reply_text(update.message, "⛔ " + tolak)
+        return
     logfile = await asyncio.to_thread(resolve_log_path, "LOGFILE", "/var/log/tele-soar-actions.log", "tele-soar-actions.log")
     await asyncio.to_thread(log_user_action, "isolate_host", user, ip=target if valid_ip(target) else None, target=f"EDR-{provider.upper()}", source="command", chat_id=update.effective_chat.id, note=f"target={target}", logfile=logfile)
 
@@ -909,6 +914,10 @@ async def restorehost(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
     target = context.args[0].strip()
     provider = context.args[1].strip() if len(context.args) > 1 else "all"
+    tolak = perimeter_disabled_message(provider)
+    if tolak:
+        await _safe_reply_text(update.message, "⛔ " + tolak)
+        return
     logfile = await asyncio.to_thread(resolve_log_path, "LOGFILE", "/var/log/tele-soar-actions.log", "tele-soar-actions.log")
     await asyncio.to_thread(log_user_action, "restore_host", user, ip=target if valid_ip(target) else None, target=f"EDR-{provider.upper()}", source="command", chat_id=update.effective_chat.id, note=f"target={target}", logfile=logfile)
 
@@ -958,6 +967,10 @@ async def addedrioc(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
     val = context.args[0].strip()
     provider = context.args[1].strip() if len(context.args) > 1 else "all"
+    tolak = perimeter_disabled_message(provider)
+    if tolak:
+        await _safe_reply_text(update.message, "⛔ " + tolak)
+        return
     ioc_type = "ip" if valid_ip(val) else ("sha256" if len(val) == 64 else "domain")
     ok, msg = await asyncio.to_thread(edr.add_edr_ioc, ioc_type=ioc_type, ioc_value=val, provider=provider, comment=f"Manual IoC by @{user.username or user.id}")
     prefix = "✅" if ok else "❌"
@@ -1102,6 +1115,10 @@ async def syncticket_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE):
 # TIER 4: EXTENDED PERIMETERS (CLOUDFLARE & FORTIGATE)
 # -----------------
 async def blockoncf_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    tolak = perimeter_disabled_message("cloudflare")
+    if tolak:
+        await _safe_reply_text(update.message, "⛔ " + tolak)
+        return
     user = update.effective_user
 
     if not context.args or not valid_ip(context.args[0].strip()):
@@ -1116,6 +1133,10 @@ async def blockoncf_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
 
 async def unblockoncf_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    tolak = perimeter_disabled_message("cloudflare")
+    if tolak:
+        await _safe_reply_text(update.message, "⛔ " + tolak)
+        return
 
     if not context.args or not valid_ip(context.args[0].strip()):
         await update.message.reply_text(_format_usage_html("unblock_cf", "<ip>", "192.168.1.100"), parse_mode="HTML")
@@ -1132,6 +1153,10 @@ async def unblockoncf_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
 
 async def blockonforti_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    tolak = perimeter_disabled_message("fortigate")
+    if tolak:
+        await _safe_reply_text(update.message, "⛔ " + tolak)
+        return
     user = update.effective_user
 
     if not context.args or not valid_ip(context.args[0].strip()):
@@ -1146,6 +1171,10 @@ async def blockonforti_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
 
 async def unblockonforti_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    tolak = perimeter_disabled_message("fortigate")
+    if tolak:
+        await _safe_reply_text(update.message, "⛔ " + tolak)
+        return
 
     if not context.args or not valid_ip(context.args[0].strip()):
         await update.message.reply_text(_format_usage_html("unblock_forti", "<ip>", "192.168.1.100"), parse_mode="HTML")
