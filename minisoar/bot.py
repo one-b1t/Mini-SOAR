@@ -1599,9 +1599,46 @@ async def on_error(update: object, context: ContextTypes.DEFAULT_TYPE) -> None:
     logger.exception("Unhandled exception", exc_info=context.error)
 
 
+class _TokenRedactingFilter(logging.Filter):
+    """Ganti bot<id>:<secret> dengan bot<REDACTED> di pesan dan traceback.
+
+    Dipasang di HANDLER root: filter di logger tidak berlaku untuk record
+    yang dipropagasi dari logger anak (mis. httpcore.http11, telegram.ext.*).
+    Pesan dicek setelah argumen %s diformat, supaya token di args ikut tertangkap.
+    """
+
+    def _redact(self, text: str) -> str:
+        import re
+
+        return re.sub(r"bot\d{5,}:[A-Za-z0-9_-]{20,}", "bot<REDACTED>", text)
+
+    def filter(self, record: logging.LogRecord) -> bool:
+        msg = record.getMessage()
+        clean = self._redact(msg)
+        if clean != msg:
+            record.msg, record.args = clean, None
+        if record.exc_info and not record.exc_text:
+            record.exc_text = logging.Formatter().formatException(record.exc_info)
+        if record.exc_text:
+            record.exc_text = self._redact(record.exc_text)
+        return True
+
+
+def _configure_logging() -> None:
+    logging.basicConfig(level=logging.INFO)
+    logging.getLogger().setLevel(logging.INFO)  # basicConfig no-op bila root sudah punya handler
+    # httpx/httpcore (dipakai python-telegram-bot) mencatat SETIAP request di INFO
+    # lengkap dengan URL api.telegram.org/bot<TOKEN>/... -> token masuk journald.
+    for name in ("httpx", "httpcore"):
+        logging.getLogger(name).setLevel(logging.WARNING)
+    for handler in logging.getLogger().handlers:
+        if not any(isinstance(f, _TokenRedactingFilter) for f in handler.filters):
+            handler.addFilter(_TokenRedactingFilter())
+
+
 def main() -> None:
     load_env()
-    logging.basicConfig(level=logging.INFO)
+    _configure_logging()
     cfg = telegram_config()
 
     if not cfg.token:
