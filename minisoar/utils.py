@@ -842,6 +842,12 @@ def get_whitelist_entries() -> list[str]:
 
 
 def add_to_whitelist(ip: str, reason: str = "") -> tuple[bool, str]:
+    # Mock: tanpa WHITELIST_PATH eksplisit, path jatuh ke cwd = whitelist
+    # produksi di root repo. Path eksplisit dari pemanggil tetap boleh.
+    if os.getenv("MINISOAR_MOCK", "").lower() in {"1", "true", "yes"} and not os.getenv("WHITELIST_PATH"):
+        logger.info("[MOCK] Whitelist add skipped (no WHITELIST_PATH): IP=%s", ip)
+        return False, f"🧪 [MOCK] IP/CIDR <code>{html.escape(ip)}</code> tidak ditulis ke whitelist (WHITELIST_PATH tidak disetel)."
+
     filepath = resolve_whitelist_path()
     try:
         entries = get_whitelist_entries()
@@ -860,6 +866,10 @@ def add_to_whitelist(ip: str, reason: str = "") -> tuple[bool, str]:
 
 
 def remove_from_whitelist(ip: str) -> tuple[bool, str]:
+    if os.getenv("MINISOAR_MOCK", "").lower() in {"1", "true", "yes"} and not os.getenv("WHITELIST_PATH"):
+        logger.info("[MOCK] Whitelist remove skipped (no WHITELIST_PATH): IP=%s", ip)
+        return False, f"🧪 [MOCK] IP/CIDR <code>{html.escape(ip)}</code> tidak dihapus dari whitelist (WHITELIST_PATH tidak disetel)."
+
     filepath = resolve_whitelist_path()
     if not os.path.exists(filepath):
         return False, "❌ File whitelist tidak ditemukan."

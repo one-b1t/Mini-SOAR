@@ -345,3 +345,62 @@ def test_evaluate_and_promote_writes_root_baseline_when_mock_off(mock_off, tmp_p
 
     assert ok is True, msg
     assert "baseline_model.joblib" in dumped, f"guard mematikan update baseline produksi: {dumped}"
+
+
+# --- Whitelist produksi (cwd fallback resolve_log_path) -------------------------
+# Tanpa WHITELIST_PATH, resolve_whitelist_path() jatuh ke cwd/minisoar-whitelist.txt.
+# pytest jalan dari root repo, jadi itu = whitelist produksi Windows. Test di sini
+# chdir ke tmp berisi whitelist "produksi" palsu supaya file asli tidak dipertaruhkan,
+# lalu tetap memverifikasi file asli di root tidak berubah.
+
+ROOT_WHITELIST = ROOT / "minisoar-whitelist.txt"
+
+
+def _sha(p):
+    return hashlib.sha256(p.read_bytes()).hexdigest() if p.exists() else None
+
+
+@pytest.fixture
+def fake_prod_cwd(tmp_path, monkeypatch):
+    monkeypatch.delenv("WHITELIST_PATH", raising=False)
+    monkeypatch.chdir(tmp_path)
+    wl = tmp_path / "minisoar-whitelist.txt"
+    wl.write_text("10.9.9.9  # prod entry\n", encoding="utf-8")
+    return wl
+
+
+def test_whitelist_cwd_fallback_untouched_when_mock(mock_on, fake_prod_cwd):
+    root_before = _sha(ROOT_WHITELIST)
+    before = fake_prod_cwd.read_bytes()
+
+    ok_add, msg_add = utils.add_to_whitelist("10.2.57.246", "test")
+    ok_rm, msg_rm = utils.remove_from_whitelist("10.9.9.9")
+
+    assert (ok_add, ok_rm) == (False, False)
+    assert "MOCK" in msg_add and "MOCK" in msg_rm
+    assert fake_prod_cwd.read_bytes() == before, "whitelist di cwd tertimpa saat MINISOAR_MOCK=1"
+    assert _sha(ROOT_WHITELIST) == root_before, "minisoar-whitelist.txt di root repo tertimpa"
+
+
+def test_whitelist_explicit_path_still_works_when_mock(mock_on, fake_prod_cwd, tmp_path, monkeypatch):
+    explicit = tmp_path / "sub" / "wl.txt"
+    monkeypatch.setenv("WHITELIST_PATH", str(explicit))
+    before = fake_prod_cwd.read_bytes()
+
+    ok, _ = utils.add_to_whitelist("10.2.57.246", "test")
+    assert ok is True
+    assert "10.2.57.246" in explicit.read_text(encoding="utf-8")
+    ok, _ = utils.remove_from_whitelist("10.2.57.246")
+    assert ok is True
+    assert "10.2.57.246" not in explicit.read_text(encoding="utf-8")
+    assert fake_prod_cwd.read_bytes() == before
+
+
+def test_whitelist_cwd_fallback_still_writes_when_mock_off(mock_off, fake_prod_cwd):
+    """Arah sebaliknya: di produksi Windows fallback cwd tetap dipakai."""
+    ok, _ = utils.add_to_whitelist("10.2.57.246", "test")
+    assert ok is True
+    assert "10.2.57.246" in fake_prod_cwd.read_text(encoding="utf-8")
+    ok, _ = utils.remove_from_whitelist("10.9.9.9")
+    assert ok is True
+    assert "10.9.9.9" not in fake_prod_cwd.read_text(encoding="utf-8")
