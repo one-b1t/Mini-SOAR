@@ -121,3 +121,11 @@ docs/reports/
 reports/
 *.joblib
 
+# --- Workspace Scratch (hasil test & backup) ---
+# Isi scratch/ adalah artefak kerja lokal, bukan bagian dari repo: hasil test,
+# skrip sekali pakai, dan backup log audit.
+# Backup seperti tele-soar-actions.log.bak-<timestamp> TIDAK tertangkap aturan
+# `*.log` karena berakhiran .bak-<timestamp>, bukan .log -- padahal isinya
+# memuat IP internal, timestamp, dan catatan aksi audit. Jangan pernah di-commit.
+scratch/
+
