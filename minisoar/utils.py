@@ -859,7 +859,8 @@ def add_to_whitelist(ip: str, reason: str = "") -> tuple[bool, str]:
 
     filepath = resolve_whitelist_path()
     try:
-        entries = get_whitelist_entries()
+        # Entri disimpan sebagai "<ip>  # alasan"; bandingkan bagian IP-nya saja.
+        entries = [e.split("#", 1)[0].strip() for e in get_whitelist_entries()]
         if ip in entries:
             return True, f"IP/CIDR <code>{html.escape(ip)}</code> sudah ada dalam whitelist."
         

@@ -112,3 +112,17 @@ def test_commented_entry_does_not_hide_later_entries(monkeypatch, tmp_path):
     nets = utils.load_cidr_list_from_env_and_file("WHITELIST_IPS", str(wl))
     assert utils.is_ip_whitelisted("1.1.1.1", nets)
     assert utils.is_ip_whitelisted("10.1.2.3", nets)
+
+
+# --- Bug 2: duplikat -----------------------------------------------------------
+
+def test_add_to_whitelist_rejects_duplicate_with_reason(monkeypatch, tmp_path):
+    wl = tmp_path / "wl.txt"
+    monkeypatch.setenv("WHITELIST_PATH", str(wl))
+
+    utils.add_to_whitelist("10.2.57.246", "Internal Server")
+    ok, msg = utils.add_to_whitelist("10.2.57.246", "Internal Server")
+
+    assert ok is True and "sudah ada" in msg
+    lines = [l for l in wl.read_text(encoding="utf-8").splitlines() if l.strip()]
+    assert len(lines) == 1, f"entri duplikat: {lines}"
