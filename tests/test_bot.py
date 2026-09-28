@@ -63,6 +63,59 @@ def test_auth_guard_blocks_and_allows(monkeypatch):
     assert up_ok.replies == []
 
 
+# --- Regresi P0: auth_guard harus benar-benar terpasang di main() ---
+#
+# Handler python-telegram-bot memakai __slots__ (tidak punya __dict__), jadi
+# menandai handler langsung melempar AttributeError. Karena main() hanya
+# menangkap KeyboardInterrupt, bot crash saat start. Test auth_guard di atas
+# hanya menguji dekoratornya dan tetap hijau saat middleware mati total —
+# yang perlu dijaga adalah instalasi pasangannya di main().
+
+
+def test_main_installs_auth_guard_on_every_handler(monkeypatch):
+    import minisoar.bot as botmod
+
+    captured = {}
+
+    class _FakeApp:
+        def __init__(self):
+            self.handlers = {}
+            self.error_handler = None
+
+        def add_handler(self, handler):
+            self.handlers.setdefault(type(handler).__name__, []).append(handler)
+
+        def add_error_handler(self, fn):
+            self.error_handler = fn
+
+        def run_polling(self, *a, **kw):
+            pass
+
+    class _FakeBuilder:
+        def token(self, _t):
+            return self
+
+        def post_init(self, _fn):
+            return self
+
+        def build(self):
+            captured["app"] = _FakeApp()
+            return captured["app"]
+
+    monkeypatch.setenv("MINISOAR_MOCK", "1")
+    monkeypatch.setenv("TELEGRAM_TOKEN", "123456:FAKE")
+    monkeypatch.setattr(botmod, "ApplicationBuilder", _FakeBuilder)
+
+    # Melempar AttributeError ke pytest kalau pemasangan guard rusak.
+    botmod.main()
+
+    handlers = [h for group in captured["app"].handlers.values() for h in group]
+    assert handlers, "tidak ada handler terdaftar -- stub builder tidak terbaca"
+    unguarded = [h for h in handlers
+                 if not getattr(h.callback, "_minisoar_guarded", False)]
+    assert not unguarded, f"{len(unguarded)} handler tanpa auth_guard"
+
+
 def test_auth_guard_blocks_callback_query(monkeypatch):
     import asyncio
     monkeypatch.setenv("ALLOWED_USERS", "12345")

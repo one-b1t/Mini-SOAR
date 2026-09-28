@@ -91,6 +91,10 @@ def auth_guard(handler):
                 await update.message.reply_text("❌ Maaf, kamu tidak punya akses ke bot ini.")
             return
         return await handler(update, context)
+    # Tandai pada FUNGSI wrapper, bukan pada objek Handler: CommandHandler PTB
+    # memakai __slots__ dan tidak punya __dict__, jadi setattr di situ melempar
+    # AttributeError dan mematikan seluruh bot saat start.
+    _guarded._minisoar_guarded = True
     return _guarded
 
 
@@ -1563,9 +1567,9 @@ def main() -> None:
         # terdaftar. Handler baru otomatis terlindungi, tanpa edit baris registrasi.
         for _group in app.handlers.values():
             for _handler in _group:
-                if hasattr(_handler, "callback") and not getattr(_handler, "_minisoar_guarded", False):
+                if (hasattr(_handler, "callback")
+                        and not getattr(_handler.callback, "_minisoar_guarded", False)):
                     _handler.callback = auth_guard(_handler.callback)
-                    _handler._minisoar_guarded = True
 
         app.add_error_handler(on_error)
 
