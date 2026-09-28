@@ -164,3 +164,73 @@ def test_vision_one_path_uses_same_strict_match(vision_one):
     ]):
         eps, _ = trendmicro.find_endpoint_by_ip("10.0.0.50")
     assert [e["endpointId"] for e in eps] == ["guid-str", "guid-last"]
+
+
+# --- Cloud One Workload (computers/search) ----------------------------------------
+# Jalur ini hanya mengandalkan searchCriteria sisi server. Tidak ada bukti bahwa
+# server memfilter ketat, dan isolate/restore mengambil endpoints[0], jadi satu
+# computer yang tidak cocok = host yang salah gets contained.
+
+
+@pytest.fixture
+def cloud_one(monkeypatch):
+    monkeypatch.setenv("MINISOAR_MOCK", "0")
+    monkeypatch.setenv("TRENDMICRO_API_KEY", "fake-token-for-tests")
+    monkeypatch.setenv("TRENDMICRO_BASE_URL", "https://workload.us-1.cloudone.trendmicro.com/api")
+
+    posted = []
+
+    def use(computers):
+        def fake_post(url, *a, json=None, **kw):
+            posted.append(url)
+            resp = MagicMock()
+            resp.status_code = 200
+            resp.text = "{}"
+            if "computers/search" in url:
+                resp.json.return_value = {"computers": computers}
+            else:
+                resp.json.return_value = {}
+            return resp
+
+        return patch("requests.post", side_effect=fake_post), posted
+
+    return use
+
+
+def test_cloud_one_only_matching_computer_passes(cloud_one):
+    p, _ = cloud_one([
+        {"ID": 1, "displayName": "HOST-LAIN", "ipAddresses": ["10.0.0.51"]},
+        {"ID": 2, "displayName": "HOST-TARGET", "ipAddresses": ["10.0.0.50"]},
+    ])
+    with p:
+        eps, err = trendmicro.find_endpoint_by_ip("10.0.0.50")
+    assert err is None
+    assert [e["endpointId"] for e in eps] == ["2"], eps
+
+
+def test_cloud_one_computer_without_ip_is_not_a_match(cloud_one):
+    p, _ = cloud_one([
+        {"ID": 1, "displayName": "HOST-TANPA-IP"},
+        {"ID": 2, "displayName": "HOST-LAIN", "ipAddresses": ["10.0.0.51"]},
+    ])
+    with p:
+        eps, _ = trendmicro.find_endpoint_by_ip("10.0.0.50")
+    assert eps == [], eps
+
+
+@pytest.mark.parametrize("action", ["isolate_endpoint", "restore_endpoint"])
+def test_cloud_one_no_match_does_not_call_action_api(cloud_one, action):
+    p, posted = cloud_one([{"ID": 1, "displayName": "HOST-TANPA-IP"}])
+    with p:
+        ok, msg, _ = getattr(trendmicro, action)(ip="10.0.0.50")
+    assert ok is False and "10.0.0.50" in msg, msg
+    assert all("computers/search" in u for u in posted), f"{action} memanggil API action: {posted}"
+
+
+def test_cloud_one_matched_ip_is_reported(cloud_one):
+    """Arah sebaliknya: computer yang IP-nya cocok tetap ditemukan."""
+    p, _ = cloud_one([{"ID": 7, "displayName": "HOST-TARGET", "hostName": "h7", "ipAddresses": ["10.0.0.50"]}])
+    with p:
+        eps, _ = trendmicro.find_endpoint_by_ip("10.0.0.50")
+    assert [e["endpointId"] for e in eps] == ["7"]
+    assert "10.0.0.50" in eps[0]["ip"]

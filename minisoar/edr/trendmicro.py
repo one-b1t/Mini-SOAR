@@ -152,12 +152,18 @@ def find_endpoint_by_ip(ip: str) -> tuple[list[dict[str, Any]], str | None]:
             raw_computers = data.get("computers", [])
             normalized = []
             for c in raw_computers:
+                ips = _endpoint_ips(c)
+                # searchCriteria sisi server tidak dijamin ketat; isolate/restore
+                # mengambil endpoints[0], jadi filter lokal wajib (sama seperti
+                # jalur Vision One dan eiqs di bawah).
+                if ip not in ips:
+                    continue
                 normalized.append({
                     "endpointId": str(c.get("ID")),
                     "endpointName": c.get("displayName") or c.get("hostName"),
                     "hostName": c.get("hostName"),
                     "osName": c.get("platform", "Unknown OS"),
-                    "ip": [c.get("IPAddress")],
+                    "ip": ips,
                     "agentVersion": c.get("agentVersion"),
                     "isolationStatus": "isolated" if c.get("securityStatus", {}).get("antiMalwareStatus") == "quarantined" else "normal",
                 })
