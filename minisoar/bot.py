@@ -489,6 +489,16 @@ async def activateakamai(update: Update, context: ContextTypes.DEFAULT_TYPE):
     logfile = await asyncio.to_thread(resolve_log_path, "LOGFILE", "/var/log/tele-soar-actions.log", "tele-soar-actions.log")
     await asyncio.to_thread(log_user_action, "activate_akamai", user, ip=None, target="Akamai", source="command", chat_id=update.effective_chat.id, logfile=logfile)
 
+    # Jejak audit lokal di atas TETAP ditulis walau mode mock — hanya jaringan dimatikan.
+    if os.getenv("MINISOAR_MOCK", "").lower() in {"1", "true", "yes"}:
+        logger.info("[MOCK] activateakamai: skip, no Akamai call")
+        await update.message.reply_text(
+            "🧪 <b>Mode mock aktif.</b> Aktivasi Akamai dilewati — tidak ada permintaan "
+            "yang dikirim ke API Akamai (STAGING/PRODUCTION).",
+            parse_mode="HTML",
+        )
+        return
+
     session = akamai.akamai_session(
         client_token=os.getenv("AKAMAI_CLIENT_TOKEN", ""),
         client_secret=os.getenv("AKAMAI_CLIENT_SECRET", ""),
@@ -1117,6 +1127,17 @@ async def rca_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
 
 async def retrainmodel_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE):
+
+    # Guard HARUS jadi statement pertama: run_autotrain_from_file() menarik sampel
+    # dari index ES minisoar-labels-* lalu menulis model produksi.
+    if os.getenv("MINISOAR_MOCK", "").lower() in {"1", "true", "yes"}:
+        logger.info("[MOCK] retrainmodel_cmd: skip, no ES read / no model write")
+        await update.message.reply_text(
+            "🧪 <b>Mode mock aktif.</b> Auto-retraining dilewati — tidak ada sampel "
+            "yang diambil dari Elasticsearch dan model produksi tidak ditulis.",
+            parse_mode="HTML",
+        )
+        return
 
     from .ml.autotrain import run_autotrain_from_file
 
