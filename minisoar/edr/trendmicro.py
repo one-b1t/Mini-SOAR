@@ -102,6 +102,17 @@ def check_connectivity() -> dict[str, Any]:
         }
 
 
+def _endpoint_ips(item: dict[str, Any]) -> list[str]:
+    """Kumpulkan IP endpoint dari ipAddresses/ip/lastUsedIp (string atau list), tanpa nilai kosong."""
+    ips: list[str] = []
+    for key in ("ipAddresses", "ip", "lastUsedIp"):
+        val = item.get(key)
+        for v in (val if isinstance(val, (list, tuple)) else [val]):
+            if isinstance(v, str) and v.strip() and v.strip() not in ips:
+                ips.append(v.strip())
+    return ips
+
+
 def find_endpoint_by_ip(ip: str) -> tuple[list[dict[str, Any]], str | None]:
     """Searches for endpoints matching an IP address in Trend Micro."""
     if os.getenv("MINISOAR_MOCK", "").lower() in {"1", "true", "yes"}:
@@ -182,18 +193,17 @@ def find_endpoint_by_ip(ip: str) -> tuple[list[dict[str, Any]], str | None]:
                 items = data.get("items") or data.get("endpoints") or []
                 matched_legacy = []
                 for it in items:
-                    ips = list(it.get("ipAddresses") or it.get("ip") or [])
-                    if isinstance(ips, str):
-                        ips = [ips]
-                    if it.get("lastUsedIp") and it.get("lastUsedIp") not in ips:
-                        ips.append(it.get("lastUsedIp"))
-                    if not ips or ip in ips:
+                    ips = _endpoint_ips(it)
+                    # Wajib cocok eksak. Endpoint tanpa IP sama sekali BUKAN "cocok":
+                    # server eiqs tidak terbukti menghormati ?ip=, dan pemanggil
+                    # (isolate/restore) mengambil elemen pertama.
+                    if ip in ips:
                         matched_legacy.append({
                             "endpointId": it.get("agentGuid") or it.get("endpointId") or it.get("entityId") or it.get("id"),
                             "endpointName": it.get("endpointName") or it.get("displayName") or it.get("hostName"),
                             "hostName": it.get("hostName") or it.get("endpointName"),
                             "osName": it.get("osName", "Unknown OS"),
-                            "ip": ips if ips else [ip],
+                            "ip": ips,
                             "agentVersion": it.get("eppAgent", {}).get("version") or it.get("edrSensor", {}).get("version") or it.get("agentVersion", ""),
                             "isolationStatus": "isolated" if it.get("isolationStatus") in ("on", "isolated") else "normal",
                         })
