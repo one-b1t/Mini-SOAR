@@ -132,13 +132,24 @@ class TelegramConfig:
     token: str
     chat_id: str
     process_chat_id: str
+    drop_pending_updates: bool = True
 
 
 def telegram_config() -> TelegramConfig:
     token = os.getenv("TELEGRAM_TOKEN") or os.getenv("TELEGRAM_BOT", "")
     chat_id = os.getenv("TELEGRAM_CHAT_ID", "")
     process_chat_id = os.getenv("TELEGRAM_PROCESS_CHAT_ID", "") or chat_id
-    return TelegramConfig(token=token, chat_id=chat_id, process_chat_id=process_chat_id)
+    raw_drop = os.getenv("TELEGRAM_DROP_PENDING_UPDATES", os.getenv("DROP_PENDING_UPDATES"))
+    if raw_drop is not None:
+        drop_pending = raw_drop.strip().lower() not in {"0", "false", "no", "off"}
+    else:
+        drop_pending = True
+    return TelegramConfig(
+        token=token,
+        chat_id=chat_id,
+        process_chat_id=process_chat_id,
+        drop_pending_updates=drop_pending,
+    )
 
 
 def get_configured_providers() -> dict[str, bool]:

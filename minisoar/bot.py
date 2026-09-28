@@ -1753,7 +1753,7 @@ def main() -> None:
         app.add_error_handler(on_error)
 
         print("Bot Telegram miniSOAR Enterprise aktif...")
-        app.run_polling()
+        app.run_polling(drop_pending_updates=cfg.drop_pending_updates)
 
     except telegram.error.InvalidToken as exc:
         # Bot ditolak Telegram karena token tidak valid. Cukup sering terjadi
