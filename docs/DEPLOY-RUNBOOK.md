@@ -7,7 +7,7 @@ Dokumen ini ditujukan bagi **Operator Sistem / Tim DevOps** yang mengeksekusi pe
 
 ## DAFTAR ISI
 1. [Syarat Mutlak Pre-Deployment Gate](#1-syarat-mutlak-pre-deployment-gate)
-2. [11 Risiko Kritis Produksi & Prosedur Mitigasi](#2-11-risiko-kritis-produksi--prosedur-mitigasi)
+2. [12 Risiko Kritis Produksi & Prosedur Mitigasi](#2-12-risiko-kritis-produksi--prosedur-mitigasi)
    - [Poin 1: Jalur File Whitelist (Paling Kritis)](#poin-1-jalur-file-whitelist-paling-kritis)
    - [Poin 2: Sanitasi Duplikasi Entri Whitelist](#poin-2-sanitasi-duplikasi-entri-whitelist)
    - [Poin 3: Mekanisme Auto-Reload Whitelist pada Daemon](#poin-3-mekanisme-auto-reload-whitelist-pada-daemon)
@@ -19,6 +19,7 @@ Dokumen ini ditujukan bagi **Operator Sistem / Tim DevOps** yang mengeksekusi pe
    - [Poin 9: Token Bot Telegram Bocor ke Log (journald) - WAJIB ROTASI](#poin-9-token-bot-telegram-bocor-ke-log-journald---wajib-rotasi)
    - [Poin 10: Command yang Dikirim Saat Bot Mati Dieksekusi Saat Bot Hidup Lagi](#poin-10-command-yang-dikirim-saat-bot-mati-dieksekusi-saat-bot-hidup-lagi)
    - [Poin 11: Jumlah Command di Menu Bot (34 vs 38)](#poin-11-jumlah-command-di-menu-bot-34-vs-38)
+   - [Poin 12: Status Perimeter per 2026-09-28 (3 Dimatikan)](#poin-12-status-perimeter-per-2026-09-28-3-dimatikan)
 3. [Checklist Urutan Eksekusi Deployment (Step-by-Step)](#3-checklist-urutan-eksekusi-deployment-step-by-step)
 
 ---
@@ -42,7 +43,7 @@ python -m pytest tests -q -m "not e2e"
 
 ---
 
-## 2. 11 Risiko Kritis Produksi & Prosedur Mitigasi
+## 2. 12 Risiko Kritis Produksi & Prosedur Mitigasi
 
 ### Poin 1: Jalur File Whitelist (Paling Kritis)
 
@@ -315,6 +316,9 @@ Opsional: menghapus journal lama (`journalctl --vacuum-*`) ikut menghapus **semu
 - **Dibuktikan di uji E2E 2026-09-28:** 17 command yang dikirim saat bot mati (`/unblock_imperva`, `/block_palo`, `/unblock_palo`, `/block_akamai`, `/unblock_akamai`, `/block_cf`, `/unblock_cf`, `/block_forti`, `/unblock_forti`, `/isolate_host`, `/restore_host`, `/add_edr_ioc`, `/commit_palo`, `/whitelist_add`, `/whitelist_remove`, `/activate_akamai`, `/retrainmodel`) dieksekusi **~6 menit kemudian**, begitu bot dinyalakan, tanpa konfirmasi ulang. (Uji itu berjalan dengan `MINISOAR_MOCK=1`, jadi tidak ada aksi nyata.)
 - Batas berapa lama Telegram menyimpan pesan tertunda **BELUM DIVERIFIKASI** di sesi ini.
 
+> [!NOTE]
+> **Catatan status per 2026-09-28 (lihat Poin 12).** Daftar 17 command di atas adalah **catatan kejadian**, bukan spesifikasi perilaku sekarang. Empat di antaranya, yaitu `/block_cf`, `/unblock_cf`, `/block_forti`, `/unblock_forti`, kini **ditolak dengan pesan eksplisit** dan tidak lagi melakukan panggilan API apa pun. `/isolate_host` ke Kaspersky juga ditolak. Jadi kalau backlog lama berisi command itu, menghidupkan bot akan menjalankannya lalu **membalas penolakan**, bukan memblokir apa pun. Bukti E2E 2026-09-28 tetap sah sebagai catatan kejadian: yang diukur adalah *backlog dieksekusi tanpa konfirmasi*, dan itu tidak berubah oleh Poin 12.
+
 #### Konsekuensi untuk bot SOC
 - `/block_palo` yang dikirim analis jam 03.00 saat outage bisa dieksekusi jam 09.00 saat bot dinyalakan lagi, **tanpa operator tahu**, padahal situasinya mungkin sudah berubah (IP sudah tidak relevan, sudah ditangani manual).
 - Urutan bisa terputus: `/commit_palo` bisa berjalan tanpa `/block_palo` yang seharusnya menyertainya (misalnya salah satunya dikirim sebelum outage, yang lain saat outage), sehingga commit berisi perubahan yang tidak diharapkan.
@@ -364,13 +368,78 @@ Saat start, bot mengisi menu command Telegram sesuai provider yang terkonfiguras
 ```
 Rincian N: 7 dasar + Imperva 3 + Palo Alto 4 + Akamai 4 + **Cloudflare 2** + **FortiGate 2** + EDR 5 + 11 case/AI/lainnya = **38** bila semua provider aktif.
 
-Pada 2026-09-28 bot mencatat **34** = 38 − 2 (`/block_cf`, `/unblock_cf`) − 2 (`/block_forti`, `/unblock_forti`), karena kredensial Cloudflare (`CLOUDFLARE_API_TOKEN` + `CLOUDFLARE_ZONE_ID`) dan FortiGate (`FORTIGATE_HOST` + `FORTIGATE_API_TOKEN`) tidak diisi di `.env`. Itu **perilaku yang benar**, bukan error.
+**Perubahan 2026-09-28 (lihat Poin 12):** angka **34** itu benar dan kini **pasti**. Cloudflare dan FortiGate tidak sekadar belum punya kredensial, melainkan **dimatikan total**: `get_configured_providers()` memaksa keduanya `False` apa pun isi `.env`, sehingga kredensial tidak lagi berperan apa pun dan mengisi `.env` tidak akan pernah memunculkan kembali keempat command itu.
 
 Catatan untuk operator:
-- Yang disembunyikan hanya **menu**. Handler `/block_cf`, `/unblock_cf`, `/block_forti`, `/unblock_forti` tetap terdaftar, jadi bisa diketik manual. Tanpa kredensial, balasannya berupa pesan "not configured"; di mode mock, balasannya sukses bertanda `(Mock)`. Itulah sebabnya uji E2E mock menguji keempatnya walaupun menu hanya berisi 34.
-- Menu menganggap provider "terkonfigurasi" bila **salah satu** variabelnya terisi, sedangkan modul mitigasi mensyaratkan **keduanya**. Kalau hanya satu variabel diisi, command muncul di menu tetapi tetap membalas "not configured". Isi **pasangan** variabelnya lengkap atau kosongkan keduanya.
-- **FortiGate:** modul membaca `FORTIGATE_API_TOKEN` (sesuai `env.example`), sedangkan pengecekan menu (`get_configured_providers` di `minisoar/config.py`) membaca `FORTIGATE_API_KEY`. Pakai **`FORTIGATE_API_TOKEN`** di `.env`; menu tetap muncul karena `FORTIGATE_HOST` terisi.
-- Angka 38 kasus di harness E2E (`scratch/e2e_command_matrix.py`) kebetulan sama dengan 38 command di menu, tetapi dihitung dengan cara berbeda. Jangan dicocokkan satu per satu.
+- **Berubah 2026-09-28:** keempat handler tersebut **tidak lagi membalas "not configured"**. `/block_cf`, `/unblock_cf`, `/block_forti`, `/unblock_forti` kini menolak dengan pesan eksplisit bahwa provider-nya dimatikan total, dan penolakan terjadi **sebelum** ada panggilan API, termasuk di mode mock. Uji E2E mock lama yang mengharapkan `(Mock)` dari keempatnya sudah tidak berlaku.
+- Blok EDR 5 command di menu dijaga oleh kondisi `kaspersky OR trendmicro`. Karena Kaspersky dipaksa `False`, **sekarang TrendMicro yang menentukan**. Kalau `.env` punya kredensial KSC tetapi tidak punya `TRENDMICRO_API_KEY`/`TRENDMICRO_VISION_ONE_URL`, menu turun menjadi **29**, bukan 34.
+- Menu menganggap provider "terkonfigurasi" bila **salah satu** variabelnya terisi, sedangkan modul mitigasi mensyaratkan **keduanya**. Kalau hanya satu variabel diisi, command muncul di menu tetapi tetap membalas "not configured". Isi **pasangan** variabelnya lengkap atau kosongkan keduanya. Catatan ini masih berlaku untuk provider yang masih hidup, yaitu Imperva, Palo Alto, Akamai, dan TrendMicro.
+- **FortiGate:** modul membaca `FORTIGATE_API_TOKEN` (sesuai `env.example`), sedangkan pengecekan menu (`get_configured_providers` di `minisoar/config.py`) membaca `FORTIGATE_API_KEY`. Ketidaksesuaian ini **tidak lagi muncul di menu** selama FortiGate dimatikan, tetapi tetap benar secara kode. Kalau nanti dihidupkan kembali, pakai **`FORTIGATE_API_TOKEN`**.
+- Harness E2E kini berada di **`tests/tools/e2e_command_matrix.py`** (ter-track), bukan `scratch/e2e_command_matrix.py`. Folder `scratch/` masuk `.gitignore`, jadi harness yang di sana hilang dari repo dan tidak ikut ter-deploy.
+- Jumlah kasus harness tetap **38**, kebetulan sama dengan 38 command di menu, tetapi dihitung dengan cara berbeda. Jangan dicocokkan satu per satu.
+- **Mode real lebih ketat dari mode mock.** `select_cases(real=True)` menjalankan **23 dari 38** kasus. Yang diizinkan: PaloAlto, Akamai, TrendMicro, dan whitelist, ditambah command baca saja seperti `/help`, `/health`, `/cases`, `/case`, `/export_case`, `/socmetrics`, `/edrstatus`, `/blocked`, `/intel`, `/ask_ai`, `/rca`, `/ai_provider`, `/ai_model`, `/trace_palo`, dan `/trace_akamai`. Yang diblokir: Cloudflare, FortiGate, EDR-Kaspersky, Imperva, dan **seluruh isolasi host** (`HOST_ISOLATION_BLOCKED = True`, dikunci di kode, bukan opsional).
+- **Celah yang belum ditutup:** `/trace_imperva` **masih** ikut berjalan di mode real. `HANDLER_PERIMETER` memetakan perimeter dengan mencocokkan nama handler sebagai substring, sedangkan handler `/trace_imperva` bernama `tracev` sehingga tidak memuat kata `imperva`; ia lolos dari daftar Imperva. Operasinya hanya membaca, jadi risikonya rendah, tetapi pernyataan "Imperva tidak diizinkan di mode real" **belum sepenuhnya benar**.
+
+---
+
+### Poin 12: Status Perimeter per 2026-09-28 (3 Dimatikan)
+
+> [!IMPORTANT]
+> **Ini keputusan operasional, bukan keputusan teknis.** Kode MiniSOAR untuk Cloudflare,
+> FortiGate, dan Kaspersky masih ada dan masih bisa dijalankan. Yang berubah adalah
+> lingkungan kerja **tidak memiliki** perimeter itu, sehingga MiniSOAR tidak boleh
+> memberi kesan bahwa IP sudah diamankan di sana.
+
+#### Status
+
+| Perimeter | Status | Alasan |
+|---|---|---|
+| PaloAlto | AKTIF & terkonfirmasi | Dimiliki dan dipakai. |
+| Akamai | AKTIF & terkonfirmasi | Dimiliki dan dipakai. |
+| TrendMicro Vision One | AKTIF & terkonfirmasi | Dimiliki dan dipakai. |
+| Cloudflare | DIMATIKAN TOTAL | Tidak dimiliki di tempat kerja. Kredensial tidak ada dan tidak akan diisi. |
+| Fortinet FortiGate | DIMATIKAN TOTAL | Tidak dimiliki di tempat kerja. Kredensial tidak ada dan tidak akan diisi. |
+| Kaspersky Security Center | DIMATIKAN TOTAL | Tidak dimiliki, dan asal-usul penambahan IoC tidak jelas. Selain itu tidak ada endpoint hapus IoC yang terdokumentasi di KSC OpenAPI 15.1 sampai 15.3 (`IoCRepository.*` tidak ditemukan), sehingga IoC yang pernah masuk tidak dapat ditarik kembali. |
+
+> [!CAUTION]
+> **Kenapa ini penting secara operasional, bukan sekadar kosmetik.** Sebelumnya MiniSOAR tetap
+> bisa membalas sukses, Minimal "not configured", untuk perimeter yang sebenarnya tidak
+> dipantau siapa pun. Akibatnya ada **rasa aman semu**: analis mengira IP sudah diblokir,
+> padahal tidak ada yang memblokirnya. Sekarang jalur itu menolak terbuka, sehingga keadaannya
+> jelas dan bisa ditindaklanjuti.
+
+#### Bagaimana cara dimatikannya
+
+Dikendalikan oleh **satu konstanta** di `minisoar/config.py`:
+
+```python
+PERIMETER_NONAKTIF: frozenset[str] = frozenset({"cloudflare", "fortigate", "kaspersky"})
+```
+
+Semua jalur meng-populate dari konstanta itu. Tidak ada daftar terpisah di tempat lain.
+
+| Jalur | Perilaku |
+|---|---|
+| `minisoar/config.py` | `get_configured_providers()` memaksa ketiganya `False` walau `.env` terisi penuh. Kredensial sisa tidak membuat jalur mati terlihat hidup. |
+| `minisoar/mitigation/core.py` | `trigger_auto_block` dan `trigger_auto_unblock` menolak **sebelum** cabang dispatch, jadi operator dapat pesan jelas, bukan `No mitigation action configured`. |
+| `minisoar/mitigation/core.py` | `check_perimeter_connectivity` tidak lagi melakukan probe ke Cloudflare atau FortiGate, dan mengembalikan baris `disabled: True`. |
+| `minisoar/edr/core.py` | `all` tidak lagi menyertakan Kaspersky, dan `ksc`/`kl`/`kaspersky` eksplisit ditolak. Berlaku untuk `isolate_endpoint`, `restore_endpoint`, `add_edr_ioc`, `query_endpoint`, dan `check_all_edr_connectivity`. |
+| `minisoar/bot.py` | `blockoncf_cmd`, `unblockoncf_cmd`, `blockonforti_cmd`, `unblockonforti_cmd`, ditambah `isolatehost`, `restorehost`, dan `addedrioc` menolak sebelum memanggil API. |
+
+File connector `minisoar/mitigation/cloudflare.py`, `minisoar/mitigation/fortigate.py`, dan
+`minisoar/edr/kaspersky.py` **sengaja tidak dihapus**. Kodenya utuh dan hanya tidak terjangkau,
+supaya penghidupan kembali tidak butuh menulis ulang integrasi.
+
+#### Kalau nanti dihidupkan kembali
+
+1. Hapus nama provider dari `PERIMETER_NONAKTIF` di `minisoar/config.py`.
+2. Jalankan `python -m pytest tests/test_perimeter_disabled.py -q`. Test itu sengaja ditulis
+   **menentang nilai konstanta**, jadi akan gagal dan memberi tahu semua titik yang perlu dibuka
+   lagi.
+3. Pastikan `.env` memakai nama variabel yang benar dibaca modul, yaitu `FORTIGATE_API_TOKEN`
+   dan bukan `FORTIGATE_API_KEY`. Lihat Poin 11.
+4. Untuk Kaspersky, pastikan dulu ada endpoint hapus IoC yang bisa diverifikasi, karena tanpa itu
+   setiap IoC yang ditambahkan bersifat permanen.
 
 ---
 
