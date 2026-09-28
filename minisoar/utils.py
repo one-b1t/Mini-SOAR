@@ -137,6 +137,23 @@ def load_cidr_list_from_env_and_file(env_key: str, file_path: str) -> list[str]:
     return out
 
 
+def reload_cidr_list_if_changed(
+    env_key: str, file_path: str, nets: list[str], signature: Any
+) -> tuple[list[str], Any]:
+    """Muat ulang daftar CIDR hanya bila file berubah (mtime/ukuran).
+
+    Panggil pertama kali dengan signature=None. Return (nets, signature baru).
+    """
+    try:
+        st = os.stat(file_path)
+        new_sig = (st.st_mtime_ns, st.st_size)
+    except OSError:
+        new_sig = "missing"
+    if signature is not None and new_sig == signature:
+        return nets, signature
+    return load_cidr_list_from_env_and_file(env_key, file_path), new_sig
+
+
 def ip_in_nets(ip: str, nets: list[str]) -> bool:
     try:
         ip_addr = ipaddress.ip_address(ip)

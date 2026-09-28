@@ -40,7 +40,11 @@ def _daemon_whitelist_path(monkeypatch):
         return []
 
     monkeypatch.setattr(daemon, "load_env", lambda *a, **kw: None)
+    # Tambal di kedua tempat: daemon bisa memuat langsung atau lewat
+    # utils.reload_cidr_list_if_changed. Kalau stop ini tidak kena, daemon.main
+    # masuk loop utama dan menggantung di Redis.
     monkeypatch.setattr(daemon, "load_cidr_list_from_env_and_file", fake_load)
+    monkeypatch.setattr(utils, "load_cidr_list_from_env_and_file", fake_load)
     with pytest.raises(_StopDaemon):
         daemon.main()
     return seen["path"]
@@ -183,3 +187,83 @@ def test_invalid_entry_does_not_hide_entries_before_or_after(caplog):
 
 def test_invalid_ip_argument_is_not_whitelisted():
     assert utils.ip_in_nets("bukan-ip", ["10.0.0.0/8"]) is False
+
+
+# --- Daemon reload whitelist saat file berubah ----------------------------------
+
+def test_reload_cidr_list_only_when_file_changes(monkeypatch, tmp_path):
+    wl = tmp_path / "wl.txt"
+    wl.write_text("10.0.0.1\n", encoding="utf-8")
+    monkeypatch.delenv("WHITELIST_IPS", raising=False)
+
+    nets, sig = utils.reload_cidr_list_if_changed("WHITELIST_IPS", str(wl), [], None)
+    assert nets == ["10.0.0.1"]
+
+    loads = []
+    real = utils.load_cidr_list_from_env_and_file
+    monkeypatch.setattr(utils, "load_cidr_list_from_env_and_file", lambda *a: loads.append(a) or real(*a))
+
+    same, sig2 = utils.reload_cidr_list_if_changed("WHITELIST_IPS", str(wl), nets, sig)
+    assert same is nets and sig2 == sig and loads == [], "file tidak berubah tapi tetap dimuat ulang"
+
+    wl.write_text("10.0.0.1\n10.0.0.2  # baru\n", encoding="utf-8")
+    nets3, _ = utils.reload_cidr_list_if_changed("WHITELIST_IPS", str(wl), nets, sig)
+    assert nets3 == ["10.0.0.1", "10.0.0.2"]
+
+
+def test_reload_cidr_list_initial_load_keeps_env_when_file_missing(monkeypatch, tmp_path):
+    monkeypatch.setenv("WHITELIST_IPS", "10.9.9.9")
+    nets, _ = utils.reload_cidr_list_if_changed("WHITELIST_IPS", str(tmp_path / "tidak-ada.txt"), [], None)
+    assert nets == ["10.9.9.9"]
+
+
+def test_daemon_picks_up_whitelist_added_after_start(monkeypatch, tmp_path):
+    """End-to-end daemon.main: IP di-whitelist lewat bot SETELAH daemon start harus berlaku
+    pada event berikutnya, tanpa restart."""
+    import json
+
+    wl = tmp_path / "wl.txt"
+    wl.write_text("# kosong\n", encoding="utf-8")
+    monkeypatch.setenv("WHITELIST_PATH", str(wl))
+    monkeypatch.setenv("LOGFILE", str(tmp_path / "audit.log"))
+    monkeypatch.setenv("UNMAPPED_LOG_PATH", str(tmp_path / "unmapped.log"))
+    for k in ("WHITELIST_IPS", "BYPASS_IPS", "WHITELIST_FILE"):
+        monkeypatch.delenv(k, raising=False)
+
+    ip = "203.0.113.77"
+    event = json.dumps({"alert": {"src_ip": ip, "server_name": "x.test", "type": "alert_url_probe"}})
+    pops = []
+
+    class _Redis:
+        def blpop(self, key, timeout=0):
+            pops.append(1)
+            if len(pops) == 1:
+                return (key, event)
+            if len(pops) == 2:
+                # Analis menambah IP lewat /whitelist_add saat daemon sudah jalan.
+                ok, _ = utils.add_to_whitelist(ip, "ditambah saat daemon jalan")
+                assert ok
+                return (key, event)
+            raise KeyboardInterrupt
+
+        def __getattr__(self, name):
+            return lambda *a, **kw: None
+
+    seen = []
+    real_is_wl = daemon.is_ip_whitelisted
+
+    def spy(ip_, nets):
+        res = real_is_wl(ip_, nets)
+        seen.append(res)
+        return res
+
+    monkeypatch.setattr(daemon, "load_env", lambda *a, **kw: None)
+    monkeypatch.setattr(daemon, "redis_client", lambda: _Redis())
+    # log_unmapped_site_once_per_day mengambil redis_client dari database.py.
+    import minisoar.database as db
+    monkeypatch.setattr(db, "redis_client", lambda: _Redis())
+    monkeypatch.setattr(daemon, "is_ip_whitelisted", spy)
+
+    daemon.main()
+
+    assert seen[:2] == [False, True], f"daemon tidak memuat ulang whitelist: {seen}"

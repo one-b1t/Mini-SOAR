@@ -53,6 +53,7 @@ from .utils import (
     log_user_action,
     notify_action_log,
     provider_badge,
+    reload_cidr_list_if_changed,
     resolve_log_path,
     resolve_whitelist_path,
     send_telegram,
@@ -167,7 +168,9 @@ def main() -> None:
 
     # Load bypass and whitelist networks
     bypass_nets = load_cidr_list_from_env_and_file("BYPASS_IPS", bypass_file_path)
-    whitelist_nets = load_cidr_list_from_env_and_file("WHITELIST_IPS", whitelist_file_path)
+    # Dimuat ulang per event bila file berubah (lihat loop), supaya IP dari
+    # /whitelist_add langsung berlaku tanpa restart daemon.
+    whitelist_nets, whitelist_sig = reload_cidr_list_if_changed("WHITELIST_IPS", whitelist_file_path, [], None)
 
     # Helper function for checking bypass
     def is_ip_bypassed(ip_addr: str) -> bool:
@@ -334,6 +337,9 @@ def main() -> None:
                 if not mapped:
                     log_unmapped_site_once_per_day(website, event, unmapped_log_path, unmapped_log_ttl)
 
+                whitelist_nets, whitelist_sig = reload_cidr_list_if_changed(
+                    "WHITELIST_IPS", whitelist_file_path, whitelist_nets, whitelist_sig
+                )
                 whitelisted = bool(ip and is_ip_whitelisted(ip, whitelist_nets))
                 bypassed = bool(ip and is_ip_bypassed(ip))
 
