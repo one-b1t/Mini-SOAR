@@ -61,7 +61,7 @@ def test_konstanta_punya_komentar_alasan_dan_kapan_boleh_dihapus():
         j -= 1
     teks = "\n".join(komentar).lower()
     assert "alasan" in teks, "konstanta wajib punya komentar soal alasan"
-    assert "hapus" in teks or "Hidupkan" in teks, "konstanta wajib punya komentar kapan boleh dihapus/diaktifkan lagi"
+    assert "hapus" in teks or "hidupkan" in teks, "konstanta wajib punya komentar kapan boleh dihapus/diaktifkan lagi"
 
 
 @pytest.mark.parametrize("alias,canonical", sorted(ALIASES.items()))
@@ -116,9 +116,16 @@ def test_trigger_auto_unblock_menolak_provider_mati(no_network, provider):
 
 
 def test_check_perimeter_connectivity_tidak_menyentuh_provider_mati(no_network):
-    for row in mit_core.check_perimeter_connectivity():
-        if row.get("provider") in DEAD:
-            assert row.get("disabled") is True, row
+    """Baris provider mati harus ADA dan ditandai disabled.
+
+    Versi lama memfilter di dalam loop, jadi kalau check_perimeter_connectivity()
+    berhenti mengembalikan cloudflare/fortigate sama sekali, loop tidak pernah
+    masuk dan test tetap hijau tanpa membuktikan apa pun.
+    """
+    rows = {r["provider"]: r for r in mit_core.check_perimeter_connectivity()}
+    for dead in ("cloudflare", "fortigate"):
+        assert dead in rows, f"baris {dead} hilang dari check_perimeter_connectivity()"
+        assert rows[dead].get("disabled") is True, rows[dead]
 
 
 # --- 4. EDR: "all" tidak lagi menyertakan kaspersky ------------------------
