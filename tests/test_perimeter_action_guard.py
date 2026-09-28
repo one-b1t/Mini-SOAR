@@ -80,22 +80,15 @@ def _ctx() -> ExecutionContext:
 
 # --- kontrol positif: fixture-nya benar-benar bisa menyala --------------------
 
-def test_positive_control_cloudflare_connector_would_reach_http(live_creds_no_network):
-    from minisoar.mitigation import cloudflare
+def test_positive_control_an_active_perimeter_really_reaches_http(live_creds_no_network):
+    # Kalau fixture ini tidak armed, semua test di file ini lulus karena
+    # "tidak error" saja. Bukti: perimeter yang AKTIF, dengan MOCK=0, memang
+    # sampai ke requests. Batasnya jelas - yang diuji adalah fixture-nya, bukan
+    # connector yang sedang dimatikan.
+    from minisoar.mitigation import paloalto
 
-    assert cloudflare.is_configured() is True, "kredensial palsu harusnya cukup"
-    ok, message = cloudflare.block_ip("198.51.100.55")
-    assert ok is False
-    assert SENTINEL in message, message
-
-
-def test_positive_control_fortigate_connector_would_reach_http(live_creds_no_network):
-    from minisoar.mitigation import fortigate
-
-    assert fortigate.is_configured() is True, "kredensial palsu harusnya cukup"
-    ok, message = fortigate.block_ip("198.51.100.55")
-    assert ok is False
-    assert SENTINEL in message, message
+    resp = paloalto.palo_api_request("192.0.2.1", {"type": "op", "cmd": "<set/>", "key": "k"})
+    assert SENTINEL in resp.get("error", ""), resp
 
 
 # --- action yang harus menolak -------------------------------------------------
@@ -135,6 +128,102 @@ def test_block_action_rejects_before_touching_connector(monkeypatch, action, pro
     assert ok is False
     assert message == perimeter_disabled_message(provider)
     assert called == [], "connector terpanggil padahal perimeter-nya mati"
+
+
+# --- jalur bypass tanpa guard, dipanggil langsung ----------------------------
+
+@pytest.mark.parametrize("module,provider", [("cloudflare", "cloudflare"),
+                                            ("fortigate", "fortigate")])
+def test_disabled_connector_refuses_a_direct_call(live_creds_no_network, module, provider):
+    # AC: block_ip dipanggil langsung, tanpa lewat bot.py dan tanpa lewat
+    # playbook, dengan MOCK=0 dan kredensial yang membuat is_configured() True.
+    import importlib
+
+    connector = importlib.import_module(f"minisoar.mitigation.{module}")
+    assert connector.is_configured() is True, "kredensial palsu harusnya cukup"
+
+    ok, message = connector.block_ip("198.51.100.55")
+    assert ok is False
+    assert message == perimeter_disabled_message(provider)
+    assert SENTINEL not in message
+
+    ok, message = connector.unblock_ip("198.51.100.55")
+    assert ok is False
+    assert message == perimeter_disabled_message(provider)
+    assert SENTINEL not in message
+
+
+@pytest.mark.parametrize("module,provider", [("cloudflare", "cloudflare"),
+                                            ("fortigate", "fortigate")])
+def test_disabled_connector_connectivity_never_probes(live_creds_no_network, module, provider):
+    import importlib
+
+    connector = importlib.import_module(f"minisoar.mitigation.{module}")
+    conn = connector.check_connectivity()
+    assert conn["ok"] is None
+    assert conn["configured"] is False
+    assert conn["disabled"] is True
+    assert conn["hint"] == perimeter_disabled_message(provider)
+
+
+def test_package_reexport_path_is_guarded(live_creds_no_network):
+    # Persis bypass yang jadi bahan task ini: `from minisoar.mitigation import
+    # cloudflare` lalu `cloudflare.block_ip(ip)`, tanpa bot.py, tanpa playbook,
+    # tanpa trigger_auto_block. Re-export di __init__.py tidak bisa dicabut
+    # sebagai pertahanan karena `from minisoar.mitigation.cloudflare import
+    # block_ip` menyelesaikan modul lewat path dan tidak pernah menyentuh
+    # atribut paket. Satu-satunya tempat yang bisa menutup semua spelasi itu
+    # adalah entry point connector itu sendiri.
+    from minisoar.mitigation import cloudflare, fortigate
+
+    for connector, provider in ((cloudflare, "cloudflare"), (fortigate, "fortigate")):
+        ok, message = connector.block_ip("198.51.100.55")
+        assert (ok, message) == (False, perimeter_disabled_message(provider))
+
+
+def test_bot_handler_does_not_reject_twice(monkeypatch):
+    # Guard sekarang ada di dua lapis: handler bot dan connector. Handler
+    # menolak lebih dulu lalu return, jadi connector tidak pernah dipanggil
+    # dan operator tetap melihat satu penolakan, bukan dua.
+    import asyncio
+
+    from minisoar import bot
+    from minisoar.mitigation import cloudflare, fortigate
+
+    called = []
+    monkeypatch.setattr(cloudflare, "block_ip", lambda *a, **k: called.append("cf") or (True, "LOL"))
+    monkeypatch.setattr(fortigate, "block_ip", lambda *a, **k: called.append("fg") or (True, "LOL"))
+
+    class _Msg:
+        def __init__(self):
+            self.replies = []
+
+        async def reply_text(self, text, **kw):
+            self.replies.append(text)
+            return self
+
+        async def reply_html(self, *a, **kw):
+            return await self.reply_text(*a, **kw)
+
+    class _Update:
+        def __init__(self):
+            self.message = _Msg()
+
+    class _Ctx:
+        def __init__(self, *args):
+            self.args = list(args)
+
+    for command, provider in (("blockoncf_cmd", "cloudflare"),
+                              ("unblockoncf_cmd", "cloudflare"),
+                              ("blockonforti_cmd", "fortigate"),
+                              ("unblockonforti_cmd", "fortigate")):
+        update = _Update()
+        asyncio.run(getattr(bot, command)(update, _Ctx("203.0.113.88")))
+        out = " ".join(update.message.replies)
+        assert out.count("DIMATIKAN TOTAL") == 1, (command, out)
+        assert perimeter_disabled_message(provider) in out, (command, out)
+
+    assert called == [], "connector terpanggil padahal handler sudah menolak"
 
 
 # --- guard kelas yang sama di seluruh minisoar/ -------------------------------

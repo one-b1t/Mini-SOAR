@@ -8,6 +8,8 @@ from typing import Any
 
 import requests
 
+from ..config import is_perimeter_active, perimeter_disabled_message
+
 logger = logging.getLogger(__name__)
 
 
@@ -40,6 +42,20 @@ def is_configured() -> bool:
 
 def check_connectivity() -> dict[str, Any]:
     """Tests connectivity to Cloudflare API and verifies Zone token validity."""
+    # Cloudflare dimatikan total (PERIMETER_NONAKTIF). Guard DI DALAM connector,
+    # sebelum cek mock dan sebelum is_configured(), karena jalur ini bisa
+    # dicapai tanpa lewat trigger_auto_block: `from minisoar.mitigation.cloudflare
+    # import block_ip` menyelesaikan modul lewat path, bukan lewat re-export di
+    # __init__.py, jadi tidak ada yang bisa dicegat di lapisan pemanggil.
+    if not is_perimeter_active("cloudflare"):
+        return {
+            "provider": "cloudflare",
+            "ok": None,
+            "configured": False,
+            "error": None,
+            "hint": perimeter_disabled_message("cloudflare"),
+            "disabled": True,
+        }
     if os.getenv("MINISOAR_MOCK", "").lower() in {"1", "true", "yes"}:
         return {"provider": "cloudflare", "ok": True, "configured": True, "error": None, "hint": None}
 
@@ -82,6 +98,10 @@ def block_ip(
     notes: str = "MiniSOAR automated threat block",
 ) -> tuple[bool, str]:
     """Blocks an IP address using Cloudflare IP Access Rules."""
+    # Guard pertama, sebelum mock: mock yang melaporkan "SUCCESS" untuk perimeter
+    # yang tidak dimiliki sama RASa aman semu, persis yang harus dihilangkan.
+    if not is_perimeter_active("cloudflare"):
+        return False, perimeter_disabled_message("cloudflare")
     if os.getenv("MINISOAR_MOCK", "").lower() in {"1", "true", "yes"}:
         logger.info("[MOCK] Cloudflare IP Access Rule added: block %s", ip)
         return True, f"SUCCESS: IP {ip} blocked on Cloudflare (Mock)"
@@ -114,6 +134,8 @@ def block_ip(
 
 def unblock_ip(ip: str) -> tuple[bool, str]:
     """Unblocks an IP address by finding and deleting its Cloudflare IP Access Rule."""
+    if not is_perimeter_active("cloudflare"):
+        return False, perimeter_disabled_message("cloudflare")
     if os.getenv("MINISOAR_MOCK", "").lower() in {"1", "true", "yes"}:
         logger.info("[MOCK] Cloudflare IP Access Rule removed: unblock %s", ip)
         return True, f"SUCCESS: IP {ip} unblocked on Cloudflare (Mock)"

@@ -12,41 +12,49 @@ from minisoar.mitigation import (
 
 
 def test_cloudflare_mock():
+    # Mock TIDAK boleh membuat perimeter mati melaporkan sukses. Kalau dijalankan
+    # di mode demo dan connector membalas "SUCCESS ... (Mock)", operator
+    # mendapat kepastian palsu tentang perimeter yang tidak dimiliki di sini.
     os.environ["MINISOAR_MOCK"] = "1"
 
     # 1. Connectivity check
     conn = cloudflare.check_connectivity()
-    assert conn["ok"] is True
+    assert conn["ok"] is None
     assert conn["provider"] == "cloudflare"
+    assert conn["disabled"] is True
 
     # 2. Block IP
     ok_blk, msg_blk = cloudflare.block_ip("203.0.113.88")
-    assert ok_blk is True
-    assert "Cloudflare" in msg_blk
+    assert ok_blk is False
+    assert "tidak aktif" in msg_blk.lower()
+    assert "Mock" not in msg_blk
 
     # 3. Unblock IP
     ok_unblk, msg_unblk = cloudflare.unblock_ip("203.0.113.88")
-    assert ok_unblk is True
-    assert "Cloudflare" in msg_unblk
+    assert ok_unblk is False
+    assert "tidak aktif" in msg_unblk.lower()
 
 
 def test_fortigate_mock():
+    # Sama seperti Cloudflare: guard di dalam connector jalan sebelum cek mock.
     os.environ["MINISOAR_MOCK"] = "1"
 
     # 1. Connectivity check
     conn = fortigate.check_connectivity()
-    assert conn["ok"] is True
+    assert conn["ok"] is None
     assert conn["provider"] == "fortigate"
+    assert conn["disabled"] is True
 
     # 2. Block IP
     ok_blk, msg_blk = fortigate.block_ip("198.51.100.12")
-    assert ok_blk is True
-    assert "FortiGate" in msg_blk
+    assert ok_blk is False
+    assert "tidak aktif" in msg_blk.lower()
+    assert "Mock" not in msg_blk
 
     # 3. Unblock IP
     ok_unblk, msg_unblk = fortigate.unblock_ip("198.51.100.12")
-    assert ok_unblk is True
-    assert "FortiGate" in msg_unblk
+    assert ok_unblk is False
+    assert "tidak aktif" in msg_unblk.lower()
 
 
 def test_unified_perimeter_orchestration_extended():

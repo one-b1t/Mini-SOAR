@@ -11,6 +11,8 @@ import urllib3
 
 urllib3.disable_warnings(urllib3.exceptions.InsecureRequestWarning)
 
+from ..config import is_perimeter_active, perimeter_disabled_message
+
 logger = logging.getLogger(__name__)
 
 
@@ -36,6 +38,17 @@ def is_configured() -> bool:
 
 def check_connectivity() -> dict[str, Any]:
     """Tests connectivity to FortiGate FortiOS REST API."""
+    # Guard DI DALAM connector, sama alasannya dengan Cloudflare: jalur ini
+    # bisa dicapai tanpa lewat trigger_auto_block.
+    if not is_perimeter_active("fortigate"):
+        return {
+            "provider": "fortigate",
+            "ok": None,
+            "configured": False,
+            "error": None,
+            "hint": perimeter_disabled_message("fortigate"),
+            "disabled": True,
+        }
     if os.getenv("MINISOAR_MOCK", "").lower() in {"1", "true", "yes"}:
         return {"provider": "fortigate", "ok": True, "configured": True, "error": None, "hint": None}
 
@@ -77,6 +90,8 @@ def block_ip(
     comment: str = "MiniSOAR automated block",
 ) -> tuple[bool, str]:
     """Creates a firewall address object and assigns it to the blacklist address group."""
+    if not is_perimeter_active("fortigate"):
+        return False, perimeter_disabled_message("fortigate")
     addr_group = group_name or os.getenv("FORTIGATE_BLOCK_GROUP", "MiniSOAR_Blacklist")
     addr_name = f"ADDR_{ip.replace('.', '_')}"
 
@@ -122,6 +137,8 @@ def unblock_ip(
     group_name: str | None = None,
 ) -> tuple[bool, str]:
     """Removes an IP address object from FortiGate address group and deletes object."""
+    if not is_perimeter_active("fortigate"):
+        return False, perimeter_disabled_message("fortigate")
     addr_group = group_name or os.getenv("FORTIGATE_BLOCK_GROUP", "MiniSOAR_Blacklist")
     addr_name = f"ADDR_{ip.replace('.', '_')}"
 
