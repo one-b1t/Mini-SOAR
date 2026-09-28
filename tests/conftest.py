@@ -82,11 +82,17 @@ def _is_loopback(address):
 
 
 @pytest.fixture(autouse=True)
-def _offline_by_default(request, monkeypatch):
+def _offline_by_default(request, monkeypatch, tmp_path):
     if request.node.get_closest_marker("e2e"):
         return
 
     monkeypatch.setenv("MINISOAR_MOCK", "1")
+
+    # Audit log SOC: tanpa LOGFILE, resolve_log_path() jatuh ke cwd = root repo,
+    # jadi test menulis entri palsu ke tele-soar-actions.log milik operator.
+    # Audit lokal tetap ditulis (mode mock hanya mematikan jaringan), hanya
+    # lokasinya dipindah. Test yang butuh path lain tetap bisa menimpa LOGFILE.
+    monkeypatch.setenv("LOGFILE", str(tmp_path / "tele-soar-actions.log"))
 
     # Token produksi bisa ikut ter-load dari .env lewat load_env(); jangan
     # sampai test unit memakainya tanpa sengaja.
