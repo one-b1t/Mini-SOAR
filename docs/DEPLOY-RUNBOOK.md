@@ -7,7 +7,7 @@ Dokumen ini ditujukan bagi **Operator Sistem / Tim DevOps** yang mengeksekusi pe
 
 ## DAFTAR ISI
 1. [Syarat Mutlak Pre-Deployment Gate](#1-syarat-mutlak-pre-deployment-gate)
-2. [8 Risiko Kritis Produksi & Prosedur Mitigasi](#2-8-risiko-kritis-produksi--prosedur-mitigasi)
+2. [11 Risiko Kritis Produksi & Prosedur Mitigasi](#2-11-risiko-kritis-produksi--prosedur-mitigasi)
    - [Poin 1: Jalur File Whitelist (Paling Kritis)](#poin-1-jalur-file-whitelist-paling-kritis)
    - [Poin 2: Sanitasi Duplikasi Entri Whitelist](#poin-2-sanitasi-duplikasi-entri-whitelist)
    - [Poin 3: Mekanisme Auto-Reload Whitelist pada Daemon](#poin-3-mekanisme-auto-reload-whitelist-pada-daemon)
@@ -16,6 +16,9 @@ Dokumen ini ditujukan bagi **Operator Sistem / Tim DevOps** yang mengeksekusi pe
    - [Poin 6: Definisi & Batasan Cakupan MINISOAR_MOCK](#poin-6-definisi--batasan-cakupan-minisoar_mock)
    - [Poin 7: Lokasi Audit Log Tindakan (tele-soar-actions.log)](#poin-7-lokasi-audit-log-tindakan-tele-soar-actionslog)
    - [Poin 8: Status Model ML (active_model.joblib) - OPEN TODO](#poin-8-status-model-ml-active_modeljoblib---open-todo)
+   - [Poin 9: Token Bot Telegram Bocor ke Log (journald) - WAJIB ROTASI](#poin-9-token-bot-telegram-bocor-ke-log-journald---wajib-rotasi)
+   - [Poin 10: Command yang Dikirim Saat Bot Mati Dieksekusi Saat Bot Hidup Lagi](#poin-10-command-yang-dikirim-saat-bot-mati-dieksekusi-saat-bot-hidup-lagi)
+   - [Poin 11: Jumlah Command di Menu Bot (34 vs 38)](#poin-11-jumlah-command-di-menu-bot-34-vs-38)
 3. [Checklist Urutan Eksekusi Deployment (Step-by-Step)](#3-checklist-urutan-eksekusi-deployment-step-by-step)
 
 ---
@@ -39,7 +42,7 @@ python -m pytest tests -q -m "not e2e"
 
 ---
 
-## 2. 8 Risiko Kritis Produksi & Prosedur Mitigasi
+## 2. 11 Risiko Kritis Produksi & Prosedur Mitigasi
 
 ### Poin 1: Jalur File Whitelist (Paling Kritis)
 
@@ -248,7 +251,7 @@ sudo chmod 660 /var/log/tele-soar-actions.log
 
 #### Tindakan Operator
 1. **JANGAN** menjalankan atau mengotomatisasikan cron `minisoar.ml.autotrain` di server produksi sampai ada rilis resmi lanjutan.
-2. Ingatkan analis SOC untuk **TIDAK MENGGUNAKAN** perintah Telegram `/retrain_model` di lingkungan produksi live hingga arsitektur model diverifikasi tuntas.
+2. Ingatkan analis SOC untuk **TIDAK MENGGUNAKAN** perintah Telegram `/retrain_model` (alias `/retrainmodel`, `/rm`) di lingkungan produksi live hingga arsitektur model diverifikasi tuntas.
 3. Pastikan berkas model yang digunakan saat ini tetap merujuk pada model stabil yang ada di repositori:
    ```bash
    # PENTING: berkas .joblib berada di ROOT repo, bukan di minisoar/ml/.
@@ -260,6 +263,102 @@ sudo chmod 660 /var/log/tele-soar-actions.log
    > **CATATAN PENTING (verifikasi 2026-09-28):** `active_model.joblib` di root repo saat ini **rusak** — ukurannya hanya 2251 byte, bukan ~827 KB, dan isinya sebuah `LogisticRegression` dengan `n_features_in_=9`, sedangkan `baseline_model.joblib` (utuh, 827493 byte) memakai `RandomForestClassifier` dengan `n_features_in_=14`. Jumlah feature tidak cocok, sehingga model aktif **tidak kompatibel** dengan pipeline bot. Aslinya sudah hilang: tidak ada di Git dan tidak ada salinan di disk.
    >
    > **Tindakan operator:** JANGAN mengandalkan `active_model.joblib` yang ada sekarang. Salinkan `baseline_model.joblib` sebagai `active_model.joblib` (sebagai model stabil) sampai retraining yang benar sudah dijalankan, dan **jangan** menjalankan cron autotrain lebih dulu karena itu yang menghasilkan model dengan jumlah feature salah.
+
+---
+
+### Poin 9: Token Bot Telegram Bocor ke Log (journald) - WAJIB ROTASI
+
+#### Apa yang Terjadi & Risiko
+Sebelum perbaikan di branch `dev`, bot dan daemon memanggil `logging.basicConfig(level=INFO)`. Logger `httpx` (dipakai python-telegram-bot) lalu mencatat **setiap** request Telegram lengkap dengan URL-nya:
+```
+INFO:httpx:HTTP Request: POST https://api.telegram.org/bot<TOKEN>/getUpdates "HTTP/1.1 200 OK"
+```
+Artinya token bot tertulis **plaintext** ke stderr, yang di server produksi masuk ke **journald** (`journalctl -u minisoar-bot`), berkali-kali per menit. Siapa pun yang bisa membaca journal (root, grup `adm`/`systemd-journal`, atau salinan/ekspor log) bisa mengambil token dan mengendalikan bot, termasuk mengirim perintah blokir/isolasi atas nama bot.
+
+Perbaikan kode (commit `e2bbf7a` untuk bot, `ac4a8bb` untuk daemon) menaikkan level `httpx`/`httpcore` ke WARNING dan memasang filter sensor `bot<REDACTED>`. **Perbaikan ini hanya mencegah kebocoran BERIKUTNYA.** Token yang sudah tertulis di journal tetap valid sampai dirotasi.
+
+Kelas bocor kedua yang juga sudah ditutup di kode: API key Gemini di URL `...:generateContent?key=<KEY>` bisa ikut tercetak saat request REST Gemini gagal, baik di log (commit `4ca120f`) maupun di **balasan chat** `/ask_ai`/`/rca` (commit `4c020ca`).
+
+#### Cara Memeriksa (tanpa mencetak rahasia)
+```bash
+# Hitung saja - JANGAN tampilkan barisnya, karena isinya token.
+sudo journalctl -u minisoar-bot -u minisoar-daemon --no-pager | grep -cE 'api\.telegram\.org/bot[0-9]+:'
+sudo journalctl -u minisoar-bot -u minisoar-daemon --no-pager | grep -c 'generateContent?key=AI'
+```
+Angka > 0 berarti rahasia pernah tertulis. Untuk token Telegram, anggap bocor walaupun angkanya 0 bila log lama sudah dirotasi journald.
+
+#### Tindakan Perbaikan Operator (setelah kode baru ter-deploy)
+1. **Rotasi token Telegram** di @BotFather: `/mybots` → pilih bot → **API Token** → **Revoke current token**. Token lama langsung mati.
+2. Tulis token baru ke `.env` produksi (`TELEGRAM_TOKEN`, atau `TELEGRAM_BOT` bila itu yang dipakai). Jangan menempelkannya di chat, tiket, atau riwayat shell.
+3. Restart **kedua** service, karena daemon juga mengirim alert memakai token yang sama:
+   ```bash
+   sudo systemctl restart minisoar-daemon minisoar-bot
+   ```
+4. Verifikasi: bot membalas `/health`, dan hitungan pada "Cara Memeriksa" di atas **tidak bertambah** setelah restart.
+5. **API key Gemini:** bila hitungan `generateContent?key=` > 0, rotasi key di Google AI Studio / Google Cloud Console, lalu perbarui `.env`.
+6. Opsional: rahasia di journal lama tidak berbahaya lagi setelah dirotasi. `journalctl --vacuum-*` menghapus **semua** log lama, termasuk jejak audit lain, jadi putuskan bersama tim keamanan. Rotasi adalah langkah yang wajib, vacuum tidak.
+
+---
+
+### Poin 10: Command yang Dikirim Saat Bot Mati Dieksekusi Saat Bot Hidup Lagi
+
+#### Apa yang Terjadi & Risiko
+Bot memakai `app.run_polling()` **tanpa** `drop_pending_updates` (`minisoar/bot.py`, fungsi `main`). Telegram menyimpan pesan yang masuk selama bot mati (hingga 24 jam). Begitu bot start, **semua pesan tertunda itu dieksekusi** berurutan, tanpa konfirmasi ulang.
+
+Terbukti di uji E2E 2026-09-28: 17 command write (`/block_*`, `/isolate_host`, `/commit_palo`, `/activate_akamai`, ...) yang dikirim saat bot mati langsung dijalankan saat instance baru start.
+
+**Dampak di produksi:**
+- `/block_*`, `/isolate_host`, atau `/commit_palo` yang dikirim analis saat downtime baru dieksekusi **berjam-jam kemudian**, saat situasinya mungkin sudah berbeda (IP sudah tidak relevan, host sudah dipulihkan manual).
+- Command dari sesi **uji/mock** (IP uji seperti `203.0.113.88`, `10.0.0.50`) yang tertunda akan dieksekusi **sungguhan** bila instance berikutnya start dengan `MINISOAR_MOCK=0`.
+
+#### Cara Memeriksa Sebelum Start Bot
+Cek jumlah update tertunda **sebelum** `systemctl start minisoar-bot`. Skrip di bawah membaca token dari `.env` tanpa mencetaknya dan tanpa memasukkannya ke riwayat shell:
+```bash
+python3 - <<'EOF'
+import json, urllib.request
+from dotenv import dotenv_values
+env = dotenv_values(".env")
+t = env.get("TELEGRAM_TOKEN") or env.get("TELEGRAM_BOT")
+r = json.load(urllib.request.urlopen(f"https://api.telegram.org/bot{t}/getWebhookInfo", timeout=10))
+print("pending_update_count =", r["result"].get("pending_update_count"))
+EOF
+```
+
+#### Tindakan Operator
+- `pending_update_count = 0`: aman, lanjutkan start.
+- `> 0`: **jangan start dulu**. Konfirmasi ke analis SOC command apa yang mereka kirim selama downtime. Bila tidak boleh dieksekusi, buang antreannya:
+  ```bash
+  python3 - <<'EOF'
+  import json, urllib.request
+  from dotenv import dotenv_values
+  env = dotenv_values(".env")
+  t = env.get("TELEGRAM_TOKEN") or env.get("TELEGRAM_BOT")
+  r = json.load(urllib.request.urlopen(f"https://api.telegram.org/bot{t}/deleteWebhook?drop_pending_updates=true", timeout=10))
+  print("drop pending:", r.get("ok"))
+  EOF
+  ```
+  Setelah itu minta analis mengirim ulang command yang masih relevan.
+- **Wajib** setelah sesi uji E2E/mock: buang antrean sebelum bot produksi (non-mock) dijalankan.
+- Perbaikan permanen di kode (`run_polling(drop_pending_updates=True)`, atau konfirmasi untuk command yang umurnya tua) **belum** dikerjakan; itu keputusan desain terpisah.
+
+---
+
+### Poin 11: Jumlah Command di Menu Bot (34 vs 38)
+
+#### Apa yang Terjadi (Informational)
+Saat start, bot mengisi menu command Telegram sesuai provider yang terkonfigurasi di `.env` (`post_init` di `minisoar/bot.py`), lalu mencatat:
+```
+[BOT] Successfully updated Telegram Bot interactive menu with N commands.
+```
+Rincian N: 7 dasar + Imperva 3 + Palo Alto 4 + Akamai 4 + **Cloudflare 2** + **FortiGate 2** + EDR 5 + 11 case/AI/lainnya = **38** bila semua provider aktif.
+
+Pada 2026-09-28 bot mencatat **34** = 38 − 2 (`/block_cf`, `/unblock_cf`) − 2 (`/block_forti`, `/unblock_forti`), karena kredensial Cloudflare (`CLOUDFLARE_API_TOKEN` + `CLOUDFLARE_ZONE_ID`) dan FortiGate (`FORTIGATE_HOST` + `FORTIGATE_API_TOKEN`) tidak diisi di `.env`. Itu **perilaku yang benar**, bukan error.
+
+Catatan untuk operator:
+- Yang disembunyikan hanya **menu**. Handler `/block_cf`, `/unblock_cf`, `/block_forti`, `/unblock_forti` tetap terdaftar, jadi bisa diketik manual. Tanpa kredensial, balasannya berupa pesan "not configured"; di mode mock, balasannya sukses bertanda `(Mock)`. Itulah sebabnya uji E2E mock menguji keempatnya walaupun menu hanya berisi 34.
+- Menu menganggap provider "terkonfigurasi" bila **salah satu** variabelnya terisi, sedangkan modul mitigasi mensyaratkan **keduanya**. Kalau hanya satu variabel diisi, command muncul di menu tetapi tetap membalas "not configured". Isi **pasangan** variabelnya lengkap atau kosongkan keduanya.
+- **FortiGate:** modul membaca `FORTIGATE_API_TOKEN` (sesuai `env.example`), sedangkan pengecekan menu (`get_configured_providers` di `minisoar/config.py`) membaca `FORTIGATE_API_KEY`. Pakai **`FORTIGATE_API_TOKEN`** di `.env`; menu tetap muncul karena `FORTIGATE_HOST` terisi.
+- Angka 38 kasus di harness E2E (`scratch/e2e_command_matrix.py`) kebetulan sama dengan 38 command di menu, tetapi dihitung dengan cara berbeda. Jangan dicocokkan satu per satu.
 
 ---
 
@@ -323,8 +422,14 @@ sudo systemctl stop minisoar-bot minisoar-daemon
 sudo kill -9 $(pgrep -f "minisoar.bot") 2>/dev/null || true
 sudo kill -9 $(pgrep -f "minisoar.daemon") 2>/dev/null || true
 
-# 3. Nyalakan service kembali
+# 3. Nyalakan daemon
 sudo systemctl start minisoar-daemon
+
+# 3a. SEBELUM start bot: cek pending_update_count (lihat Poin 10).
+#     Bila > 0, konfirmasi ke analis atau buang antreannya dulu; command yang
+#     tertunda selama downtime akan langsung dieksekusi begitu bot start.
+
+# 3b. Nyalakan bot
 sudo systemctl start minisoar-bot
 
 # 4. Aktifkan auto-start saat reboot
@@ -343,7 +448,8 @@ sudo systemctl enable minisoar-bot minisoar-daemon
    # Pastikan ada pesan: "[BOT] Successfully updated Telegram Bot interactive menu with N commands."
    # (Jumlah N berubah sesuai provider yang dikonfigurasi di .env; 38 adalah nilai
    #  maksimal saat semua provider aktif. Yang wajib dicek hanya pesan ini MUNCUL,
-   #  bukan angka spesifik di dalamnya.)
+   #  bukan angka spesifik di dalamnya. Tanpa kredensial Cloudflare & FortiGate
+   #  nilainya 34 - lihat Poin 11.)
    # Pastikan TIDAK ADA: "TOKEN TELEGRAM DITOLAK" atau "AttributeError"
    ```
 3. **Periksa log daemon:**
@@ -355,3 +461,11 @@ sudo systemctl enable minisoar-bot minisoar-daemon
    - Kirim perintah `/health` dari akun Telegram analis yang terdaftar di `ALLOWED_USERS`.
    - Pastikan bot membalas dengan status kesehatan modul SOAR (Redis, ES, AI).
    - Kirim perintah `/whitelists` dan pastikan daftar entri IP/CIDR tampil lengkap (jumlahnya sesuai isi berkas whitelist di server; 19 pada 2026-09-28 — yang penting tidak kosong).
+5. **Pastikan token tidak lagi tertulis ke journal** (lihat Poin 9):
+   ```bash
+   # Catat angkanya, tunggu beberapa menit bot berjalan, lalu jalankan lagi: angkanya TIDAK BOLEH bertambah.
+   sudo journalctl -u minisoar-bot -u minisoar-daemon --no-pager | grep -cE 'api\.telegram\.org/bot[0-9]+:'
+   ```
+
+### Langkah 7: Rotasi Kredensial yang Pernah Bocor (WAJIB, sekali)
+Setelah Langkah 6 lulus dengan kode baru, jalankan rotasi di **Poin 9** (token bot di @BotFather, dan API key Gemini bila terdeteksi), perbarui `.env`, lalu restart kedua service. Kode baru hanya mencegah kebocoran berikutnya; token yang sudah tertulis di journal tetap berlaku sampai dirotasi.
