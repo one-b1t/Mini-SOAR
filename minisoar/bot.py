@@ -1610,7 +1610,10 @@ class _TokenRedactingFilter(logging.Filter):
     def _redact(self, text: str) -> str:
         import re
 
-        return re.sub(r"bot\d{5,}:[A-Za-z0-9_-]{20,}", "bot<REDACTED>", text)
+        text = re.sub(r"bot\d{5,}:[A-Za-z0-9_-]{20,}", "bot<REDACTED>", text)
+        # API key sebagai parameter query (Gemini ?key=, Palo Alto &key=), yang
+        # ikut tercetak di str(e) requests/httpx. Jangkar [?&] membatasi ke URL.
+        return re.sub(r"([?&]key=)[^&\s\"'\\]+", r"\1<REDACTED>", text)
 
     def filter(self, record: logging.LogRecord) -> bool:
         msg = record.getMessage()
