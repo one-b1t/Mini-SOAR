@@ -167,3 +167,19 @@ def test_playbook_audit_goes_to_logfile_env_not_repo_root(monkeypatch, tmp_path)
 
     assert target.exists() and "AUTO_BLOCK" in target.read_text(encoding="utf-8")
     assert _sha(ROOT_LOG) == before, "audit log masuk tele-soar-actions.log di root repo"
+
+
+# --- ip_in_nets: satu entri rusak tidak boleh mematikan entri lain --------------
+
+def test_invalid_entry_does_not_hide_entries_before_or_after(caplog):
+    nets = ["172.30.0.0/24", "BARIS_RUSAK", "10.0.0.0/8", "103.8.77.26"]
+
+    assert utils.ip_in_nets("172.30.0.5", nets), "entri SEBELUM baris rusak"
+    assert utils.ip_in_nets("10.1.2.3", nets), "CIDR SESUDAH baris rusak ikut terlewat"
+    assert utils.ip_in_nets("103.8.77.26", nets), "IP tunggal SESUDAH baris rusak ikut terlewat"
+    assert not utils.ip_in_nets("8.8.8.8", nets)
+    assert "BARIS_RUSAK" in caplog.text, "entri rusak harus diberi warning, bukan diam-diam di-skip"
+
+
+def test_invalid_ip_argument_is_not_whitelisted():
+    assert utils.ip_in_nets("bukan-ip", ["10.0.0.0/8"]) is False

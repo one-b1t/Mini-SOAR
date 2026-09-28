@@ -140,16 +140,20 @@ def load_cidr_list_from_env_and_file(env_key: str, file_path: str) -> list[str]:
 def ip_in_nets(ip: str, nets: list[str]) -> bool:
     try:
         ip_addr = ipaddress.ip_address(ip)
-        for net in nets:
+    except ValueError:
+        return False
+    # try per entri: satu entri rusak (typo di file whitelist) cukup di-skip,
+    # jangan sampai membuat semua entri sesudahnya ikut terlewat.
+    for net in nets:
+        try:
             if "/" in net:
                 if ip_addr in ipaddress.ip_network(net, strict=False):
                     return True
-            else:
-                if ip_addr == ipaddress.ip_address(net):
-                    return True
-        return False
-    except Exception:
-        return False
+            elif ip_addr == ipaddress.ip_address(net):
+                return True
+        except ValueError:
+            logger.warning("[WHITELIST] entri tidak valid di-skip: %r", net)
+    return False
 
 
 def is_ip_whitelisted(ip: str, nets: list[str]) -> bool:
