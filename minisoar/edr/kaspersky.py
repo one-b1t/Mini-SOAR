@@ -226,7 +226,7 @@ def isolate_host(
 
     if os.getenv("MINISOAR_MOCK", "").lower() in {"1", "true", "yes"}:
         logger.info("[MOCK] Kaspersky KSC isolate host: %s (ip=%s)", target_id, ip)
-        return True, f"SUCCESS: Host {target_id} network isolated successfully on Kaspersky KSC", {"hostId": target_id, "status": "isolated"}
+        return True, f"SUCCESS: Host {target_id} network isolated successfully on Kaspersky KSC (Mock)", {"hostId": target_id, "status": "isolated"}
 
     token, err = login()
     if not token:
@@ -271,7 +271,7 @@ def restore_host(
 
     if os.getenv("MINISOAR_MOCK", "").lower() in {"1", "true", "yes"}:
         logger.info("[MOCK] Kaspersky KSC restore host: %s (ip=%s)", target_id, ip)
-        return True, f"SUCCESS: Host {target_id} network connectivity restored on Kaspersky KSC", {"hostId": target_id, "status": "normal"}
+        return True, f"SUCCESS: Host {target_id} network connectivity restored on Kaspersky KSC (Mock)", {"hostId": target_id, "status": "normal"}
 
     token, err = login()
     if not token:
@@ -305,7 +305,7 @@ def add_ioc(
     """Registers an IoC (hash, IP, URL) to Kaspersky Security Center 15.1 IoC repository."""
     if os.getenv("MINISOAR_MOCK", "").lower() in {"1", "true", "yes"}:
         logger.info("[MOCK] Kaspersky KSC add IoC: %s=%s", ioc_type, ioc_value)
-        return True, f"SUCCESS: Registered IoC {ioc_type}={ioc_value} on Kaspersky KSC"
+        return True, f"SUCCESS: Registered IoC {ioc_type}={ioc_value} on Kaspersky KSC (Mock)"
 
     token, err = login()
     if not token:

@@ -13,6 +13,14 @@ from . import akamai, cloudflare, fortigate, imperva, paloalto
 logger = logging.getLogger(__name__)
 
 
+def _mock_suffix() -> str:
+    """Penanda mode mock untuk pesan sukses yang dilihat operator.
+
+    Tanpa ini balasan tetap berbunyi "SUCCESS" padahal tidak ada aksi nyata.
+    """
+    return " (Mock)" if os.getenv("MINISOAR_MOCK", "").lower() in {"1", "true", "yes"} else ""
+
+
 def trigger_commit(provider: str) -> tuple[bool, str]:
     p = norm_provider(provider)
 
@@ -116,8 +124,8 @@ def trigger_auto_block(ip: str, provider: str, commit: bool = True) -> tuple[boo
             if resp.status_code == 200:
                 if commit:
                     success, act_msg = trigger_commit("akamai")
-                    return True, f"Akamai: IP added. {act_msg}"
-                return True, "Akamai: IP added (Activation pending)"
+                    return True, f"Akamai: IP added. {act_msg}{_mock_suffix()}"
+                return True, f"Akamai: IP added (Activation pending){_mock_suffix()}"
             return False, f"Akamai failed adding IP: {resp.text}"
         except Exception as e:
             return False, f"Akamai error: {e}"
@@ -193,8 +201,8 @@ def trigger_auto_unblock(ip: str, provider: str, commit: bool = True) -> tuple[b
             if resp.status_code == 200:
                 if commit:
                     success, act_msg = trigger_commit("akamai")
-                    return True, f"Akamai: IP removed. {act_msg}"
-                return True, "Akamai: IP removed (Activation pending)"
+                    return True, f"Akamai: IP removed. {act_msg}{_mock_suffix()}"
+                return True, f"Akamai: IP removed (Activation pending){_mock_suffix()}"
             return False, f"Akamai failed removing IP: {resp.text}"
         except Exception as e:
             return False, f"Akamai error: {e}"

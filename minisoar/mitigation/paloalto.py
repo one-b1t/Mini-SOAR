@@ -188,6 +188,8 @@ def response_message(resp: dict, action_desc: str) -> str:
     try:
         status = resp["response"]["@status"]
         if status == "success":
+            if os.getenv("MINISOAR_MOCK", "").lower() in {"1", "true", "yes"}:
+                return f"{action_desc}: SUCCESS (Mock)"
             return f"{action_desc}: SUCCESS"
         msg = resp["response"].get("msg", "Unknown error")
         return f"{action_desc}: FAILED - {msg}"

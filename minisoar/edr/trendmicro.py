@@ -206,7 +206,7 @@ def isolate_endpoint(
 
     if os.getenv("MINISOAR_MOCK", "").lower() in {"1", "true", "yes"}:
         logger.info("[MOCK] Trend Micro isolate endpoint: %s (ip=%s)", target_id, ip)
-        return True, f"SUCCESS: Endpoint {target_id} isolated successfully on TrendMicro Vision One", {"actionId": "mock-act-isolate-001", "status": "succeeded"}
+        return True, f"SUCCESS: Endpoint {target_id} isolated successfully on TrendMicro Vision One (Mock)", {"actionId": "mock-act-isolate-001", "status": "succeeded"}
 
     if not is_configured():
         return False, "Trend Micro API key is not configured", {}
@@ -254,7 +254,7 @@ def restore_endpoint(
 
     if os.getenv("MINISOAR_MOCK", "").lower() in {"1", "true", "yes"}:
         logger.info("[MOCK] Trend Micro restore endpoint: %s (ip=%s)", target_id, ip)
-        return True, f"SUCCESS: Endpoint {target_id} restored successfully on TrendMicro", {"actionId": "mock-act-restore-001", "status": "succeeded"}
+        return True, f"SUCCESS: Endpoint {target_id} restored successfully on TrendMicro (Mock)", {"actionId": "mock-act-restore-001", "status": "succeeded"}
 
     if not is_configured():
         return False, "Trend Micro API key is not configured", {}
@@ -290,7 +290,7 @@ def add_suspicious_object(
     """Adds a suspicious object (IP, domain, sha256) to Trend Micro blocklist / IP lists."""
     if os.getenv("MINISOAR_MOCK", "").lower() in {"1", "true", "yes"}:
         logger.info("[MOCK] Trend Micro add suspicious object: %s=%s", object_type, object_value)
-        return True, f"SUCCESS: Added {object_type}={object_value} to TrendMicro Suspicious Objects list"
+        return True, f"SUCCESS: Added {object_type}={object_value} to TrendMicro Suspicious Objects list (Mock)"
 
     if not is_configured():
         return False, "Trend Micro API key is not configured"
