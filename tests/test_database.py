@@ -11,7 +11,19 @@ def test_parse_ts_epoch():
     assert parse_ts_epoch({"@timestamp": "2026-05-26T00:00:00Z"}) == 1779753600
 
 
-def test_store_label_mock():
+def test_store_label_mock(monkeypatch):
+    # "mock" di nama test ini = `unittest.mock.patch("requests.put")`, BUKAN
+    # sakelar MINISOAR_MOCK. Yang diuji justru jalur PRODUKSI store_label:
+    # bentuk payload label ML yang dikirim ke Elasticsearch, dengan transport
+    # HTTP-nya di-stub.
+    #
+    # MINISOAR_MOCK harus dicabut eksplisit karena tests/conftest.py memasangnya
+    # untuk semua test non-e2e, dan store_label kini return lebih awal saat
+    # sakelar itu aktif (guard yang mencegah test menulis ke index ML produksi).
+    # Tanpa delenv, requests.put tidak pernah dipanggil dan test ini hijau palsu
+    # tanpa memverifikasi apa pun.
+    monkeypatch.delenv("MINISOAR_MOCK", raising=False)
+
     import os
     import unittest.mock
     from minisoar.database import store_label

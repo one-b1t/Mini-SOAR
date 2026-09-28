@@ -128,6 +128,10 @@ def store_label(
     telegram_message_id: str | None = None,
     chat_id: str | int | None = None,
 ):
+    if os.getenv("MINISOAR_MOCK", "").lower() in {"1", "true", "yes"}:
+        logger.info("[MOCK] Store ML label: label=%s, IP=%s, event_id=%s", label, ip, event_id)
+        return
+
     now_utc = datetime.datetime.now(datetime.timezone.utc)
     ts = now_utc.replace(microsecond=0).isoformat().replace("+00:00", "Z")
     labels_prefix = os.getenv("ES_LABELS_INDEX_PREFIX", "minisoar-labels")

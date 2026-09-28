@@ -158,6 +158,10 @@ def is_ip_whitelisted(ip: str, nets: list[str]) -> bool:
 # -----------------
 
 def abuseipdb_lookup(ip: str) -> tuple[str, str]:
+    if os.getenv("MINISOAR_MOCK", "").lower() in {"1", "true", "yes"}:
+        logger.info("[MOCK] AbuseIPDB lookup: IP=%s", ip)
+        return ip, "✅ [MOCK] Clean (0/100)"
+
     token_cfg = os.environ.get("ABUSEIPDB_API_KEY", "")
     cache_ttl = int(os.environ.get("ABUSEIPDB_CACHE_TTL", str(6 * 3600)))
     lookup_timeout = int(os.environ.get("LOOKUP_TIMEOUT", "4"))
@@ -685,6 +689,10 @@ def send_telegram(
     event_id: str = "",
     chat_id: str | None = None,
 ) -> None:
+    if os.getenv("MINISOAR_MOCK", "").lower() in {"1", "true", "yes"}:
+        logger.info("[MOCK] Telegram sendMessage: chat_id=%s, ip=%s", chat_id or "<default>", ip)
+        return
+
     cfg = telegram_config()
     target_chat = chat_id or cfg.chat_id
     if not target_chat or not cfg.token:
@@ -748,6 +756,10 @@ def send_telegram(
 
 def notify_action_log(msg: str) -> None:
     """Send a message to the dedicated Action Log channel (TELEGRAM_PROCESS_CHAT_ID)."""
+    if os.getenv("MINISOAR_MOCK", "").lower() in {"1", "true", "yes"}:
+        logger.info("[MOCK] Action-log notification: %s", msg[:80])
+        return
+
     proc_chat_id = os.environ.get("TELEGRAM_PROCESS_CHAT_ID")
     if not proc_chat_id:
         logger.warning("[WARN] TELEGRAM_PROCESS_CHAT_ID not set — skipping action-log notification.")
