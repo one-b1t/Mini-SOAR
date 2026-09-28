@@ -1,4 +1,5 @@
 import csv
+import json
 import logging
 import os
 import random
@@ -161,6 +162,25 @@ def estimate_securesphere_reputation(severity: str, action: str) -> int:
     return 35 if severity == "high" else 20 if severity == "medium" else 5
 
 
+_ECS_SEVERITY = ((70, "high"), (40, "medium"))  # kebalikan ecs_normalizer: high=75, medium=50, low=25
+
+
+def _ecs_raw_alert(evt_src: dict[str, Any]) -> dict[str, Any]:
+    """Dokumen ECS menyimpan event mentah (alert.type/count/severity) di raw_log."""
+    try:
+        return (json.loads(evt_src.get("raw_log") or "{}") or {}).get("alert") or {}
+    except (ValueError, TypeError):
+        return {}
+
+
+def _ecs_severity(evt_src: dict[str, Any]) -> str:
+    try:
+        sev = int((evt_src.get("event") or {}).get("severity"))
+    except (TypeError, ValueError):
+        return "medium"
+    return next((name for floor, name in _ECS_SEVERITY if sev >= floor), "low")
+
+
 def extract_minisoar_samples(labels_prefix: str, events_prefix: str) -> list[list[Any]]:
     """Extracts joined event-label samples from MiniSOAR internal indices."""
     rows: list[list[Any]] = []
@@ -181,38 +201,55 @@ def extract_minisoar_samples(labels_prefix: str, events_prefix: str) -> list[lis
             label_map[eid] = 1 if "block" in label_str else 0
 
         event_ids = list(label_map.keys())
+        seen: set[str] = set()
         chunk_size = 1000
         for i in range(0, len(event_ids), chunk_size):
             chunk = event_ids[i:i + chunk_size]
             try:
+                # event_id / rule.id bertipe text (ID ber-"|" teranalisis), jadi `terms`
+                # harus ke subfield .keyword. event_id = skema lama, rule.id = skema ECS.
                 event_data = es_request(
                     "GET",
                     f"{events_prefix}-*/_search",
-                    body={"size": len(chunk), "query": {"terms": {"event_id": chunk}}}
+                    body={"size": len(chunk), "query": {"bool": {"should": [
+                        {"terms": {"event_id.keyword": chunk}},
+                        {"terms": {"rule.id.keyword": chunk}},
+                    ], "minimum_should_match": 1}}}
                 )
                 for ehit in event_data.get("hits", {}).get("hits", []):
                     evt_src = ehit.get("_source", {})
-                    eid = evt_src.get("event_id")
-                    if not eid or eid not in label_map:
+                    eid = evt_src.get("event_id") or (evt_src.get("rule") or {}).get("id")
+                    if not eid or eid not in label_map or eid in seen:
                         continue
+                    seen.add(eid)
+                    alert = evt_src.get("alert") or _ecs_raw_alert(evt_src)
                     rows.append([
                         eid,
-                        evt_src.get("detector_type", "alert_generic"),
-                        evt_src.get("severity", "medium"),
-                        evt_src.get("alert", {}).get("reputation_score", 0) or evt_src.get("reputation", {}).get("score", 0),
-                        evt_src.get("metrics", {}).get("hit_count", 1) or 1,
-                        evt_src.get("perimeter", {}).get("vendor", "none"),
-                        1 if evt_src.get("alert", {}).get("whitelisted") else 0,
-                        evt_src.get("alert", {}).get("src_ip", "-"),
-                        evt_src.get("alert", {}).get("dst_ip", "-"),
-                        evt_src.get("alert", {}).get("server_name", "-"),
-                        evt_src.get("alert", {}).get("url", "-"),
-                        evt_src.get("alert", {}).get("src_port", 0),
-                        evt_src.get("alert", {}).get("dst_port", 0),
+                        evt_src.get("detector_type") or alert.get("type") or (evt_src.get("rule") or {}).get("name") or "alert_generic",
+                        evt_src.get("severity") or alert.get("severity") or alert.get("severity_hint") or _ecs_severity(evt_src),
+                        alert.get("reputation_score", 0) or evt_src.get("reputation", {}).get("score", 0),
+                        evt_src.get("metrics", {}).get("hit_count") or alert.get("count") or 1,
+                        (evt_src.get("perimeter") or {}).get("vendor") or (evt_src.get("observer") or {}).get("vendor") or "none",
+                        1 if alert.get("whitelisted") else 0,
+                        alert.get("src_ip") or (evt_src.get("source") or {}).get("ip", "-"),
+                        alert.get("dst_ip", "-"),
+                        alert.get("server_name", "-"),
+                        alert.get("url", "-"),
+                        alert.get("src_port", 0),
+                        alert.get("dst_port", 0),
                         label_map[eid],
                     ])
             except Exception as e:
                 logger.warning("Error querying MiniSOAR event chunk: %s", e)
+
+        if not rows:
+            logger.warning(
+                "MiniSOAR label join menghasilkan 0 sampel dari %d label ber-event_id (index %s-*): "
+                "tidak ada event yang cocok; dataset TIDAK memuat label MiniSOAR.",
+                len(event_ids), events_prefix,
+            )
+        else:
+            logger.info("MiniSOAR label join: %d dari %d label cocok dengan event", len(rows), len(event_ids))
     except Exception as e:
         logger.warning("MiniSOAR index extraction encountered error: %s", e)
     return rows
@@ -350,6 +387,7 @@ def export_dataset_from_es(csv_path: Path | None = None, fallback_synthetic: boo
 
         if not combined_rows:
             if fallback_synthetic:
+                logger.warning("Tidak ada sampel dari Elasticsearch; menulis dataset SINTETIS ke %s", target_path)
                 count = write_synthetic_dataset(target_path)
                 return True, count, f"Elasticsearch indices empty or unreachable; generated {count:,} bootstrap synthetic samples in {target_path.name}."
             return False, 0, "No data extracted from Elasticsearch indices."
