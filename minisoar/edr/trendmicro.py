@@ -170,9 +170,7 @@ def find_endpoint_by_ip(ip: str) -> tuple[list[dict[str, Any]], str | None]:
                 items = data.get("items", [])
                 matched = []
                 for it in items:
-                    ips = list(it.get("ipAddresses") or [])
-                    if it.get("lastUsedIp") and it.get("lastUsedIp") not in ips:
-                        ips.append(it.get("lastUsedIp"))
+                    ips = _endpoint_ips(it)  # sama dengan jalur eiqs: cocok eksak, tanpa IP = skip
                     if ip in ips:
                         matched.append({
                             "endpointId": it.get("agentGuid") or it.get("endpointId"),

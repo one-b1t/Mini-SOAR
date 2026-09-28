@@ -106,3 +106,61 @@ def test_real_ip_formats_still_match(legacy_eiqs, field):
         eps, _ = trendmicro.find_endpoint_by_ip(TARGET_IP)
     assert [e["endpointId"] for e in eps] == ["guid-x"]
     assert TARGET_IP in eps[0]["ip"]
+
+
+# --- Kasus wajib dari brief (IP 10.0.0.50 persis) ---------------------------------
+
+def test_brief_case_a_only_10_0_0_50_passes(legacy_eiqs):
+    """(a) dua endpoint: satu ber-IP 10.0.0.50, satu tanpa field IP -> hanya yang 10.0.0.50 lolos."""
+    use, _ = legacy_eiqs
+    g, p = use([
+        {"agentGuid": "guid-no-ip", "endpointName": "HOST-TANPA-IP"},
+        {"agentGuid": "guid-1050", "endpointName": "HOST-1050", "ipAddresses": ["10.0.0.50"]},
+    ])
+    with g, p:
+        eps, err = trendmicro.find_endpoint_by_ip("10.0.0.50")
+    assert err is None
+    assert [e["endpointId"] for e in eps] == ["guid-1050"]
+
+
+@pytest.mark.parametrize("action", ["isolate_endpoint", "restore_endpoint"])
+def test_brief_case_b_no_match_says_not_found_without_api_call(legacy_eiqs, action):
+    """(b) tidak ada yang cocok -> kosong; isolate/restore bilang 'not found' dan tidak memanggil API."""
+    use, posted = legacy_eiqs
+    g, p = use([{"agentGuid": "guid-no-ip"}, {"agentGuid": "guid-other", "ipAddresses": ["10.0.0.51"]}])
+    with g, p:
+        eps, _ = trendmicro.find_endpoint_by_ip("10.0.0.50")
+        ok, msg, _ = getattr(trendmicro, action)(ip="10.0.0.50")
+    assert eps == []
+    # Pesan yang ada: "No endpoint found matching IP <ip>" (setara "not found").
+    assert ok is False and "found" in msg.lower() and "10.0.0.50" in msg, msg
+    assert posted == [], f"{action} memanggil API walau tidak ada endpoint cocok: {posted}"
+
+
+# --- Jalur Vision One utama harus konsisten ----------------------------------------
+
+@pytest.fixture
+def vision_one(monkeypatch):
+    monkeypatch.setenv("MINISOAR_MOCK", "0")
+    monkeypatch.setenv("TRENDMICRO_API_KEY", "fake-token-for-tests")
+    monkeypatch.setenv("TRENDMICRO_BASE_URL", "https://api.xdr.trendmicro.test")
+
+    def use(items):
+        def fake_get(url, *a, **kw):
+            resp = MagicMock()
+            resp.status_code = 200 if "endpointSecurity/endpoints" in url else 404
+            resp.json.return_value = {"items": items}
+            return resp
+        return patch("requests.get", side_effect=fake_get)
+
+    return use
+
+
+def test_vision_one_path_uses_same_strict_match(vision_one):
+    with vision_one([
+        {"agentGuid": "guid-no-ip"},
+        {"agentGuid": "guid-str", "ipAddresses": "10.0.0.50"},   # string, bukan list
+        {"agentGuid": "guid-last", "lastUsedIp": "10.0.0.50"},
+    ]):
+        eps, _ = trendmicro.find_endpoint_by_ip("10.0.0.50")
+    assert [e["endpointId"] for e in eps] == ["guid-str", "guid-last"]
