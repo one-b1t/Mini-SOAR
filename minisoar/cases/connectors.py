@@ -66,7 +66,7 @@ def create_thehive_case(
     if os.getenv("MINISOAR_MOCK", "").lower() in {"1", "true", "yes"}:
         mock_case_id = f"TH-CASE-MOCK-{abs(hash(title)) % 100000}"
         logger.info("[MOCK] Created TheHive Case: %s (%s)", mock_case_id, title)
-        return True, f"SUCCESS: TheHive case created with ID {mock_case_id}", {"caseId": mock_case_id, "ticket_id": mock_case_id, "provider": "thehive"}
+        return True, f"SUCCESS: TheHive case created with ID {mock_case_id} (Mock)", {"caseId": mock_case_id, "ticket_id": mock_case_id, "provider": "thehive"}
 
     if not is_thehive_configured():
         return False, "TheHive is not configured (THEHIVE_URL, THEHIVE_API_KEY).", {}
@@ -107,7 +107,7 @@ def create_thehive_case(
 def add_thehive_observable(case_id: str, data_type: str, data_value: str, message: str = "MiniSOAR IoC") -> tuple[bool, str]:
     """Attaches an observable (IP, hash, domain) to an existing TheHive case."""
     if os.getenv("MINISOAR_MOCK", "").lower() in {"1", "true", "yes"}:
-        return True, f"SUCCESS: Added observable {data_type}={data_value} to TheHive case {case_id}"
+        return True, f"SUCCESS: Added observable {data_type}={data_value} to TheHive case {case_id} (Mock)"
 
     if not is_thehive_configured():
         return False, "TheHive is not configured."
@@ -157,7 +157,7 @@ def create_jira_issue(
     if os.getenv("MINISOAR_MOCK", "").lower() in {"1", "true", "yes"}:
         mock_key = f"{os.getenv('JIRA_PROJECT_KEY', 'SEC')}-{abs(hash(summary)) % 10000}"
         logger.info("[MOCK] Created Jira Issue: %s (%s)", mock_key, summary)
-        return True, f"SUCCESS: Jira issue created with Key {mock_key}", {"key": mock_key, "ticket_id": mock_key, "provider": "jira"}
+        return True, f"SUCCESS: Jira issue created with Key {mock_key} (Mock)", {"key": mock_key, "ticket_id": mock_key, "provider": "jira"}
 
     if not is_jira_configured():
         return False, "Jira is not configured (JIRA_URL, JIRA_API_TOKEN, JIRA_PROJECT_KEY).", {}
@@ -209,7 +209,7 @@ def create_servicenow_incident(
     if os.getenv("MINISOAR_MOCK", "").lower() in {"1", "true", "yes"}:
         mock_num = f"INC{abs(hash(short_description)) % 10000000:07d}"
         logger.info("[MOCK] Created ServiceNow Incident: %s", mock_num)
-        return True, f"SUCCESS: ServiceNow incident created with Number {mock_num}", {"number": mock_num, "ticket_id": mock_num, "provider": "servicenow"}
+        return True, f"SUCCESS: ServiceNow incident created with Number {mock_num} (Mock)", {"number": mock_num, "ticket_id": mock_num, "provider": "servicenow"}
 
     if not is_servicenow_configured():
         return False, "ServiceNow is not configured (SERVICENOW_URL, SERVICENOW_USER, SERVICENOW_PASSWORD).", {}
