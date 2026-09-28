@@ -497,12 +497,12 @@ if MINISOAR_MOCK:
 Karena eksekusi terpotong lebih awal oleh guard mock, pemanggilan ke `requests` memang tidak pernah tercapai, dan fungsi `boom()` pada fixture `no_network` **tidak pernah bersenjata/diuji (never armed)**. Akibatnya, pengujian lama hanya membuktikan bahwa kode "tidak error saat mode mock aktif", **bukan** membuktikan bahwa kode "tidak memanggil API saat mode mock dimatikan dan kredensial tersedia". Jika ada jalur mitigasi nonaktif yang bocor tanpa guard, tes lama akan memberikan rasa aman palsu (false positive pass).
 
 #### Status & Versi Test yang Diperbaiki
-- **Status:** Pola pengujian baru telah aktif dan diverifikasi di `tests/test_perimeter_action_guard.py` (commit `40e1231` & `034d812` di branch `dev`); refaktorisasi menyeluruh pada suite `tests/test_perimeter_disabled.py` sedang berjalan berurutan.
+- **Status:** SUDAH SELESAI di branch `dev` (commit `40e1231` & `034d812`, di `tests/test_perimeter_action_guard.py` dan `tests/test_extended_perimeters.py`).
 - **Mengapa Pendekatan Baru Ini Berarti:**
   Pada pendekatan uji baru:
   1. `MINISOAR_MOCK` secara sengaja dimatikan (`monkeypatch.setenv("MINISOAR_MOCK", "0")`) dan variabel kredensial palsu disuplai penuh agar `is_configured()` mengembalikan `True`.
-  2. Disediakan **kontrol positif** (`test_positive_control_cloudflare_connector_would_reach_http` dan `test_positive_control_fortigate_connector_would_reach_http`) yang membuktikan secara empiris bahwa fixture `no_network` benar-benar meledak (`AssertionError: NETWORK DIBUKA...`) jika connector dipanggil tanpa guard.
-  3. Setelah kontrol positif terbukti aktif, pengujian baru memanggil fungsi yang dijaga dan memverifikasi bahwa penolakan terjadi murni karena guard `perimeter_disabled_message` sebelum soket jaringan disentuh.
+  2. Disediakan **kontrol positif** (`test_positive_control_an_active_perimeter_really_reaches_http`) yang membuktikan secara empiris bahwa fixture `no_network` benar-benar meledak (`AssertionError: NETWORK DIBUKA...`) saat ada connector yang dipanggil tanpa guard. Kontrol positif sengaja diarahkan ke **PaloAlto** (perimeter aktif), bukan ke connector yang dimatikan: kalau tidak begitu, kontrolnya hanya akan menguji guard yang memang harus menolak, dan tidak ada lagi yang membuktikan fixture-nya benar-benar terpasang.
+  3. Setelah kontrol positif terbukti aktif, pengujian memverifikasi bahwa pemanggilan langsung pada `cloudflare.block_ip` / `fortigate.block_ip` (tanpa lewat `bot.py`, tanpa lewat playbook) menolak murni karena guard `is_perimeter_active` di dalam connector, sebelum soket jaringan disentuh.
   Dengan metodologi ini, bukti pencegahan panggilan API menjadi valid dan terbukti secara ilmiah tanpa mengandalkan perilaku bypass dari mode mock.
 
 ---
