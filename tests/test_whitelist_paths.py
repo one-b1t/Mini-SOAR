@@ -7,6 +7,7 @@
 3. ExecutionContext.logfile hardcode relatif, tidak lewat resolve_log_path.
 """
 
+import hashlib
 import os
 from pathlib import Path
 
@@ -14,6 +15,14 @@ import pytest
 
 import minisoar.daemon as daemon
 import minisoar.utils as utils
+from minisoar.playbook import ExecutionContext
+
+ROOT = Path(__file__).resolve().parent.parent
+ROOT_LOG = ROOT / "tele-soar-actions.log"
+
+
+def _sha(p):
+    return hashlib.sha256(p.read_bytes()).hexdigest() if p.exists() else None
 
 
 class _StopDaemon(Exception):
@@ -126,3 +135,35 @@ def test_add_to_whitelist_rejects_duplicate_with_reason(monkeypatch, tmp_path):
     assert ok is True and "sudah ada" in msg
     lines = [l for l in wl.read_text(encoding="utf-8").splitlines() if l.strip()]
     assert len(lines) == 1, f"entri duplikat: {lines}"
+
+
+# --- Bug 3: ExecutionContext.logfile --------------------------------------------
+
+def _ctx(**kw):
+    return ExecutionContext(
+        event={}, ip="1.2.3.4", website="", providers=[], mapped=False, whitelisted=False,
+        bypassed=False, ml_prob=0.0, ml_label=0, reputation_score=0, rep_str="", event_id="e", **kw
+    )
+
+
+def test_execution_context_logfile_follows_logfile_env(monkeypatch, tmp_path):
+    target = str(tmp_path / "audit.log")
+    monkeypatch.setenv("LOGFILE", target)
+    assert _ctx().logfile == target
+
+
+def test_execution_context_logfile_explicit_arg_wins(monkeypatch, tmp_path):
+    monkeypatch.setenv("LOGFILE", str(tmp_path / "env.log"))
+    assert _ctx(logfile="x.log").logfile == "x.log"
+
+
+def test_playbook_audit_goes_to_logfile_env_not_repo_root(monkeypatch, tmp_path):
+    target = tmp_path / "audit.log"
+    monkeypatch.setenv("LOGFILE", str(target))
+    before = _sha(ROOT_LOG)
+
+    ctx = _ctx()
+    utils.log_user_action("AUTO_BLOCK", {"username": "playbook"}, ip=ctx.ip, logfile=ctx.logfile)
+
+    assert target.exists() and "AUTO_BLOCK" in target.read_text(encoding="utf-8")
+    assert _sha(ROOT_LOG) == before, "audit log masuk tele-soar-actions.log di root repo"

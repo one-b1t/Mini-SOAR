@@ -5,6 +5,13 @@ from __future__ import annotations
 from dataclasses import dataclass, field
 from typing import Any
 
+from ..utils import resolve_log_path
+
+
+def _default_logfile() -> str:
+    # Sama dengan daemon/bot: LOGFILE env, lalu default produksi.
+    return resolve_log_path("LOGFILE", "/var/log/tele-soar-actions.log", "tele-soar-actions.log")
+
 
 @dataclass
 class TriggerCriteria:
@@ -75,7 +82,7 @@ class ExecutionContext:
     event_id: str
     redis_conn: Any = None
     pending_commits: dict[str, bool] = field(default_factory=dict)
-    logfile: str = "tele-soar-actions.log"
+    logfile: str = field(default_factory=_default_logfile)
     minisoar_block_duration: int = 600
     custom_vars: dict[str, Any] = field(default_factory=dict)
     executed_steps: list[str] = field(default_factory=list)
