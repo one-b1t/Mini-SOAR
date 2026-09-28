@@ -11,6 +11,7 @@ import datetime
 import json
 import logging
 import os
+import re
 import time
 from pathlib import Path
 
@@ -137,10 +138,53 @@ def sync_edr_ioc_if_malicious(
     return False
 
 
+class _TokenRedactingFilter(logging.Filter):
+    """Ganti bot<id>:<secret> dengan bot<REDACTED> di pesan dan traceback.
+
+    Dipasang di HANDLER root: filter di logger tidak berlaku untuk record yang
+    dipropagasi dari logger anak. Pesan dicek setelah argumen %s diformat,
+    supaya token di dalam args ikut tertangkap.
+    """
+
+    def _redact(self, text: str) -> str:
+        return re.sub(r"bot\d{5,}:[A-Za-z0-9_-]{20,}", "bot<REDACTED>", text)
+
+    def filter(self, record: logging.LogRecord) -> bool:
+        msg = record.getMessage()
+        clean = self._redact(msg)
+        if clean != msg:
+            record.msg, record.args = clean, None
+        if record.exc_info and not record.exc_text:
+            record.exc_text = logging.Formatter().formatException(record.exc_info)
+        if record.exc_text:
+            record.exc_text = self._redact(record.exc_text)
+        return True
+
+
+def _configure_logging() -> None:
+    """basicConfig + filter redaksi token di root handler.
+
+    Wajib: send_telegram() dipanggil tiap 60 detik dan `logger.error("Failed to
+    send alert: %s", e)` mencetak exception requests yang memuat URL
+    api.telegram.org/bot<TOKEN>/sendMessage. Tanpa filter, token bocor ke
+    journald justru saat jaringan ke Telegram bermasalah.
+
+    Sengaja disalin dari minisoar/bot.py, bukan di-import: daemon tidak boleh
+    bergantung pada modul bot (risiko siklus import + memuat python-telegram-bot).
+    """
+    logging.basicConfig(level=logging.INFO)
+    logging.getLogger().setLevel(logging.INFO)  # basicConfig no-op bila root sudah punya handler
+    for name in ("httpx", "httpcore"):
+        logging.getLogger(name).setLevel(logging.WARNING)
+    for handler in logging.getLogger().handlers:
+        if not any(isinstance(f, _TokenRedactingFilter) for f in handler.filters):
+            handler.addFilter(_TokenRedactingFilter())
+
+
 def main() -> None:
     # 1. Load Configurations and Env
     load_env()
-    logging.basicConfig(level=logging.INFO)
+    _configure_logging()
 
     # 2. Extract Config Variables
     redis_key = os.environ.get("REDIS_KEY", "logstash_alert_queue")
