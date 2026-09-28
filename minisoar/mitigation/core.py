@@ -460,7 +460,9 @@ def check_perimeter_connectivity() -> list[dict]:
     # Cloudflare & FortiGate: DIMATIKAN TOTAL. Tidak diprobe sama sekali supaya tidak
     # ada panggilan API ke perimeter yang tidak dimiliki. Baris tetap ditampilkan
     # sebagai "disabled" supaya operator tidak mengira Simply not configured.
-    for dead in ("cloudflare", "fortigate"):
+    # Status diambil dari PERIMETER_NONAKTIF lewat is_perimeter_active, jadi
+    # menghidupkan kembali satu provider tidak terlupakan di daftar ini.
+    for dead in sorted(p for p in ("cloudflare", "fortigate") if not is_perimeter_active(p)):
         results.append(
             {
                 "provider": dead,

@@ -10,6 +10,10 @@ from . import kaspersky, trendmicro
 
 logger = logging.getLogger(__name__)
 
+# Satu-satunya tempat nama EDR dipetakan ke konektornya. Dipakai juga oleh
+# _expand_providers("all") supaya tidak ada daftar provider yang ditulis dua kali.
+_EDR_MODULES = {"kaspersky": kaspersky, "trendmicro": trendmicro}
+
 
 def norm_edr_provider(provider: str | None) -> str:
     s = (provider or "").strip().lower()
@@ -30,27 +34,32 @@ def _expand_providers(p_norm: str) -> tuple[list[str], str]:
     lolos ke fallback "tidak ada aksi" yang menyesatkan.
     """
     if p_norm == "all":
-        return [p for p in ("kaspersky", "trendmicro") if is_perimeter_active(p)], ""
+        return [p for p in _EDR_MODULES if is_perimeter_active(p)], ""
     if is_perimeter_active(p_norm):
         return [p_norm], ""
     return [], perimeter_disabled_message(p_norm)
 
 
 def check_all_edr_connectivity() -> list[dict[str, Any]]:
-    """Runs diagnostics across all configured EDR providers."""
-    # Kaspersky DIMATIKAN TOTAL: tidak diprobe. Baris tetap dikembalikan dengan
-    # disabled=True supaya /edrstatus tetap menampilkan accounting yang jujur.
-    results: list[dict[str, Any]] = [
-        {
-            "provider": "kaspersky",
-            "configured": False,
-            "ok": None,
-            "error": None,
-            "hint": perimeter_disabled_message("kaspersky"),
-            "disabled": True,
-        }
-    ]
-    results.append(trendmicro.check_connectivity())
+    """Runs diagnostics across all configured EDR providers.
+
+    Provider yang ada di PERIMETER_NONAKTIF tidak diprobe sama sekali, tapi barisnya
+    tetap dikembalikan dengan disabled=True supaya /edrstatus menampilkan accounting
+    yang jujur. Status dibaca dari config, bukan dari daftar di sini.
+    """
+    results: list[dict[str, Any]] = []
+    for name, module in _EDR_MODULES.items():
+        if is_perimeter_active(name):
+            results.append(module.check_connectivity())
+        else:
+            results.append({
+                "provider": name,
+                "configured": False,
+                "ok": None,
+                "error": None,
+                "hint": perimeter_disabled_message(name),
+                "disabled": True,
+            })
     return results
 
 

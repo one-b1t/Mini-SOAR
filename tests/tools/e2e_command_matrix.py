@@ -431,10 +431,16 @@ def self_check():
     print(f"SELF-CHECK OK: {len(CASES)} kasus, {len(undo_plan(CASES))} punya undo, "
           f"{len(CASES) - len(undo_plan(CASES)) - dirty} netral (tidak perlu undo), "
           f"{dirty} ditolak di mode real.")
-    unver = [k for k, v in PERIMETER.items() if v[0] is None]
+    # Hanya relevan untuk perimeter yang benar-benar bisa disentuh di mode real.
+    # Yang ada di REAL_DISABLED_PERIMETERS tidak pernah dijalankan, dan yang tidak
+    # dipakai kasus apa pun juga tidak akan di-cleanup, jadi menyebutnya di sini
+    # membuat operator mengira ada cleanup yang belum terverifikasi.
+    used = {c[4] for c in CASES if c[4]}
+    unver = sorted(k for k, v in PERIMETER.items()
+                   if v[0] is None and k in used and k not in REAL_DISABLED_PERIMETERS)
     if unver:
         print(f"  CATATAN: {len(unver)} perimeter tidak punya read-back via bot "
-              f"({', '.join(sorted(unver))}); cleanup tidak akan bisa membuktikannya bersih.")
+              f"({', '.join(unver)}); cleanup tidak akan bisa membuktikannya bersih.")
     return True
 
 
