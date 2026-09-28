@@ -9,6 +9,8 @@ from typing import Any
 
 import redis
 import requests
+from redis.backoff import NoBackoff
+from redis.retry import Retry
 
 from .utils import parse_iso8601_relaxed
 
@@ -19,16 +21,35 @@ logger = logging.getLogger(__name__)
 # Redis
 # -----------------
 
-def redis_client() -> redis.StrictRedis:
+# Jeda di atas timeout operasi blocking (BLPOP) sebelum socket read dianggap
+# macet: Redis baru menjawab BLPOP yang idle tepat saat timeout-nya habis.
+REDIS_BLOCKING_MARGIN = 5.0
+
+
+def redis_client(*, blocking_timeout: float | None = None) -> redis.StrictRedis:
+    """Klien Redis yang gagal cepat saat Redis mati/menggantung.
+
+    REDIS_TIMEOUT (default 2s) dipakai untuk connect DAN read, supaya handler
+    bot (mis. /blocked) tidak menggantung. Pemanggil operasi blocking wajib
+    memberi blocking_timeout (detik timeout BLPOP-nya): socket read lalu
+    dinaikkan ke blocking_timeout + REDIS_BLOCKING_MARGIN, connect tetap pendek.
+
+    retry dibatasi 1x tanpa backoff. Default redis-py 8.x adalah
+    Retry(ExponentialWithJitterBackoff, 10) untuk TimeoutError/ConnectionError,
+    sehingga Redis yang menggantung baru gagal setelah 11 percobaan
+    (~25 detik dengan timeout 2s).
+    """
     host = os.getenv("REDIS_HOST", "127.0.0.1")
     port = int(os.getenv("REDIS_PORT", "6379"))
     timeout = float(os.getenv("REDIS_TIMEOUT", "2.0"))
+    read_timeout = timeout if blocking_timeout is None else blocking_timeout + REDIS_BLOCKING_MARGIN
     return redis.StrictRedis(
         host=host,
         port=port,
         decode_responses=True,
-        socket_timeout=timeout,
+        socket_timeout=read_timeout,
         socket_connect_timeout=timeout,
+        retry=Retry(NoBackoff(), 1),
     )
 
 

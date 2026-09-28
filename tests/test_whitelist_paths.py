@@ -258,10 +258,10 @@ def test_daemon_picks_up_whitelist_added_after_start(monkeypatch, tmp_path):
         return res
 
     monkeypatch.setattr(daemon, "load_env", lambda *a, **kw: None)
-    monkeypatch.setattr(daemon, "redis_client", lambda: _Redis())
+    monkeypatch.setattr(daemon, "redis_client", lambda **kw: _Redis())
     # log_unmapped_site_once_per_day mengambil redis_client dari database.py.
     import minisoar.database as db
-    monkeypatch.setattr(db, "redis_client", lambda: _Redis())
+    monkeypatch.setattr(db, "redis_client", lambda **kw: _Redis())
     monkeypatch.setattr(daemon, "is_ip_whitelisted", spy)
 
     daemon.main()

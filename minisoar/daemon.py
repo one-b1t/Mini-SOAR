@@ -62,6 +62,10 @@ from .utils import (
 
 logger = logging.getLogger(__name__)
 
+# Timeout BLPOP antrean alert. redis_client(blocking_timeout=...) memakai nilai
+# yang sama supaya socket read tidak timeout duluan saat antrean idle.
+BLPOP_TIMEOUT = 10
+
 
 def sync_edr_ioc_if_malicious(
     r,
@@ -181,7 +185,7 @@ def main() -> None:
     model_artifact = load_model_artifact()
 
     # 4. Redis Client Setup
-    r = redis_client()
+    r = redis_client(blocking_timeout=BLPOP_TIMEOUT)
 
     # Commit Batching State
     last_commit_times = {"paloalto": time.time(), "akamai": time.time()}
@@ -315,7 +319,7 @@ def main() -> None:
                     next_commit_dt = now_dt.replace(minute=0, second=0, microsecond=0) + datetime.timedelta(hours=interval_hours)
                     next_commit_ts = next_commit_dt.timestamp()
 
-                item = r.blpop(redis_key, timeout=10)
+                item = r.blpop(redis_key, timeout=BLPOP_TIMEOUT)
                 if not item:
                     continue
 
