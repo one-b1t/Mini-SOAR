@@ -285,34 +285,52 @@ Kelas bocor kedua yang juga sudah ditutup di kode: API key Gemini di URL `...:ge
 sudo journalctl -u minisoar-bot -u minisoar-daemon --no-pager | grep -cE 'api\.telegram\.org/bot[0-9]+:'
 sudo journalctl -u minisoar-bot -u minisoar-daemon --no-pager | grep -c 'generateContent?key=AI'
 ```
-Angka > 0 berarti rahasia pernah tertulis. Untuk token Telegram, anggap bocor walaupun angkanya 0 bila log lama sudah dirotasi journald.
+> Pola `grep` pertama sudah diverifikasi terhadap log bot hasil uji lokal (menemukan 144 baris bertoken dalam satu sesi ~9 menit). Perintah `journalctl` di server produksi **BELUM DIVERIFIKASI** (nama unit `minisoar-bot`/`minisoar-daemon` diambil dari bagian lain runbook ini). Pola kedua (Gemini) **BELUM DIVERIFIKASI** terhadap log nyata.
 
-#### Tindakan Perbaikan Operator (setelah kode baru ter-deploy)
-1. **Rotasi token Telegram** di @BotFather: `/mybots` → pilih bot → **API Token** → **Revoke current token**. Token lama langsung mati.
-2. Tulis token baru ke `.env` produksi (`TELEGRAM_TOKEN`, atau `TELEGRAM_BOT` bila itu yang dipakai). Jangan menempelkannya di chat, tiket, atau riwayat shell.
-3. Restart **kedua** service, karena daemon juga mengirim alert memakai token yang sama:
+Angka > 0 berarti rahasia pernah tertulis. Angka 0 **tidak** membuktikan aman bila journal lama sudah terhapus/terotasi: anggap token sudah bocor dan tetap rotasi.
+
+#### Tindakan Perbaikan Operator (WAJIB, setelah kode baru ter-deploy)
+1. **Revoke token lama** di @BotFather: buka chat @BotFather → `/mybots` → pilih bot → **API Token** → **Revoke current token**, lalu salin token baru. *(Urutan menu BotFather **BELUM DIVERIFIKASI** di sesi ini; bila tampilannya berbeda, gunakan fitur revoke/regenerate token milik bot yang sama.)*
+2. **Ganti di `.env` produksi:** isi token baru ke variabel yang dipakai (`TELEGRAM_TOKEN`, atau `TELEGRAM_BOT` bila itu yang ada; bot membaca `TELEGRAM_TOKEN` lebih dulu). Jangan menempelkannya di chat, tiket, atau riwayat shell.
+3. **Restart KEDUA service**, karena daemon juga mengirim alert memakai token yang sama:
    ```bash
    sudo systemctl restart minisoar-daemon minisoar-bot
    ```
-4. Verifikasi: bot membalas `/health`, dan hitungan pada "Cara Memeriksa" di atas **tidak bertambah** setelah restart.
-5. **API key Gemini:** bila hitungan `generateContent?key=` > 0, rotasi key di Google AI Studio / Google Cloud Console, lalu perbarui `.env`.
-6. Opsional: rahasia di journal lama tidak berbahaya lagi setelah dirotasi. `journalctl --vacuum-*` menghapus **semua** log lama, termasuk jejak audit lain, jadi putuskan bersama tim keamanan. Rotasi adalah langkah yang wajib, vacuum tidak.
+4. **Verifikasi log baru tidak memuat `bot<TOKEN>`:** jalankan perintah hitung di atas, catat angkanya, tunggu beberapa menit, lalu jalankan lagi. Angkanya **tidak boleh bertambah**. Pastikan juga bot membalas `/health`.
+5. **API key Gemini:** bila hitungan `generateContent?key=` > 0, rotasi key di konsol Google tempat key itu dibuat, lalu perbarui `.env` dan restart. *(Langkah konsol Google **BELUM DIVERIFIKASI**.)*
+
+> **Tegas:** perbaikan kode hanya mencegah kebocoran **berikutnya**. Bila rotasi dilewati, token yang sudah tertulis di journald lama **masih hidup**, dan siapa pun yang bisa membaca journald (root, grup `adm`/`systemd-journal`, ekspor/salinan log) memegang token itu dan bisa mengendalikan bot.
+
+Opsional: menghapus journal lama (`journalctl --vacuum-*`) ikut menghapus **semua** log lama termasuk jejak audit lain; putuskan bersama tim keamanan. Setelah rotasi, token di log lama sudah tidak berguna.
 
 ---
 
 ### Poin 10: Command yang Dikirim Saat Bot Mati Dieksekusi Saat Bot Hidup Lagi
 
-#### Apa yang Terjadi & Risiko
-Bot memakai `app.run_polling()` **tanpa** `drop_pending_updates` (`minisoar/bot.py`, fungsi `main`). Telegram menyimpan pesan yang masuk selama bot mati (hingga 24 jam). Begitu bot start, **semua pesan tertunda itu dieksekusi** berurutan, tanpa konfirmasi ulang.
+> [!WARNING]
+> **STATUS: KEPUTUSAN USER MENUNGGU.** Bagian ini menjelaskan fakta dan opsi. Belum ada keputusan perilaku mana yang diinginkan, dan kode **belum** diubah.
 
-Terbukti di uji E2E 2026-09-28: 17 command write (`/block_*`, `/isolate_host`, `/commit_palo`, `/activate_akamai`, ...) yang dikirim saat bot mati langsung dijalankan saat instance baru start.
+#### Fakta
+- `app.run_polling()` di `minisoar/bot.py` (fungsi `main`) dipanggil **tanpa** `drop_pending_updates`. Saat bot start, python-telegram-bot memproses semua pesan yang tertunda di Telegram selama bot mati.
+- **Dibuktikan di uji E2E 2026-09-28:** 17 command yang dikirim saat bot mati (`/unblock_imperva`, `/block_palo`, `/unblock_palo`, `/block_akamai`, `/unblock_akamai`, `/block_cf`, `/unblock_cf`, `/block_forti`, `/unblock_forti`, `/isolate_host`, `/restore_host`, `/add_edr_ioc`, `/commit_palo`, `/whitelist_add`, `/whitelist_remove`, `/activate_akamai`, `/retrainmodel`) dieksekusi **~6 menit kemudian**, begitu bot dinyalakan, tanpa konfirmasi ulang. (Uji itu berjalan dengan `MINISOAR_MOCK=1`, jadi tidak ada aksi nyata.)
+- Batas berapa lama Telegram menyimpan pesan tertunda **BELUM DIVERIFIKASI** di sesi ini.
 
-**Dampak di produksi:**
-- `/block_*`, `/isolate_host`, atau `/commit_palo` yang dikirim analis saat downtime baru dieksekusi **berjam-jam kemudian**, saat situasinya mungkin sudah berbeda (IP sudah tidak relevan, host sudah dipulihkan manual).
-- Command dari sesi **uji/mock** (IP uji seperti `203.0.113.88`, `10.0.0.50`) yang tertunda akan dieksekusi **sungguhan** bila instance berikutnya start dengan `MINISOAR_MOCK=0`.
+#### Konsekuensi untuk bot SOC
+- `/block_palo` yang dikirim analis jam 03.00 saat outage bisa dieksekusi jam 09.00 saat bot dinyalakan lagi, **tanpa operator tahu**, padahal situasinya mungkin sudah berubah (IP sudah tidak relevan, sudah ditangani manual).
+- Urutan bisa terputus: `/commit_palo` bisa berjalan tanpa `/block_palo` yang seharusnya menyertainya (misalnya salah satunya dikirim sebelum outage, yang lain saat outage), sehingga commit berisi perubahan yang tidak diharapkan.
+- Command dari sesi **uji/mock** (IP uji seperti `203.0.113.88`, `10.0.0.50`) yang masih tertunda akan dieksekusi **sungguhan** bila instance berikutnya start dengan `MINISOAR_MOCK=0`.
 
-#### Cara Memeriksa Sebelum Start Bot
-Cek jumlah update tertunda **sebelum** `systemctl start minisoar-bot`. Skrip di bawah membaca token dari `.env` tanpa mencetaknya dan tanpa memasukkannya ke riwayat shell:
+#### Opsi & Trade-off (untuk keputusan user)
+| Opsi | Keuntungan | Kerugian |
+|---|---|---|
+| **A. `run_polling(drop_pending_updates=True)`** | Tidak ada command basi yang tereksekusi berjam-jam kemudian. | Command **sah** yang dikirim analis saat downtime **hilang diam-diam**; analis mengira sudah terkirim. |
+| **B. Biarkan seperti sekarang** | Tidak ada command yang hilang. | Command bisa tereksekusi berjam-jam kemudian tanpa operator tahu; backlog sesi mock bisa tereksekusi di produksi. |
+| **C. Ide (belum ada kode):** tolak/minta konfirmasi untuk command yang umurnya lebih dari N menit | Command lama tidak jalan diam-diam dan tidak hilang tanpa pemberitahuan. | Butuh perubahan kode dan penentuan N; **BELUM DIVERIFIKASI** dan belum dirancang. |
+
+#### Yang bisa dilakukan operator sekarang (tanpa mengubah kode) - BELUM DIVERIFIKASI
+Snippet berikut memakai Bot API Telegram standar (`getWebhookInfo`, `deleteWebhook`) dan membaca token dari `.env` tanpa mencetaknya. Keduanya **BELUM DIVERIFIKASI** dijalankan terhadap bot MiniSOAR; uji dulu di bot non-produksi.
+
+Cek jumlah pesan tertunda **sebelum** `systemctl start minisoar-bot`:
 ```bash
 python3 - <<'EOF'
 import json, urllib.request
@@ -323,23 +341,17 @@ r = json.load(urllib.request.urlopen(f"https://api.telegram.org/bot{t}/getWebhoo
 print("pending_update_count =", r["result"].get("pending_update_count"))
 EOF
 ```
-
-#### Tindakan Operator
-- `pending_update_count = 0`: aman, lanjutkan start.
-- `> 0`: **jangan start dulu**. Konfirmasi ke analis SOC command apa yang mereka kirim selama downtime. Bila tidak boleh dieksekusi, buang antreannya:
-  ```bash
-  python3 - <<'EOF'
-  import json, urllib.request
-  from dotenv import dotenv_values
-  env = dotenv_values(".env")
-  t = env.get("TELEGRAM_TOKEN") or env.get("TELEGRAM_BOT")
-  r = json.load(urllib.request.urlopen(f"https://api.telegram.org/bot{t}/deleteWebhook?drop_pending_updates=true", timeout=10))
-  print("drop pending:", r.get("ok"))
-  EOF
-  ```
-  Setelah itu minta analis mengirim ulang command yang masih relevan.
-- **Wajib** setelah sesi uji E2E/mock: buang antrean sebelum bot produksi (non-mock) dijalankan.
-- Perbaikan permanen di kode (`run_polling(drop_pending_updates=True)`, atau konfirmasi untuk command yang umurnya tua) **belum** dikerjakan; itu keputusan desain terpisah.
+Bila > 0 dan antrean itu memang tidak boleh dieksekusi (misalnya sisa sesi uji/mock), antrean bisa dibuang. Ini setara Opsi A untuk satu kali restart saja, dengan kerugian yang sama: command sah di antrean ikut hilang, jadi konfirmasi dulu ke analis dan minta mereka mengirim ulang yang masih relevan.
+```bash
+python3 - <<'EOF'
+import json, urllib.request
+from dotenv import dotenv_values
+env = dotenv_values(".env")
+t = env.get("TELEGRAM_TOKEN") or env.get("TELEGRAM_BOT")
+r = json.load(urllib.request.urlopen(f"https://api.telegram.org/bot{t}/deleteWebhook?drop_pending_updates=true", timeout=10))
+print("drop pending:", r.get("ok"))
+EOF
+```
 
 ---
 
@@ -425,9 +437,10 @@ sudo kill -9 $(pgrep -f "minisoar.daemon") 2>/dev/null || true
 # 3. Nyalakan daemon
 sudo systemctl start minisoar-daemon
 
-# 3a. SEBELUM start bot: cek pending_update_count (lihat Poin 10).
-#     Bila > 0, konfirmasi ke analis atau buang antreannya dulu; command yang
-#     tertunda selama downtime akan langsung dieksekusi begitu bot start.
+# 3a. SEBELUM start bot: pahami Poin 10. Command yang dikirim selama bot mati
+#     akan langsung dieksekusi begitu bot start (keputusan perilaku masih
+#     MENUNGGU user). Bila perlu, cek pending_update_count dengan snippet di
+#     Poin 10 (BELUM DIVERIFIKASI) dan konfirmasi ke analis SOC.
 
 # 3b. Nyalakan bot
 sudo systemctl start minisoar-bot
@@ -468,4 +481,4 @@ sudo systemctl enable minisoar-bot minisoar-daemon
    ```
 
 ### Langkah 7: Rotasi Kredensial yang Pernah Bocor (WAJIB, sekali)
-Setelah Langkah 6 lulus dengan kode baru, jalankan rotasi di **Poin 9** (token bot di @BotFather, dan API key Gemini bila terdeteksi), perbarui `.env`, lalu restart kedua service. Kode baru hanya mencegah kebocoran berikutnya; token yang sudah tertulis di journal tetap berlaku sampai dirotasi.
+Setelah Langkah 6 lulus dengan kode baru, jalankan rotasi di **Poin 9**: revoke token bot di @BotFather → ganti di `.env` → restart kedua service → verifikasi log baru tidak memuat `bot<TOKEN>` (dan rotasi API key Gemini bila terdeteksi). Kode baru hanya mencegah kebocoran berikutnya; token yang sudah tertulis di journal tetap berlaku sampai dirotasi.
