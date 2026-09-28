@@ -5,7 +5,7 @@ atau ticket sungguhan yang dibuat, tapi balasan tetap "SUCCESS: ... created
 with ID ..." tanpa penanda. Operator bisa mengira tiketnya benar-benar dibuat
 di TheHive/Jira/ServiceNow.
 
-Sendir_generic_webhook di file yang sama sudah memakai pola " (Mock)", jadi
+send_generic_webhook di file yang sama sudah memakai pola " (Mock)", jadi
 pola itu bukan ciptaan baru. Test ini mengunci keempatnya pada pola itu.
 
 Dua arah: mock-on wajib bertanda, mock-off wajib tetap polos supaya teks

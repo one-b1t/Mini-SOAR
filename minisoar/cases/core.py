@@ -184,7 +184,11 @@ def sync_case_to_ticketing(case_id: str, actor: str = "analyst") -> tuple[bool, 
         case.external_tickets[prov] = tid
         case.add_timeline(actor, f"{prov}_sync", f"Manually dispatched to 3rd-party {prov.upper()} ({tid})")
         save_case(case)
-        return True, f"SUCCESS: Incident synced to {prov.upper()} with ticket ID {tid}"
+        # Di mode mock `tid` berisi ID palsu dari connector. Tanpa penanda,
+        # operator membaca "SUCCESS ... ticket ID ..." padahal tidak ada
+        # ticket yang pernah dibuat. Pola penanda sama dengan connectors.py.
+        marker = " (Mock)" if os.getenv("MINISOAR_MOCK", "").lower() in {"1", "true", "yes"} else ""
+        return True, f"SUCCESS: Incident synced to {prov.upper()} with ticket ID {tid}{marker}"
     return False, msg
 
 
