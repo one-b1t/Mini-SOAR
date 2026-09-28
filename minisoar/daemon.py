@@ -54,6 +54,7 @@ from .utils import (
     notify_action_log,
     provider_badge,
     resolve_log_path,
+    resolve_whitelist_path,
     send_telegram,
     valid_ip,
 )
@@ -156,7 +157,9 @@ def main() -> None:
 
     # Resolve paths
     bypass_file_path = resolve_log_path("BYPASS_FILE", "/etc/logstash/minisoar-bypass.txt", "minisoar-bypass.txt")
-    whitelist_file_path = resolve_log_path("WHITELIST_FILE", "minisoar-whitelist.txt", "minisoar-whitelist.txt")
+    # Harus sama dengan path yang ditulis bot (/whitelist_add), kalau tidak
+    # whitelist dari bot tidak pernah dibaca daemon.
+    whitelist_file_path = resolve_whitelist_path()
     perimeter_map_path = resolve_log_path("PERIMETER_MAP_PATH", "/etc/logstash/minisoar-perimeter.yml", "logstash/minisoar-perimeter.yml")
     unmapped_log_path = resolve_log_path("UNMAPPED_LOG_PATH", "/var/log/minisoar-unmapped-sites.log", "minisoar-unmapped-sites.log")
     unmapped_log_ttl = int(os.environ.get("UNMAPPED_LOG_TTL_SEC", "86400"))

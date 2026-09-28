@@ -118,8 +118,11 @@ def load_cidr_list_from_env_and_file(env_key: str, file_path: str) -> list[str]:
         if os.path.exists(file_path):
             with open(file_path, "r", encoding="utf-8") as f:
                 for line in f:
-                    line = line.strip()
-                    if not line or line.startswith("#"):
+                    # Buang komentar inline ("10.2.57.246  # alasan", format
+                    # yang ditulis add_to_whitelist); tanpa ini entri tidak
+                    # pernah cocok di ip_in_nets.
+                    line = line.split("#", 1)[0].strip()
+                    if not line:
                         continue
                     nets.append(line)
     except Exception as e:
@@ -825,6 +828,12 @@ def log_user_action(
 
 
 def resolve_whitelist_path() -> str:
+    """Satu sumber path whitelist untuk bot (tulis) dan daemon (baca)."""
+    # WHITELIST_FILE: key lama yang dibaca daemon. Tetap dihormati supaya
+    # deployment yang menyetelnya tidak diam-diam kehilangan whitelist.
+    legacy = os.getenv("WHITELIST_FILE")
+    if legacy and not os.getenv("WHITELIST_PATH"):
+        return legacy
     return resolve_log_path("WHITELIST_PATH", "/etc/logstash/minisoar-whitelist.txt", "minisoar-whitelist.txt")
 
 
