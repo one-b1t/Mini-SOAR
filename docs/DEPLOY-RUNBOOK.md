@@ -7,7 +7,7 @@ Dokumen ini ditujukan bagi **Operator Sistem / Tim DevOps** yang mengeksekusi pe
 
 ## DAFTAR ISI
 1. [Syarat Mutlak Pre-Deployment Gate](#1-syarat-mutlak-pre-deployment-gate)
-2. [12 Risiko Kritis Produksi & Prosedur Mitigasi](#2-12-risiko-kritis-produksi--prosedur-mitigasi)
+2. [14 Risiko Kritis Produksi & Prosedur Mitigasi](#2-14-risiko-kritis-produksi--prosedur-mitigasi)
    - [Poin 1: Jalur File Whitelist (Paling Kritis)](#poin-1-jalur-file-whitelist-paling-kritis)
    - [Poin 2: Sanitasi Duplikasi Entri Whitelist](#poin-2-sanitasi-duplikasi-entri-whitelist)
    - [Poin 3: Mekanisme Auto-Reload Whitelist pada Daemon](#poin-3-mekanisme-auto-reload-whitelist-pada-daemon)
@@ -20,6 +20,8 @@ Dokumen ini ditujukan bagi **Operator Sistem / Tim DevOps** yang mengeksekusi pe
    - [Poin 10: Command yang Dikirim Saat Bot Mati Dieksekusi Saat Bot Hidup Lagi](#poin-10-command-yang-dikirim-saat-bot-mati-dieksekusi-saat-bot-hidup-lagi)
    - [Poin 11: Jumlah Command di Menu Bot (34 vs 38)](#poin-11-jumlah-command-di-menu-bot-34-vs-38)
    - [Poin 12: Status Perimeter per 2026-09-28 (3 Dimatikan)](#poin-12-status-perimeter-per-2026-09-28-3-dimatikan)
+   - [Poin 13: Playbook Actions Cloudflare & FortiGate Mengabaikan Guard (Temuan P1)](#poin-13-playbook-actions-cloudflare--fortigate-mengabaikan-guard-temuan-p1)
+   - [Poin 14: Kelemahan Fixture no_network pada Pengujian Perimeter Nonaktif (Temuan P1-2)](#poin-14-kelemahan-fixture-no_network-pada-pengujian-perimeter-nonaktif-temuan-p1-2)
 3. [Checklist Urutan Eksekusi Deployment (Step-by-Step)](#3-checklist-urutan-eksekusi-deployment-step-by-step)
 
 ---
@@ -43,7 +45,7 @@ python -m pytest tests -q -m "not e2e"
 
 ---
 
-## 2. 12 Risiko Kritis Produksi & Prosedur Mitigasi
+## 2. 14 Risiko Kritis Produksi & Prosedur Mitigasi
 
 ### Poin 1: Jalur File Whitelist (Paling Kritis)
 
@@ -377,8 +379,8 @@ Catatan untuk operator:
 - **FortiGate:** modul membaca `FORTIGATE_API_TOKEN` (sesuai `env.example`), sedangkan pengecekan menu (`get_configured_providers` di `minisoar/config.py`) membaca `FORTIGATE_API_KEY`. Ketidaksesuaian ini **tidak lagi muncul di menu** selama FortiGate dimatikan, tetapi tetap benar secara kode. Kalau nanti dihidupkan kembali, pakai **`FORTIGATE_API_TOKEN`**.
 - Harness E2E kini berada di **`tests/tools/e2e_command_matrix.py`** (ter-track), bukan `scratch/e2e_command_matrix.py`. Folder `scratch/` masuk `.gitignore`, jadi harness yang di sana hilang dari repo dan tidak ikut ter-deploy.
 - Jumlah kasus harness tetap **38**, kebetulan sama dengan 38 command di menu, tetapi dihitung dengan cara berbeda. Jangan dicocokkan satu per satu.
-- **Mode real lebih ketat dari mode mock.** `select_cases(real=True)` menjalankan **23 dari 38** kasus. Yang diizinkan: PaloAlto, Akamai, TrendMicro, dan whitelist, ditambah command baca saja seperti `/help`, `/health`, `/cases`, `/case`, `/export_case`, `/socmetrics`, `/edrstatus`, `/blocked`, `/intel`, `/ask_ai`, `/rca`, `/ai_provider`, `/ai_model`, `/trace_palo`, dan `/trace_akamai`. Yang diblokir: Cloudflare, FortiGate, EDR-Kaspersky, Imperva, dan **seluruh isolasi host** (`HOST_ISOLATION_BLOCKED = True`, dikunci di kode, bukan opsional).
-- **Celah yang belum ditutup:** `/trace_imperva` **masih** ikut berjalan di mode real. `HANDLER_PERIMETER` memetakan perimeter dengan mencocokkan nama handler sebagai substring, sedangkan handler `/trace_imperva` bernama `tracev` sehingga tidak memuat kata `imperva`; ia lolos dari daftar Imperva. Operasinya hanya membaca, jadi risikonya rendah, tetapi pernyataan "Imperva tidak diizinkan di mode real" **belum sepenuhnya benar**.
+- **Mode real lebih ketat dari mode mock.** `select_cases(real=True)` menjalankan **22 dari 38** kasus. Yang diizinkan: PaloAlto, Akamai, TrendMicro, dan whitelist, ditambah command baca saja seperti `/help`, `/health`, `/cases`, `/case`, `/export_case`, `/socmetrics`, `/edrstatus`, `/blocked`, `/intel`, `/ask_ai`, `/rca`, `/ai_provider`, `/ai_model`, `/trace_palo`, dan `/trace_akamai`. Yang diblokir: Cloudflare, FortiGate, EDR-Kaspersky, Imperva (termasuk `/trace_imperva`), dan **seluruh isolasi host** (`HOST_ISOLATION_BLOCKED = True`, dikunci di kode, bukan opsional).
+- **Pemetaan perimeter eksplisit (commit `917e078`):** Sebelumnya, harness memetakan perimeter dengan mencocokkan nama handler sebagai substring (`HANDLER_PERIMETER`), sehingga handler `/trace_imperva` yang bernama fungsi `tracev` tidak terdeteksi sebagai milik Imperva dan bocor ke mode real. Celah tersebut telah ditutup pada commit `917e078`: setiap baris di `CASES` kini mendeklarasikan perimeter-nya secara eksplisit pada tuple kolom ke-5 (misal `("tracev", "/trace_imperva ...", "read", None, "imperva")`), dan seluruh pemetaan berbasis substring nama handler telah dihapus. Hal ini menutup kebocoran `/trace_imperva` ke mode real dan menurunkan jumlah kasus mode real dari 23 menjadi tepat **22 dari 38** kasus.
 
 ---
 
@@ -440,6 +442,68 @@ supaya penghidupan kembali tidak butuh menulis ulang integrasi.
    dan bukan `FORTIGATE_API_KEY`. Lihat Poin 11.
 4. Untuk Kaspersky, pastikan dulu ada endpoint hapus IoC yang bisa diverifikasi, karena tanpa itu
    setiap IoC yang ditambahkan bersifat permanen.
+
+---
+
+### Poin 13: Playbook Actions Cloudflare & FortiGate Mengabaikan Guard (Temuan P1)
+
+#### Apa yang Terjadi & Risiko
+Pada implementasi awal pematian perimeter (commit `7ce7678`), guard pematian diletakkan pada layer config (`minisoar/config.py`), orkestrasi mitigasi (`minisoar/mitigation/core.py`), modul EDR (`minisoar/edr/core.py`), dan command handler bot Telegram (`minisoar/bot.py`).
+
+Namun, audit independen menemukan celah bypass kritis (P1): pada berkas `minisoar/playbook/actions.py`, action `@register_action("mitigation.cloudflare_block")` dan `@register_action("mitigation.fortigate_block")` melakukan import modul connector secara langsung:
+```python
+from ..mitigation.cloudflare import block_ip
+# dan
+from ..mitigation.fortigate import block_ip
+```
+Action playbook ini dieksekusi langsung oleh engine playbook tanpa melalui fungsi routing `trigger_auto_block` di `mitigation/core.py`. Di sisi lain, fungsi `is_configured()` di dalam connector `cloudflare.py` dan `fortigate.py` hanya memeriksa keberadaan variabel lingkungan (seperti `CLOUDFLARE_API_TOKEN`, `FORTIGATE_API_TOKEN`), bukan apakah provider terdaftar di `PERIMETER_NONAKTIF`.
+
+Akibatnya, jika ada alert SOAR yang memicu eksekusi playbook dengan action tersebut sementara di server produksi masih terdapat sisa kredensial di `.env`, connector akan menganggap dirinya terkonfigurasi dan langsung menembakkan HTTP request ke API Cloudflare atau FortiGate sungguhan meskipun perimeter tersebut berstatus nonaktif.
+
+#### Status & Apa yang Diperbaiki
+- **Status:** SELESAI & SUDAH MERGE di branch `dev` (commit `40e1231` pada `minisoar/playbook/actions.py` dan `tests/test_perimeter_action_guard.py`, serta diperkuat oleh commit `034d812` pada entry point connector).
+- **Perbaikan:** Guard penolakan ditambahkan langsung di awal fungsi `action_cloudflare_block` dan `action_fortigate_block` sebelum statement import connector:
+  ```python
+  tolak = perimeter_disabled_message("cloudflare")  # atau "fortigate"
+  if tolak:
+      return False, tolak
+  ```
+  Jika provider terdaftar di `PERIMETER_NONAKTIF`, action langsung return `(False, tolak)` sehingga modul connector tidak pernah diimpor dan tidak ada panggilan API atau socket jaringan yang tersentuh.
+
+#### Cara Memeriksa & Verifikasi
+Pengujian diverifikasi secara offline menggunakan suite `tests/test_perimeter_action_guard.py`:
+1. **Verifikasi Penolakan Action:** Menjalankan action playbook dengan kredensial palsu lengkap dan mode mock dimatikan (`MINISOAR_MOCK=0`). Action terbukti menolak dengan pesan dari `perimeter_disabled_message` tanpa memanggil connector (`called == []`) dan tanpa menyentuh jaringan.
+2. **Audit Statis Modul:** Test `test_no_module_imports_a_disabled_connector_without_a_guard` memindai seluruh berkas Python di bawah `minisoar/` (di luar `__init__.py`) untuk menjamin tidak ada modul lain yang meng-import connector nonaktif tanpa disertai guard `is_perimeter_active` / `perimeter_disabled_message` / `PERIMETER_NONAKTIF`.
+
+Perintah verifikasi operator:
+```bash
+python -m pytest tests/test_perimeter_action_guard.py -v
+```
+*(Seluruh 7 test wajib PASS).*
+
+---
+
+### Poin 14: Kelemahan Fixture no_network pada Pengujian Perimeter Nonaktif (Temuan P1-2)
+
+#### Apa yang Terjadi & Risiko
+Audit independen menemukan kelemahan mendasar (P1-2) pada suite uji `tests/test_perimeter_disabled.py` (commit `7ce7678`):
+Fixture `no_network` di file tersebut mem-patch library `requests` agar melempar exception `AssertionError("jalur yang seharusnya mati mencoba menghubungi API")` jika jaringan tersentuh. Namun, konfigurasi default suite pengujian MiniSOAR menjalankan test dengan variabel lingkungan `MINISOAR_MOCK=1` (ditetapkan via `tests/conftest.py`).
+
+Di dalam modul connector (`cloudflare.py`, `fortigate.py`, `kaspersky.py`), baris pertama setiap fungsi mitigasi selalu mengecek:
+```python
+if MINISOAR_MOCK:
+    return True, "[MOCK] ..."
+```
+Karena eksekusi terpotong lebih awal oleh guard mock, pemanggilan ke `requests` memang tidak pernah tercapai, dan fungsi `boom()` pada fixture `no_network` **tidak pernah bersenjata/diuji (never armed)**. Akibatnya, pengujian lama hanya membuktikan bahwa kode "tidak error saat mode mock aktif", **bukan** membuktikan bahwa kode "tidak memanggil API saat mode mock dimatikan dan kredensial tersedia". Jika ada jalur mitigasi nonaktif yang bocor tanpa guard, tes lama akan memberikan rasa aman palsu (false positive pass).
+
+#### Status & Versi Test yang Diperbaiki
+- **Status:** Pola pengujian baru telah aktif dan diverifikasi di `tests/test_perimeter_action_guard.py` (commit `40e1231` & `034d812` di branch `dev`); refaktorisasi menyeluruh pada suite `tests/test_perimeter_disabled.py` sedang berjalan berurutan.
+- **Mengapa Pendekatan Baru Ini Berarti:**
+  Pada pendekatan uji baru:
+  1. `MINISOAR_MOCK` secara sengaja dimatikan (`monkeypatch.setenv("MINISOAR_MOCK", "0")`) dan variabel kredensial palsu disuplai penuh agar `is_configured()` mengembalikan `True`.
+  2. Disediakan **kontrol positif** (`test_positive_control_cloudflare_connector_would_reach_http` dan `test_positive_control_fortigate_connector_would_reach_http`) yang membuktikan secara empiris bahwa fixture `no_network` benar-benar meledak (`AssertionError: NETWORK DIBUKA...`) jika connector dipanggil tanpa guard.
+  3. Setelah kontrol positif terbukti aktif, pengujian baru memanggil fungsi yang dijaga dan memverifikasi bahwa penolakan terjadi murni karena guard `perimeter_disabled_message` sebelum soket jaringan disentuh.
+  Dengan metodologi ini, bukti pencegahan panggilan API menjadi valid dan terbukti secara ilmiah tanpa mengandalkan perilaku bypass dari mode mock.
 
 ---
 
