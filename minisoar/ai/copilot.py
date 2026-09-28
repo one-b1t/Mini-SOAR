@@ -19,6 +19,7 @@ import json
 import logging
 import os
 from pathlib import Path
+import re
 import shutil
 import subprocess
 from typing import Any
@@ -443,6 +444,37 @@ def _call_headless_cli(provider: str, prompt: str, system_instruction: str = "")
     return None
 
 
+# Pola sama dengan _TokenRedactingFilter di bot.py/daemon.py (tidak di-import dari
+# sana: bot.py meng-import modul ini). Token Telegram + API key di query string
+# (REST Gemini memakai ...:generateContent?key=<API_KEY>).
+_SECRET_PATTERNS = (
+    (re.compile(r"bot\d{5,}:[A-Za-z0-9_-]{20,}"), "bot<REDACTED>"),
+    (re.compile(r"([?&]key=)[^&\s\"'\\]+"), r"\1<REDACTED>"),
+)
+_ERROR_DETAIL_MAX = 300
+
+
+def _safe_error_detail(provider: str, exc: BaseException) -> str:
+    """Ringkasan error yang aman ditampilkan ke user: jenis + pesan, tanpa kredensial.
+
+    Selain pola di atas, nilai kredensial provider yang aktif disensor secara
+    literal, supaya format lain (header ter-echo, body error) ikut tertutup.
+    """
+    text = f"{type(exc).__name__}: {exc}"
+    for pattern, repl in _SECRET_PATTERNS:
+        text = pattern.sub(repl, text)
+    try:
+        secret, _ = resolve_auth_credential(provider)
+    except Exception:
+        secret = ""
+    if secret and len(secret) >= 8:
+        text = text.replace(secret, "<REDACTED>")
+    text = " ".join(text.split())
+    if len(text) > _ERROR_DETAIL_MAX:
+        text = text[:_ERROR_DETAIL_MAX] + "…"
+    return text
+
+
 def call_llm(prompt: str, system_instruction: str = "") -> str:
     """Dispatches prompt to configured AI LLM provider with Headless CLI & SDK fallbacks."""
     if os.getenv("MINISOAR_MOCK", "").lower() in {"1", "true", "yes"}:
@@ -479,8 +511,10 @@ def call_llm(prompt: str, system_instruction: str = "") -> str:
         if provider == "ollama":
             return _call_ollama(prompt, system_instruction)
     except Exception as e:
-        logger.error("AI Copilot call failed (%s): %s", provider, e)
-        return f"⚠️ AI Copilot error ({provider}): {e}"
+        detail = _safe_error_detail(provider, e)
+        logger.error("AI Copilot call failed (%s): %s", provider, detail)
+        # Balasan ini dikirim ke chat Telegram (/ask_ai, /rca): jangan pernah str(e) mentah.
+        return f"⚠️ AI Copilot error ({provider}): {detail}"
 
     return "⚠️ AI Provider not recognized."
 
