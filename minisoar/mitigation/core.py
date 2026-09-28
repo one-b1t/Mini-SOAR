@@ -291,12 +291,14 @@ def remove_block_state(r, ip: str, provider: str) -> bool:
 
 def get_active_blocklist(r=None) -> dict[str, Any]:
     """Returns all currently blocked IPs across Security Perimeters (Redis ZSET) and synced EDR IoCs."""
+    redis_error = None
     if r is None:
         try:
             from ..database import redis_client
             r = redis_client()
-        except Exception:
+        except Exception as e:
             r = None
+            redis_error = str(e)
 
     now = time.time()
     perimeters: list[dict[str, Any]] = []
@@ -318,27 +320,34 @@ def get_active_blocklist(r=None) -> dict[str, Any]:
                     })
         except Exception as e:
             logger.error("Failed to read perimeter blocklist from Redis: %s", e)
+            redis_error = str(e)
 
         # 2. EDR IoC Synced IPs from Redis Cache Keys
-        try:
-            keys = r.keys("minisoar:edr_ioc_synced:*")
-            for k in keys:
-                ip = k.replace("minisoar:edr_ioc_synced:", "")
-                ttl = r.ttl(k)
-                edr_iocs.append({
-                    "ip": ip,
-                    "provider": "Kaspersky & Trend Micro",
-                    "ttl_sec": ttl if ttl > 0 else 86400,
-                    "status": "Active (IoC Repository)",
-                })
-        except Exception as e:
-            logger.error("Failed to read EDR IoC list from Redis: %s", e)
+        if not redis_error:
+            try:
+                keys = r.keys("minisoar:edr_ioc_synced:*")
+                for k in keys:
+                    ip = k.replace("minisoar:edr_ioc_synced:", "")
+                    ttl = r.ttl(k)
+                    edr_iocs.append({
+                        "ip": ip,
+                        "provider": "Kaspersky & Trend Micro",
+                        "ttl_sec": ttl if ttl > 0 else 86400,
+                        "status": "Active (IoC Repository)",
+                    })
+            except Exception as e:
+                logger.error("Failed to read EDR IoC list from Redis: %s", e)
+                redis_error = str(e)
+    else:
+        if not redis_error:
+            redis_error = "Redis client is unavailable"
 
     return {
         "perimeters": perimeters,
         "edr_iocs": edr_iocs,
         "total_perimeter": len(perimeters),
         "total_edr": len(edr_iocs),
+        "redis_error": redis_error,
     }
 
 

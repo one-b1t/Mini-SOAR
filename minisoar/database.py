@@ -22,7 +22,15 @@ logger = logging.getLogger(__name__)
 def redis_client() -> redis.StrictRedis:
     host = os.getenv("REDIS_HOST", "127.0.0.1")
     port = int(os.getenv("REDIS_PORT", "6379"))
-    return redis.StrictRedis(host=host, port=port, decode_responses=True)
+    timeout = float(os.getenv("REDIS_TIMEOUT", "2.0"))
+    return redis.StrictRedis(
+        host=host,
+        port=port,
+        decode_responses=True,
+        socket_timeout=timeout,
+        socket_connect_timeout=timeout,
+    )
+
 
 
 # -----------------

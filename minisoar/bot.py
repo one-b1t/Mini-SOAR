@@ -11,13 +11,17 @@ import functools
 import html
 import logging
 import os
+from typing import Any
 
+import httpx
+import telegram.error
 from telegram import (
     BotCommand,
     InlineKeyboardButton,
     InlineKeyboardMarkup,
     Update,
 )
+from telegram.request import HTTPXRequest
 from telegram.ext import (
     ApplicationBuilder,
     CallbackQueryHandler,
@@ -98,6 +102,56 @@ def auth_guard(handler):
     return _guarded
 
 
+async def _safe_reply_text(
+    target: Any,
+    text: str,
+    *,
+    parse_mode: str | None = None,
+    is_progress: bool = False,
+    **kwargs: Any,
+) -> Any:
+    """Send reply_text safely against network / timeout glitches.
+
+    If is_progress=True, timeout or network failures (telegram.error.TimedOut,
+    httpx.TimeoutException, etc.) are logged as warnings and suppressed so the
+    handler continues executing the underlying SOAR action (preventing zero-reply
+    and aborted mitigation).
+    If is_progress=False, retries once on timeout/network error before re-raising.
+    """
+    if hasattr(target, "reply_text"):
+        msg_obj = target
+    else:
+        msg_obj = getattr(target, "message", None)
+    if msg_obj is None or not hasattr(msg_obj, "reply_text"):
+        return None
+
+    try:
+        return await msg_obj.reply_text(text, parse_mode=parse_mode, **kwargs)
+    except (
+        telegram.error.TimedOut,
+        telegram.error.NetworkError,
+        httpx.TimeoutException,
+        httpx.NetworkError,
+    ) as e:
+        if is_progress:
+            logger.warning(
+                "Progress reply_text encountered %s: %s (suppressed to continue action)",
+                type(e).__name__,
+                e,
+            )
+            return None
+        logger.warning(
+            "Final reply_text encountered %s: %s; retrying once...",
+            type(e).__name__,
+            e,
+        )
+        try:
+            return await msg_obj.reply_text(text, parse_mode=parse_mode, **kwargs)
+        except Exception as retry_exc:
+            logger.error("Retry reply_text failed: %s", retry_exc)
+            raise
+
+
 def _format_usage_html(cmd: str, syntax: str, example: str, desc: str = "") -> str:
     """Build a clean HTML usage message for Telegram commands with easy copyable examples."""
     cmd_clean = cmd.lstrip("/")
@@ -129,7 +183,7 @@ async def blockonimperva(update: Update, context: ContextTypes.DEFAULT_TYPE):
     logfile = await asyncio.to_thread(resolve_log_path, "LOGFILE", "/var/log/tele-soar-actions.log", "tele-soar-actions.log")
     await asyncio.to_thread(log_user_action, "block_imperva", user, ip=ip, target="Imperva", source="command", chat_id=update.effective_chat.id, logfile=logfile)
 
-    await update.message.reply_text(f"Memproses blokir IP <code>{html.escape(ip)}</code> pada Imperva...", parse_mode="HTML")
+    await _safe_reply_text(update.message, f"Memproses blokir IP <code>{html.escape(ip)}</code> pada Imperva...", parse_mode="HTML", is_progress=True)
 
     r = await asyncio.to_thread(redis_client)
     duration = int(os.environ.get("MINISOAR_BLOCK_DURATION", "600"))
@@ -153,7 +207,7 @@ async def unblockonimperva(update: Update, context: ContextTypes.DEFAULT_TYPE):
     logfile = await asyncio.to_thread(resolve_log_path, "LOGFILE", "/var/log/tele-soar-actions.log", "tele-soar-actions.log")
     await asyncio.to_thread(log_user_action, "unblock_imperva", user, ip=ip, target="Imperva", source="command", chat_id=update.effective_chat.id, logfile=logfile)
 
-    await update.message.reply_text(f"Memproses unblock IP <code>{html.escape(ip)}</code> pada Imperva...", parse_mode="HTML")
+    await _safe_reply_text(update.message, f"Memproses unblock IP <code>{html.escape(ip)}</code> pada Imperva...", parse_mode="HTML", is_progress=True)
 
     r = await asyncio.to_thread(redis_client)
     ok, msg = await asyncio.to_thread(trigger_auto_unblock, ip, "imperva")
@@ -177,7 +231,7 @@ async def tracev(update: Update, context: ContextTypes.DEFAULT_TYPE):
     logfile = await asyncio.to_thread(resolve_log_path, "LOGFILE", "/var/log/tele-soar-actions.log", "tele-soar-actions.log")
     await asyncio.to_thread(log_user_action, "trace_imperva_violation", user, ip=None, target="Imperva", source="command", chat_id=update.effective_chat.id, note=f"event_id={event_id}, lastFewDays={days}", logfile=logfile)
 
-    await update.message.reply_text(f"Mencari violation by Event ID <code>{html.escape(event_id)}</code> (lastFewDays={days}) ...", parse_mode="HTML")
+    await _safe_reply_text(update.message, f"Mencari violation by Event ID <code>{html.escape(event_id)}</code> (lastFewDays={days}) ...", parse_mode="HTML", is_progress=True)
 
     base_url = os.getenv("IMPERVA_BASE_URL", "")
     cookies = await asyncio.to_thread(imperva.login_via_api, base_url, os.getenv("IMPERVA_USERNAME", ""), os.getenv("IMPERVA_PASSWORD", ""))
@@ -244,18 +298,18 @@ async def tracevpalo(update: Update, context: ContextTypes.DEFAULT_TYPE):
         value = context.args[1].strip()
         if filter_type in ("sid", "session", "sessionid"):
             field_label = "Session ID"
-            await update.message.reply_text(f"Mencari threat log Palo Alto by Session ID <code>{html.escape(value)}</code> ...", parse_mode="HTML")
+            await _safe_reply_text(update.message, f"Mencari threat log Palo Alto by Session ID <code>{html.escape(value)}</code> ...", parse_mode="HTML", is_progress=True)
             await asyncio.to_thread(log_user_action, "trace_palo_violation", user, ip=None, target="PaloAlto", source="command", chat_id=update.effective_chat.id, note=f"sid={value}", logfile=logfile)
             resp = await asyncio.to_thread(paloalto.query_threat_log, pa_host, pa_api_key, session_id=value)
         else:
             field_label = "Source IP"
-            await update.message.reply_text(f"Mencari threat log Palo Alto by Source IP <code>{html.escape(value)}</code> ...", parse_mode="HTML")
+            await _safe_reply_text(update.message, f"Mencari threat log Palo Alto by Source IP <code>{html.escape(value)}</code> ...", parse_mode="HTML", is_progress=True)
             await asyncio.to_thread(log_user_action, "trace_palo_violation", user, ip=value, target="PaloAlto", source="command", chat_id=update.effective_chat.id, note=f"src={value}", logfile=logfile)
             resp = await asyncio.to_thread(paloalto.query_threat_log, pa_host, pa_api_key, src_ip=value)
     else:
         value = context.args[0].strip()
         field_label = "Violation/Threat ID"
-        await update.message.reply_text(f"Mencari threat log Palo Alto by Violation ID <code>{html.escape(value)}</code> ...", parse_mode="HTML")
+        await _safe_reply_text(update.message, f"Mencari threat log Palo Alto by Violation ID <code>{html.escape(value)}</code> ...", parse_mode="HTML", is_progress=True)
         await asyncio.to_thread(log_user_action, "trace_palo_violation", user, ip=None, target="PaloAlto", source="command", chat_id=update.effective_chat.id, note=f"threatid={value}", logfile=logfile)
         resp = await asyncio.to_thread(paloalto.query_threat_log, pa_host, pa_api_key, threat_id=value)
 
@@ -312,9 +366,11 @@ async def blockonpalo(update: Update, context: ContextTypes.DEFAULT_TYPE):
     duration = int(os.environ.get("MINISOAR_BLOCK_DURATION", "600"))
 
     if website and not mapped:
-        await update.message.reply_text(
+        await _safe_reply_text(
+            update.message,
             f"⚠️ Domain <code>{html.escape(website)}</code> untuk IP <code>{html.escape(ip)}</code> belum dimapping. Mengalihkan pemblokiran ke Imperva...",
-            parse_mode="HTML"
+            parse_mode="HTML",
+            is_progress=True,
         )
         await asyncio.to_thread(log_user_action, "block_imperva", user, ip=ip, target="Imperva", source="command", chat_id=update.effective_chat.id, note="redirect_unmapped", logfile=logfile)
         ok, msg = await asyncio.to_thread(trigger_auto_block, ip, "imperva")
@@ -323,11 +379,11 @@ async def blockonpalo(update: Update, context: ContextTypes.DEFAULT_TYPE):
             event_id = await asyncio.to_thread(es_find_latest_event_id_by_ip, ip, approx_dt=update.message.date)
             await asyncio.to_thread(store_label, event_id, "block", user, "telegram_command", ip=ip, telegram_message_id=str(update.message.message_id), chat_id=update.effective_chat.id)
             msg += f"\nℹ️ IP terdaftar dalam pemblokiran sementara (<b>{duration}</b> detik) di Imperva."
-        await update.message.reply_text(msg, parse_mode="HTML")
+        await _safe_reply_text(update.message, msg, parse_mode="HTML")
         return
 
     await asyncio.to_thread(log_user_action, "block_palo", user, ip=ip, target="PaloAlto", source="command", chat_id=update.effective_chat.id, logfile=logfile)
-    await update.message.reply_text(f"Menambah <code>{html.escape(ip)}</code> ke IP group Palo Alto...", parse_mode="HTML")
+    await _safe_reply_text(update.message, f"Menambah <code>{html.escape(ip)}</code> ke IP group Palo Alto...", parse_mode="HTML", is_progress=True)
 
     ok, msg = await asyncio.to_thread(trigger_auto_block, ip, "paloalto", commit=False)
     if ok:
@@ -335,7 +391,7 @@ async def blockonpalo(update: Update, context: ContextTypes.DEFAULT_TYPE):
         event_id = await asyncio.to_thread(es_find_latest_event_id_by_ip, ip, approx_dt=update.message.date)
         await asyncio.to_thread(store_label, event_id, "block", user, "telegram_command", ip=ip, telegram_message_id=str(update.message.message_id), chat_id=update.effective_chat.id)
         msg += f"\nJangan lupa jalankan <code>/commit_palo</code>.\nℹ️ IP terdaftar dalam pemblokiran sementara (<b>{duration}</b> detik)."
-    await update.message.reply_text(msg, parse_mode="HTML")
+    await _safe_reply_text(update.message, msg, parse_mode="HTML")
 
 
 async def unblockonpalo(update: Update, context: ContextTypes.DEFAULT_TYPE):
@@ -356,9 +412,11 @@ async def unblockonpalo(update: Update, context: ContextTypes.DEFAULT_TYPE):
     r = await asyncio.to_thread(redis_client)
 
     if website and not mapped:
-        await update.message.reply_text(
+        await _safe_reply_text(
+            update.message,
             f"⚠️ Domain <code>{html.escape(website)}</code> untuk IP <code>{html.escape(ip)}</code> belum dimapping. Mengalihkan unblock ke Imperva...",
-            parse_mode="HTML"
+            parse_mode="HTML",
+            is_progress=True,
         )
         await asyncio.to_thread(log_user_action, "unblock_imperva", user, ip=ip, target="Imperva", source="command", chat_id=update.effective_chat.id, note="redirect_unmapped", logfile=logfile)
         ok, msg = await asyncio.to_thread(trigger_auto_unblock, ip, "imperva")
@@ -366,11 +424,11 @@ async def unblockonpalo(update: Update, context: ContextTypes.DEFAULT_TYPE):
             await asyncio.to_thread(remove_block_state, r, ip, "imperva")
             event_id = await asyncio.to_thread(es_find_latest_event_id_by_ip, ip, approx_dt=update.message.date)
             await asyncio.to_thread(store_label, event_id, "unblock", update.effective_user, "telegram_command", ip=ip, telegram_message_id=str(update.message.message_id), chat_id=update.effective_chat.id)
-        await update.message.reply_text(msg, parse_mode="HTML")
+        await _safe_reply_text(update.message, msg, parse_mode="HTML")
         return
 
     await asyncio.to_thread(log_user_action, "unblock_palo", user, ip=ip, target="PaloAlto", source="command", chat_id=update.effective_chat.id, logfile=logfile)
-    await update.message.reply_text(f"Menghapus <code>{html.escape(ip)}</code> dari IP group Palo Alto...", parse_mode="HTML")
+    await _safe_reply_text(update.message, f"Menghapus <code>{html.escape(ip)}</code> dari IP group Palo Alto...", parse_mode="HTML", is_progress=True)
 
     ok, msg = await asyncio.to_thread(trigger_auto_unblock, ip, "paloalto", commit=False)
     if ok:
@@ -378,7 +436,7 @@ async def unblockonpalo(update: Update, context: ContextTypes.DEFAULT_TYPE):
         msg += "\nJangan lupa jalankan <code>/commit_palo</code>."
         event_id = await asyncio.to_thread(es_find_latest_event_id_by_ip, ip, approx_dt=update.message.date)
         await asyncio.to_thread(store_label, event_id, "unblock", update.effective_user, "telegram_command", ip=ip, telegram_message_id=str(update.message.message_id), chat_id=update.effective_chat.id)
-    await update.message.reply_text(msg, parse_mode="HTML")
+    await _safe_reply_text(update.message, msg, parse_mode="HTML")
 
 
 async def commitpalo(update: Update, context: ContextTypes.DEFAULT_TYPE):
@@ -388,10 +446,10 @@ async def commitpalo(update: Update, context: ContextTypes.DEFAULT_TYPE):
     await asyncio.to_thread(log_user_action, "commit_palo", user, ip=None, target="PaloAlto", source="command", chat_id=update.effective_chat.id, logfile=logfile)
 
     pa_admin = os.getenv("PA_ADMIN", "")
-    await update.message.reply_text(f"Memproses partial commit Palo Alto (user <code>{html.escape(pa_admin)}</code>) ...", parse_mode="HTML")
+    await _safe_reply_text(update.message, f"Memproses partial commit Palo Alto (user <code>{html.escape(pa_admin)}</code>) ...", parse_mode="HTML", is_progress=True)
     resp_commit = await asyncio.to_thread(paloalto.partial_commit, os.getenv("PA_HOST", ""), os.getenv("PA_API_KEY", ""), admin=pa_admin)
     msg = paloalto.response_message(resp_commit, f"PA: Partial commit user {pa_admin}")
-    await update.message.reply_text(html.escape(msg), parse_mode="HTML")
+    await _safe_reply_text(update.message, html.escape(msg), parse_mode="HTML")
 
 
 # -----------------
@@ -415,9 +473,11 @@ async def blockonakamai(update: Update, context: ContextTypes.DEFAULT_TYPE):
     duration = int(os.environ.get("MINISOAR_BLOCK_DURATION", "600"))
 
     if website and not mapped:
-        await update.message.reply_text(
+        await _safe_reply_text(
+            update.message,
             f"⚠️ Domain <code>{html.escape(website)}</code> untuk IP <code>{html.escape(ip)}</code> belum dimapping. Mengalihkan pemblokiran ke Imperva...",
-            parse_mode="HTML"
+            parse_mode="HTML",
+            is_progress=True,
         )
         await asyncio.to_thread(log_user_action, "block_imperva", user, ip=ip, target="Imperva", source="command", chat_id=update.effective_chat.id, note="redirect_unmapped", logfile=logfile)
         ok, msg = await asyncio.to_thread(trigger_auto_block, ip, "imperva")
@@ -426,11 +486,11 @@ async def blockonakamai(update: Update, context: ContextTypes.DEFAULT_TYPE):
             event_id = await asyncio.to_thread(es_find_latest_event_id_by_ip, ip, approx_dt=update.message.date)
             await asyncio.to_thread(store_label, event_id, "block", user, "telegram_command", ip=ip, telegram_message_id=str(update.message.message_id), chat_id=update.effective_chat.id)
             msg += f"\nℹ️ IP terdaftar dalam pemblokiran sementara (<b>{duration}</b> detik) di Imperva."
-        await update.message.reply_text(msg, parse_mode="HTML")
+        await _safe_reply_text(update.message, msg, parse_mode="HTML")
         return
 
     await asyncio.to_thread(log_user_action, "block_akamai", user, ip=ip, target="Akamai", source="command", chat_id=update.effective_chat.id, logfile=logfile)
-    await update.message.reply_text(f"Menambah <code>{html.escape(ip)}</code> ke Akamai Client List...", parse_mode="HTML")
+    await _safe_reply_text(update.message, f"Menambah <code>{html.escape(ip)}</code> ke Akamai Client List...", parse_mode="HTML", is_progress=True)
 
     ok, msg = await asyncio.to_thread(trigger_auto_block, ip, "akamai", commit=False)
     if ok:
@@ -438,7 +498,7 @@ async def blockonakamai(update: Update, context: ContextTypes.DEFAULT_TYPE):
         event_id = await asyncio.to_thread(es_find_latest_event_id_by_ip, ip, approx_dt=update.message.date)
         await asyncio.to_thread(store_label, event_id, "block", user, "telegram_command", ip=ip, telegram_message_id=str(update.message.message_id), chat_id=update.effective_chat.id)
         msg += f"\nJangan lupa jalankan <code>/activate_akamai</code>.\nℹ️ IP terdaftar dalam pemblokiran sementara (<b>{duration}</b> detik)."
-    await update.message.reply_text(msg, parse_mode="HTML")
+    await _safe_reply_text(update.message, msg, parse_mode="HTML")
 
 
 async def unblockonakamai(update: Update, context: ContextTypes.DEFAULT_TYPE):
@@ -458,9 +518,11 @@ async def unblockonakamai(update: Update, context: ContextTypes.DEFAULT_TYPE):
     r = await asyncio.to_thread(redis_client)
 
     if website and not mapped:
-        await update.message.reply_text(
+        await _safe_reply_text(
+            update.message,
             f"⚠️ Domain <code>{html.escape(website)}</code> untuk IP <code>{html.escape(ip)}</code> belum dimapping. Mengalihkan unblock ke Imperva...",
-            parse_mode="HTML"
+            parse_mode="HTML",
+            is_progress=True,
         )
         await asyncio.to_thread(log_user_action, "unblock_imperva", user, ip=ip, target="Imperva", source="command", chat_id=update.effective_chat.id, note="redirect_unmapped", logfile=logfile)
         ok, msg = await asyncio.to_thread(trigger_auto_unblock, ip, "imperva")
@@ -468,11 +530,11 @@ async def unblockonakamai(update: Update, context: ContextTypes.DEFAULT_TYPE):
             await asyncio.to_thread(remove_block_state, r, ip, "imperva")
             event_id = await asyncio.to_thread(es_find_latest_event_id_by_ip, ip, approx_dt=update.message.date)
             await asyncio.to_thread(store_label, event_id, "unblock", update.effective_user, "telegram_command", ip=ip, telegram_message_id=str(update.message.message_id), chat_id=update.effective_chat.id)
-        await update.message.reply_text(msg, parse_mode="HTML")
+        await _safe_reply_text(update.message, msg, parse_mode="HTML")
         return
 
     await asyncio.to_thread(log_user_action, "unblock_akamai", user, ip=ip, target="Akamai", source="command", chat_id=update.effective_chat.id, logfile=logfile)
-    await update.message.reply_text(f"Menghapus <code>{html.escape(ip)}</code> dari Akamai Client List...", parse_mode="HTML")
+    await _safe_reply_text(update.message, f"Menghapus <code>{html.escape(ip)}</code> dari Akamai Client List...", parse_mode="HTML", is_progress=True)
 
     ok, msg = await asyncio.to_thread(trigger_auto_unblock, ip, "akamai", commit=False)
     if ok:
@@ -480,7 +542,7 @@ async def unblockonakamai(update: Update, context: ContextTypes.DEFAULT_TYPE):
         msg += "\nJangan lupa jalankan <code>/activate_akamai</code>."
         event_id = await asyncio.to_thread(es_find_latest_event_id_by_ip, ip, approx_dt=update.message.date)
         await asyncio.to_thread(store_label, event_id, "unblock", update.effective_user, "telegram_command", ip=ip, telegram_message_id=str(update.message.message_id), chat_id=update.effective_chat.id)
-    await update.message.reply_text(msg, parse_mode="HTML")
+    await _safe_reply_text(update.message, msg, parse_mode="HTML")
 
 
 async def activateakamai(update: Update, context: ContextTypes.DEFAULT_TYPE):
@@ -561,7 +623,7 @@ async def tracevakamai(update: Update, context: ContextTypes.DEFAULT_TYPE):
         return
 
     await asyncio.to_thread(log_user_action, "trace_akamai_violation", user, ip=None, target="Akamai", source="command", chat_id=update.effective_chat.id, note=f"event_id={event_id}", logfile=logfile)
-    await update.message.reply_text(f"Mencari Akamai security event <code>{html.escape(event_id)}</code> ...", parse_mode="HTML")
+    await _safe_reply_text(update.message, f"Mencari Akamai security event <code>{html.escape(event_id)}</code> ...", parse_mode="HTML", is_progress=True)
 
     events, err = await asyncio.to_thread(akamai.query_siem_events, 
         baseurl,
@@ -832,10 +894,10 @@ async def isolatehost(update: Update, context: ContextTypes.DEFAULT_TYPE):
     logfile = await asyncio.to_thread(resolve_log_path, "LOGFILE", "/var/log/tele-soar-actions.log", "tele-soar-actions.log")
     await asyncio.to_thread(log_user_action, "isolate_host", user, ip=target if valid_ip(target) else None, target=f"EDR-{provider.upper()}", source="command", chat_id=update.effective_chat.id, note=f"target={target}", logfile=logfile)
 
-    await update.message.reply_text(f"Memproses isolasi host <code>{html.escape(target)}</code> pada EDR ({html.escape(provider.upper())}) ...", parse_mode="HTML")
+    await _safe_reply_text(update.message, f"Memproses isolasi host <code>{html.escape(target)}</code> pada EDR ({html.escape(provider.upper())}) ...", parse_mode="HTML", is_progress=True)
     ok, msg, _ = await asyncio.to_thread(edr.isolate_endpoint, target=target, provider=provider, reason=f"Manual isolation by @{user.username or user.id}")
     prefix = "✅" if ok else "❌"
-    await update.message.reply_text(f"{prefix} <b>Hasil Isolasi EDR:</b>\n{html.escape(msg)}", parse_mode="HTML")
+    await _safe_reply_text(update.message, f"{prefix} <b>Hasil Isolasi EDR:</b>\n{html.escape(msg)}", parse_mode="HTML")
 
 
 async def restorehost(update: Update, context: ContextTypes.DEFAULT_TYPE):
@@ -850,10 +912,10 @@ async def restorehost(update: Update, context: ContextTypes.DEFAULT_TYPE):
     logfile = await asyncio.to_thread(resolve_log_path, "LOGFILE", "/var/log/tele-soar-actions.log", "tele-soar-actions.log")
     await asyncio.to_thread(log_user_action, "restore_host", user, ip=target if valid_ip(target) else None, target=f"EDR-{provider.upper()}", source="command", chat_id=update.effective_chat.id, note=f"target={target}", logfile=logfile)
 
-    await update.message.reply_text(f"Memproses pemulihan host <code>{html.escape(target)}</code> pada EDR ({html.escape(provider.upper())}) ...", parse_mode="HTML")
+    await _safe_reply_text(update.message, f"Memproses pemulihan host <code>{html.escape(target)}</code> pada EDR ({html.escape(provider.upper())}) ...", parse_mode="HTML", is_progress=True)
     ok, msg, _ = await asyncio.to_thread(edr.restore_endpoint, target=target, provider=provider)
     prefix = "✅" if ok else "❌"
-    await update.message.reply_text(f"{prefix} <b>Hasil Pemulihan EDR:</b>\n{html.escape(msg)}", parse_mode="HTML")
+    await _safe_reply_text(update.message, f"{prefix} <b>Hasil Pemulihan EDR:</b>\n{html.escape(msg)}", parse_mode="HTML")
 
 
 async def queryhost(update: Update, context: ContextTypes.DEFAULT_TYPE):
@@ -863,7 +925,7 @@ async def queryhost(update: Update, context: ContextTypes.DEFAULT_TYPE):
         return
 
     ip = context.args[0].strip()
-    await update.message.reply_text(f"Mencari inventory endpoint untuk IP <code>{html.escape(ip)}</code> di Kaspersky KSC & TrendMicro Vision One ...", parse_mode="HTML")
+    await _safe_reply_text(update.message, f"Mencari inventory endpoint untuk IP <code>{html.escape(ip)}</code> di Kaspersky KSC & TrendMicro Vision One ...", parse_mode="HTML", is_progress=True)
     res = await asyncio.to_thread(edr.query_endpoint, ip, provider="all")
     msg_parts = [f"<b>EDR Host Query:</b> <code>{html.escape(ip)}</code>"]
 
@@ -1030,7 +1092,7 @@ async def syncticket_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE):
         return
 
     cid = context.args[0].strip()
-    await update.message.reply_text(f"Mendispatch case <code>{html.escape(cid)}</code> ke aplikasi ticketing pihak ke-3...", parse_mode="HTML")
+    await _safe_reply_text(update.message, f"Mendispatch case <code>{html.escape(cid)}</code> ke aplikasi ticketing pihak ke-3...", parse_mode="HTML", is_progress=True)
     ok, msg = await asyncio.to_thread(cases.sync_case_to_ticketing, cid, actor=f"@{user.username or user.id}")
     prefix = "✅" if ok else "⚠️"
     await update.message.reply_text(f"{prefix} {html.escape(msg)}", parse_mode="HTML")
@@ -1047,10 +1109,10 @@ async def blockoncf_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE):
         return
 
     ip = context.args[0].strip()
-    await update.message.reply_text(f"Memproses blokir IP <code>{html.escape(ip)}</code> di Cloudflare WAF ...", parse_mode="HTML")
+    await _safe_reply_text(update.message, f"Memproses blokir IP <code>{html.escape(ip)}</code> di Cloudflare WAF ...", parse_mode="HTML", is_progress=True)
     ok, msg = await asyncio.to_thread(cloudflare.block_ip, ip, notes=f"Manual block by @{user.username or user.id}")
     prefix = "✅" if ok else "❌"
-    await update.message.reply_text(f"{prefix} <b>Cloudflare:</b> {html.escape(msg)}", parse_mode="HTML")
+    await _safe_reply_text(update.message, f"{prefix} <b>Cloudflare:</b> {html.escape(msg)}", parse_mode="HTML")
 
 
 async def unblockoncf_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE):
@@ -1060,10 +1122,10 @@ async def unblockoncf_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE):
         return
 
     ip = context.args[0].strip()
-    await update.message.reply_text(f"Memproses unblock IP <code>{html.escape(ip)}</code> di Cloudflare ...", parse_mode="HTML")
+    await _safe_reply_text(update.message, f"Memproses unblock IP <code>{html.escape(ip)}</code> di Cloudflare ...", parse_mode="HTML", is_progress=True)
     ok, msg = await asyncio.to_thread(cloudflare.unblock_ip, ip)
     prefix = "✅" if ok else "❌"
-    await update.message.reply_text(f"{prefix} <b>Cloudflare:</b> {html.escape(msg)}", parse_mode="HTML")
+    await _safe_reply_text(update.message, f"{prefix} <b>Cloudflare:</b> {html.escape(msg)}", parse_mode="HTML")
     if ok:
         event_id = await asyncio.to_thread(es_find_latest_event_id_by_ip, ip, approx_dt=update.message.date)
         await asyncio.to_thread(store_label, event_id, "unblock", update.effective_user, "telegram_command", ip=ip, telegram_message_id=str(update.message.message_id), chat_id=update.effective_chat.id)
@@ -1077,10 +1139,10 @@ async def blockonforti_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE):
         return
 
     ip = context.args[0].strip()
-    await update.message.reply_text(f"Memproses blokir IP <code>{html.escape(ip)}</code> di FortiGate Firewall ...", parse_mode="HTML")
+    await _safe_reply_text(update.message, f"Memproses blokir IP <code>{html.escape(ip)}</code> di FortiGate Firewall ...", parse_mode="HTML", is_progress=True)
     ok, msg = await asyncio.to_thread(fortigate.block_ip, ip, comment=f"Manual block by @{user.username or user.id}")
     prefix = "✅" if ok else "❌"
-    await update.message.reply_text(f"{prefix} <b>FortiGate:</b> {html.escape(msg)}", parse_mode="HTML")
+    await _safe_reply_text(update.message, f"{prefix} <b>FortiGate:</b> {html.escape(msg)}", parse_mode="HTML")
 
 
 async def unblockonforti_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE):
@@ -1090,10 +1152,10 @@ async def unblockonforti_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE)
         return
 
     ip = context.args[0].strip()
-    await update.message.reply_text(f"Memproses unblock IP <code>{html.escape(ip)}</code> di FortiGate ...", parse_mode="HTML")
+    await _safe_reply_text(update.message, f"Memproses unblock IP <code>{html.escape(ip)}</code> di FortiGate ...", parse_mode="HTML", is_progress=True)
     ok, msg = await asyncio.to_thread(fortigate.unblock_ip, ip)
     prefix = "✅" if ok else "❌"
-    await update.message.reply_text(f"{prefix} <b>FortiGate:</b> {html.escape(msg)}", parse_mode="HTML")
+    await _safe_reply_text(update.message, f"{prefix} <b>FortiGate:</b> {html.escape(msg)}", parse_mode="HTML")
     if ok:
         event_id = await asyncio.to_thread(es_find_latest_event_id_by_ip, ip, approx_dt=update.message.date)
         await asyncio.to_thread(store_label, event_id, "unblock", update.effective_user, "telegram_command", ip=ip, telegram_message_id=str(update.message.message_id), chat_id=update.effective_chat.id)
@@ -1109,9 +1171,9 @@ async def askai_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE):
         return
 
     question = " ".join(context.args)
-    await update.message.reply_text("🤖 <i>AI SOC Copilot sedang menganalisis...</i>", parse_mode="HTML")
+    await _safe_reply_text(update.message, "🤖 <i>AI SOC Copilot sedang menganalisis...</i>", parse_mode="HTML", is_progress=True)
     answer = await asyncio.to_thread(ai.ask_copilot, question)
-    await update.message.reply_text(html.escape(answer[:4000]), parse_mode="HTML")
+    await _safe_reply_text(update.message, html.escape(answer[:4000]), parse_mode="HTML")
 
 
 async def rca_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE):
@@ -1121,9 +1183,9 @@ async def rca_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE):
         return
 
     target = context.args[0].strip()
-    await update.message.reply_text(f"🔍 <i>AI Copilot sedang menyusun Root Cause Analysis (RCA) untuk <code>{html.escape(target)}</code>...</i>", parse_mode="HTML")
+    await _safe_reply_text(update.message, f"🔍 <i>AI Copilot sedang menyusun Root Cause Analysis (RCA) untuk <code>{html.escape(target)}</code>...</i>", parse_mode="HTML", is_progress=True)
     rca_text = await asyncio.to_thread(ai.generate_rca, target)
-    await update.message.reply_text(html.escape(rca_text[:4000]), parse_mode="HTML")
+    await _safe_reply_text(update.message, html.escape(rca_text[:4000]), parse_mode="HTML")
 
 
 async def retrainmodel_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE):
@@ -1141,11 +1203,11 @@ async def retrainmodel_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
     from .ml.autotrain import run_autotrain_from_file
 
-    await update.message.reply_text("⚙️ Memulai proses auto-retraining model ML Challenger...", parse_mode="HTML")
+    await _safe_reply_text(update.message, "⚙️ Memulai proses auto-retraining model ML Challenger...", parse_mode="HTML", is_progress=True)
     ok, metrics, msg = run_autotrain_from_file()
     prefix = "✅" if ok else "⚠️"
     details = f"\n• Metrics: ROC-AUC={metrics.get('roc_auc', '-')}, Acc={metrics.get('accuracy', '-')}" if metrics else ""
-    await update.message.reply_text(f"{prefix} <b>Hasil Auto-Retraining:</b>\n{html.escape(msg)}{html.escape(details)}", parse_mode="HTML")
+    await _safe_reply_text(update.message, f"{prefix} <b>Hasil Auto-Retraining:</b>\n{html.escape(msg)}{html.escape(details)}", parse_mode="HTML")
 
 
 async def aimodel_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE):
@@ -1213,7 +1275,7 @@ async def intel_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE):
         return
 
     ip = context.args[0].strip()
-    await update.message.reply_text(f"🔍 <i>Mengumpulkan data intelijen untuk IP <code>{html.escape(ip)}</code>...</i>", parse_mode="HTML")
+    await _safe_reply_text(update.message, f"🔍 <i>Mengumpulkan data intelijen untuk IP <code>{html.escape(ip)}</code>...</i>", parse_mode="HTML", is_progress=True)
 
     wl_entries = get_whitelist_entries()
     is_whitelisted = any(ip == line.split("#")[0].strip() for line in wl_entries)
@@ -1235,12 +1297,12 @@ async def intel_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE):
         f"• <b>EDR Managed Hosts:</b> <code>{edr_count} endpoints</code>\n\n"
         f"💡 <i>Gunakan <code>/block_imperva {html.escape(ip)}</code> atau <code>/isolate_host {html.escape(ip)}</code> untuk mitigasi cepat.</i>"
     )
-    await update.message.reply_text(msg, parse_mode="HTML")
+    await _safe_reply_text(update.message, msg, parse_mode="HTML")
 
 
 async def health_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
-    await update.message.reply_text("⚙️ <i>Mengumpulkan diagnostik kesehatan MiniSOAR...</i>", parse_mode="HTML")
+    await _safe_reply_text(update.message, "⚙️ <i>Mengumpulkan diagnostik kesehatan MiniSOAR...</i>", parse_mode="HTML", is_progress=True)
     h = get_system_health()
 
     r_status = f"✅ OK (Queue length: <code>{h['redis'].get('queue_len', 0)}</code>)" if h["redis"]["status"] == "OK" else f"❌ {html.escape(str(h['redis'].get('error', 'OFFLINE')))}"
@@ -1259,7 +1321,7 @@ async def health_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE):
         f"• <b>EDR Servers:</b> {edr_status_str}\n\n"
         f"<i>Status diperbarui pada: <code>{datetime.datetime.now(datetime.timezone.utc).strftime('%Y-%m-%d %H:%M:%S UTC')}</code></i>"
     )
-    await update.message.reply_text(msg, parse_mode="HTML")
+    await _safe_reply_text(update.message, msg, parse_mode="HTML")
 
 
 # -----------------
@@ -1309,7 +1371,31 @@ async def blocked_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
     filter_target = context.args[0].lower() if context.args else "all"
 
-    data = await asyncio.to_thread(get_active_blocklist)
+    try:
+        data = await asyncio.to_thread(get_active_blocklist)
+    except Exception as e:
+        logger.error("Error retrieving active blocklist: %s", e)
+        await _safe_reply_text(
+            update.message,
+            f"❌ <b>Gagal Membaca Block List & IoC</b>\n\n"
+            f"⚠️ Terjadi kesalahan saat membaca data block list.\n"
+            f"<code>Error: {html.escape(str(e))}</code>",
+            parse_mode="HTML",
+        )
+        return
+
+    if data.get("redis_error"):
+        logger.warning("Redis unavailable during blocked_cmd: %s", data["redis_error"])
+        await _safe_reply_text(
+            update.message,
+            f"❌ <b>Gagal Membaca Block List & IoC</b>\n\n"
+            f"⚠️ Layanan Redis tidak dapat dihubungi (OFFLINE).\n"
+            f"<code>Error: {html.escape(str(data['redis_error']))}</code>\n\n"
+            f"<i>Pastikan service Redis berjalan pada server MiniSOAR.</i>",
+            parse_mode="HTML",
+        )
+        return
+
     perimeters = data.get("perimeters", [])
     edr_iocs = data.get("edr_iocs", [])
 
@@ -1341,7 +1427,7 @@ async def blocked_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE):
         lines.append("")
 
     lines.append("💡 <i>Gunakan <code>/blocked perimeter</code> atau <code>/blocked edr</code> untuk memfilter.</i>")
-    await update.message.reply_text("\n".join(lines), parse_mode="HTML")
+    await _safe_reply_text(update.message, "\n".join(lines), parse_mode="HTML")
 
 
 # -----------------
@@ -1523,7 +1609,10 @@ def main() -> None:
         return
 
     try:
-        app = ApplicationBuilder().token(cfg.token).post_init(post_init).build()
+        builder = ApplicationBuilder().token(cfg.token).post_init(post_init)
+        if hasattr(builder, "request"):
+            builder = builder.request(HTTPXRequest(connect_timeout=15.0, read_timeout=15.0, write_timeout=15.0))
+        app = builder.build()
 
         app.add_handler(CommandHandler(["help", "h", "start"], help_cmd))
 
