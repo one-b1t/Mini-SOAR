@@ -272,6 +272,10 @@ def test_activateakamai_interpolates_network_in_comment(monkeypatch):
             return _Resp()
 
     _stub_unblock_deps(monkeypatch, [], [])
+    # Test ini sengaja menguji jalur produksi (interpolasi comments), jadi mock
+    # harus dimatikan — activateakamai punya guard MINISOAR_MOCK yang sekarang
+    # melompati jalur ini. Perilaku mock-nya diuji di tests/test_mock_guards.py.
+    monkeypatch.delenv("MINISOAR_MOCK", raising=False)
     monkeypatch.setattr(botmod.akamai, "akamai_session", lambda **kw: _Session())
     monkeypatch.setattr(botmod.akamai, "akamai_url", lambda base, path: "https://akamai.test")
 
@@ -374,7 +378,7 @@ def test_unblock_failed_does_not_store_label(monkeypatch):
 import ast as _ast
 import builtins as _builtins
 
-_BOT_PY = _ast.parse((Path(__file__).resolve().parents[1] / "minisoar" / "bot.py").read_text())
+_BOT_PY = _ast.parse((Path(__file__).resolve().parents[1] / "minisoar" / "bot.py").read_text(encoding="utf-8"))
 
 
 def _module_level_names(tree):

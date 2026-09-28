@@ -29,6 +29,35 @@ class NetworkAccessDenied(RuntimeError):
     """Test non-e2e mencoba membuka koneksi keluar."""
 
 
+# Loopback TETAP diteruskan ke socket asli: di Windows, asyncio membuat
+# self-pipe event loop lewat socketpair() yang beralamat 127.0.0.1, jadi
+# memblokir loopback membuat setiap asyncio.run() gagal sebelum test-nya jalan.
+# Yang dilarang tetap host DI LUAR — proteksi kebocoran ke produksi tidak
+# dikurangi sedikit pun.
+#
+# Originals diambil di sini, waktu modul ini di-import: monkeypatch di bawah
+# baru berlaku saat fixture berjalan, jadi kalau originals diambil di dalam
+# fixture, yang kena adalah versi yang sudah dipatch.
+_REAL_CONNECT = socket.socket.connect
+_REAL_CONNECT_EX = socket.socket.connect_ex
+_REAL_CREATE_CONNECTION = socket.create_connection
+
+_LOOPBACK_HOSTS = frozenset({"127.0.0.1", "::1", "localhost", "0.0.0.0", "::"})
+
+
+def _is_loopback(address):
+    # socket.socket.connect() dengan address str = path AF_UNIX, yaitu IPC
+    # lokal pada filesystem, bukan egress jaringan.
+    if not isinstance(address, tuple):
+        return True
+    if not address:
+        return True
+    host = address[0]
+    if isinstance(host, (bytes, bytearray)):
+        host = host.decode("ascii", "replace")
+    return str(host) in _LOOPBACK_HOSTS
+
+
 @pytest.fixture(autouse=True)
 def _offline_by_default(request, monkeypatch):
     if request.node.get_closest_marker("e2e"):
@@ -41,12 +70,26 @@ def _offline_by_default(request, monkeypatch):
     for var in ("TELEGRAM_TOKEN", "TELEGRAM_BOT"):
         monkeypatch.delenv(var, raising=False)
 
-    def _deny(*args, **kwargs):
+    def _deny(address, *args, **kwargs):
+        if _is_loopback(address):
+            return None
         raise NetworkAccessDenied(
-            f"{request.node.nodeid} mencoba akses jaringan. "
+            f"{request.node.nodeid} mencoba akses jaringan ke {address!r}. "
             "Mock pemanggilnya, atau tandai test ini @pytest.mark.e2e."
         )
 
-    monkeypatch.setattr(socket.socket, "connect", _deny)
-    monkeypatch.setattr(socket.socket, "connect_ex", _deny)
-    monkeypatch.setattr(socket, "create_connection", _deny)
+    def _connect(self, address, *args, **kwargs):
+        _deny(address)
+        return _REAL_CONNECT(self, address, *args, **kwargs)
+
+    def _connect_ex(self, address, *args, **kwargs):
+        _deny(address)
+        return _REAL_CONNECT_EX(self, address, *args, **kwargs)
+
+    def _create_connection(address, *args, **kwargs):
+        _deny(address)
+        return _REAL_CREATE_CONNECTION(address, *args, **kwargs)
+
+    monkeypatch.setattr(socket.socket, "connect", _connect)
+    monkeypatch.setattr(socket.socket, "connect_ex", _connect_ex)
+    monkeypatch.setattr(socket, "create_connection", _create_connection)

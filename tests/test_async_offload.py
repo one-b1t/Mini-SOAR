@@ -308,7 +308,7 @@ def test_every_blocking_module_call_site_is_offloaded():
     import ast
     import pathlib
 
-    src = pathlib.Path(botmod.__file__).read_text()
+    src = pathlib.Path(botmod.__file__).read_text(encoding="utf-8")
     tree = ast.parse(src)
 
     # id() dari argumen pertama setiap asyncio.to_thread(...) yang sudah ada
