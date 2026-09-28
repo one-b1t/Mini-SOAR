@@ -88,6 +88,9 @@ def norm_provider(provider: str | None) -> str:
 # semu. Perimeter aktif & terkonfirmasi: PaloAlto, Akamai, TrendMicro Vision One.
 # Boleh dihapus dari daftar ini kalau kredensial resmi dimiliki DAN operator
 # mengonfirmasi ada kebutuhan nyata memblokir lewat perimeter tersebut.
+# PERINGATAN saat menghidupkan kembali: cakupan regresi deteksi FORTIGATE_API_TOKEN
+# (commit e559e54, tests/test_fortigate_env.py) hilang sementara fortigate mati di
+# sini, jadi pulihkan test itu sebelum provider diaktifkan kembali.
 PERIMETER_NONAKTIF: frozenset[str] = frozenset({"cloudflare", "fortigate", "kaspersky"})
 
 
