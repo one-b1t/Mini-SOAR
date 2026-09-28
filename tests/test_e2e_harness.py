@@ -86,13 +86,13 @@ def test_undo_never_reblocks():
 
 
 def test_neutralizer_cases_have_no_undo():
-    for handler, cmd, kind, undo in h.CASES:
+    for handler, cmd, kind, undo, _perim in h.CASES:
         if cmd.startswith(h.NEUTRALIZER):
             assert undo is None, handler
 
 
 def test_every_mutating_case_has_undo_or_is_neutral():
-    for handler, cmd, kind, undo in h.CASES:
+    for handler, cmd, kind, undo, _perim in h.CASES:
         if kind in ("write", "host"):
             assert undo or cmd.startswith(h.NEUTRALIZER), handler
 
@@ -120,9 +120,9 @@ def test_every_unverifiable_perimeter_explains_itself():
 
 def test_every_write_case_maps_to_known_perimeter():
     known = set(h.PERIMETER)
-    for handler, _cmd, kind, _undo in h.CASES:
+    for handler, _cmd, kind, _undo, perim in h.CASES:
         if kind in ("write", "host"):
-            assert h.handler_perimeter(handler) in known, handler
+            assert perim in known, handler
 
 
 def test_touched_perimeters_for_full_real_run():
@@ -169,7 +169,7 @@ def test_verify_clean_unverified_does_not_contain_dead_perimeters():
 def test_real_mode_never_contains_forbidden_commands():
     for allow_host in (False, True):
         cases = h.select_cases(real=True, allow_host=allow_host)
-        for _handler, cmd, _kind, _undo in cases:
+        for _handler, cmd, _kind, _undo, _perim in cases:
             assert not cmd.startswith("/block_cf"), f"Bocor ke real: {cmd}"
             assert not cmd.startswith("/unblock_cf"), f"Bocor ke real: {cmd}"
             assert not cmd.startswith("/block_forti"), f"Bocor ke real: {cmd}"
@@ -200,12 +200,12 @@ def test_self_check_passes_on_shipped_matrix(capsys):
 
 
 @pytest.mark.parametrize("bad,why", [
-    (("x", "/block_cf 203.0.113.88", "write", None), "write tanpa undo"),
-    (("x", "/block_cf 203.0.113.88", "write", "/block_cf 203.0.113.88"), "undo memblokir"),
-    (("x", "/block_cf 203.0.113.88", "write", "/delete_everything"), "undo di luar daftar putih"),
-    (("x", "/isolate_real_host all", "host", None), "host tanpa undo"),
-    (("x", "/sync_ticket INC-1", "no_undo", "/unblock_cf 1.1.1.1"), "no_undo punya undo"),
-    (("x", "/kill_bot", "write", "/unblock_cf 1.1.1.1"), "tidak terhubung ke PERIMETER"),
+    (("x", "/block_cf 203.0.113.88", "write", None, "cloudflare"), "write tanpa undo"),
+    (("x", "/block_cf 203.0.113.88", "write", "/block_cf 203.0.113.88", "cloudflare"), "undo memblokir"),
+    (("x", "/block_cf 203.0.113.88", "write", "/delete_everything", "cloudflare"), "undo di luar daftar putih"),
+    (("x", "/isolate_real_host all", "host", None, "trendmicro"), "host tanpa undo"),
+    (("x", "/sync_ticket INC-1", "no_undo", "/unblock_cf 1.1.1.1", "cloudflare"), "no_undo punya undo"),
+    (("x", "/kill_bot", "write", "/unblock_cf 1.1.1.1", None), "tidak terhubung ke PERIMETER"),
 ])
 def test_self_check_rejects_bad_matrix(monkeypatch, capsys, bad, why):
     monkeypatch.setattr(h, "CASES", [bad])
@@ -222,15 +222,22 @@ def test_self_check_flags_perimeter_without_reason(monkeypatch):
 def test_self_check_flags_leak_into_real(monkeypatch, capsys, kind):
     # Simulasikan select_cases yang gagal menyaring - kasus berbahaya lolos ke
     # mode real. self_check harus menangkapnya, bukan diam.
-    monkeypatch.setattr(h, "CASES", [("x", "/activate_akamai", kind, None)])
+    monkeypatch.setattr(h, "CASES", [("x", "/activate_akamai", kind, None, "akamai")])
     monkeypatch.setattr(h, "select_cases", lambda **kw: list(h.CASES))
     assert h.self_check() is False
     assert "bocor" in capsys.readouterr().out
 
 
-@pytest.mark.parametrize("handler", ["blockoncf_cmd", "blockonforti_cmd", "queryhost", "blockonimperva"])
-def test_self_check_flags_disabled_perimeter_leak_into_real(monkeypatch, capsys, handler):
-    monkeypatch.setattr(h, "CASES", [(handler, "/test", "write", "/unblock_palo 1.1.1.1")])
+@pytest.mark.parametrize("handler,perim", [
+    ("blockoncf_cmd", "cloudflare"),
+    ("blockonforti_cmd", "fortigate"),
+    ("queryhost", "edr-kaspersky"),
+    ("blockonimperva", "imperva"),
+])
+def test_self_check_flags_disabled_perimeter_leak_into_real(monkeypatch, capsys, handler, perim):
+    # Kolom perimeter harus menyebut perimeter aslinya. Kalau diisi "unknown" atau
+    # dikosongkan, masalahnya jadi terlihat sebagai salah ketik, bukan lolos.
+    monkeypatch.setattr(h, "CASES", [(handler, "/test", "write", "/unblock_palo 1.1.1.1", perim)])
     monkeypatch.setattr(h, "select_cases", lambda **kw: list(h.CASES))
     assert h.self_check() is False
     assert "bocor" in capsys.readouterr().out
@@ -258,3 +265,62 @@ def test_no_telethon_needed_for_selection(monkeypatch):
     # bisa diuji di mesin yang tidak punya Telethon.
     monkeypatch.setattr(h, "TelegramClient", None)
     assert h.select_cases(real=True)
+
+
+def test_perimeter_is_not_derived_from_handler_name():
+    # Pemetaan berbasis substring sudah dihapus total: tidak ada lagi fungsi
+    # atau tabel yang menebak perimeter dari nama handler. Kalau suatu saat
+    # ada yang mengembalikannya, guard ini yang harus gagal lebih dulu.
+    assert not hasattr(h, "handler_perimeter")
+    assert "HANDLER_PERIMETER" not in vars(h)
+
+
+def test_every_case_row_declares_its_perimeter_column():
+    # Kolom ke-5 wajib ada di setiap baris dan hanya boleh None atau kunci
+    # yang dikenal. Baris 4-tuple (lupa kolom) gagal di sini dengan pesan
+    # yang menyebut barisnya, bukan lewat error unpack yang membingungkan.
+    known = set(h.PERIMETER)
+    for row in h.CASES:
+        assert len(row) == 5, row
+        assert row[4] is None or row[4] in known, row
+
+
+def test_one_handler_never_maps_to_two_perimeters():
+    # Dengan pemetaan per-baris, satu handler bisa saja punya dua perimeter
+    # kalau ada yang menyalin-tempel baris. Cleanup lalu verifying dua sistem
+    # berbeda untuk command yang sama, dan laporan jadi tidak jujur.
+    seen = {}
+    for handler, _cmd, _kind, _undo, perim in h.CASES:
+        if handler in seen:
+            assert seen[handler] == perim, (handler, seen[handler], perim)
+        seen[handler] = perim
+
+
+def test_real_mode_excludes_imperva_trace_but_keeps_active_traces():
+    # "/trace_imperva" adalah kebocoran yang ditutup task ini: nama handlernya
+    # "tracev" tidak memuat kata "imperva", jadi map substring tidak pernah
+    # menangkapnya dan perintahnya lolos ke mode real. Setelah pemetaan jadi
+    # eksplisit, Imperva ikut tersaring - sementara trace ke perimeter aktif
+    # (Akamai, PaloAlto) harus tetap ikut diuji.
+    cmds = [c[1] for c in h.select_cases(real=True)]
+    assert not any(c.startswith("/trace_imperva") for c in cmds), cmds
+    assert any(c.startswith("/trace_akamai") for c in cmds), cmds
+    assert any(c.startswith("/trace_palo") for c in cmds), cmds
+
+
+def test_substring_trap_handlers_map_to_different_perimeters():
+    # Jebakan nyata: "tracev" adalah substring dari "tracevakamai" dan
+    # "tracevpalo" (pola yang sama dengan "blockonX" di dalam "unblockonX").
+    # Pemetaan lama tidak punya entri untuk "tracev" sama sekali, karena nama
+    # itu tidak menyebut provider apa pun - dan justru itulah yang membuat
+    # perintahnya lolos ke mode real. Sekarang tiap baris yang menentukan
+    # perimeternya sendiri, jadi tidak ada nama yang bisa menimpa tetangganya.
+    perims = {}
+    for handler, _cmd, _kind, _undo, perim in h.CASES:
+        if handler in ("tracev", "tracevakamai", "tracevpalo"):
+            perims.setdefault(handler, set()).add(perim)
+    assert perims == {
+        "tracev": {"imperva"},
+        "tracevakamai": {"akamai"},
+        "tracevpalo": {"palo"},
+    }

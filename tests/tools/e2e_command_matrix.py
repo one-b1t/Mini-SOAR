@@ -130,7 +130,7 @@ REAL_DISABLED_PERIMETERS = {
     "imperva": "Perimeter Imperva di luar daftar provider aktif real (hanya PaloAlto, Akamai, TrendMicro)",
 }
 
-# Satu command per handler unik. Kolom: handler, command, kind, undo.
+# Satu command per handler unik. Kolom: handler, command, kind, undo, perimeter.
 #
 # kind:
 #   read       hanya membaca, tidak mengubah apa pun
@@ -143,59 +143,73 @@ REAL_DISABLED_PERIMETERS = {
 # supaya tidak ada salah ketik yang menghapus data orang lain. Kasus yang
 # command-nya sudah menetralkan state (unblock/restore/whitelist_remove)
 # dikosongkan - "undo" untuk kasus begitu justru memblokir lagi.
+#
+# perimeter: kunci PERIMETER yang benar-benar disentuh command ini, atau None
+# kalau tidak menyentuh perimeter sama sekali. DICATAT PER KASUS, bukan ditebak
+# dari nama handler. Dulu pemetaannya pakai substring pada nama handler, dan
+# itu rapuh: "tracev" (handler /trace_imperva) tidak memuat kata "imperva",
+# jadi /trace_imperva lolos dari exclusion mode real. Nama handler juga bisa
+# jadi substring nama lain - tracev vs tracevakamai vs tracevpalo - sehingga
+# satu pintu masuk bisa men-seret kasus lain. Sekarang tidak ada mapping
+# terpisah yang bisa menyimpang dari daftar di bawah.
+#
+# Kenapa /query_host dan /add_edr_ioc tetap "edr-kaspersky" meski Kaspersky
+# sudah dimatikan total: keduanya adalah sisi Kaspersky dari lapisan EDR, dan
+# ditahan dari mode real secara konservatif. Itu keputusan sengaja, bukan sisa
+# pemetaan lama.
 CASES = [
-    ("help",              "/help",                          "read",     None),
-    ("health",            "/health",                        "read",     None),
-    ("cases_cmd",         "/cases",                         "read",     None),
-    ("case_cmd",          "/case INC-20260818-001",          "read",     None),
-    ("exportcase_cmd",    "/export_case INC-20260818-001",   "read",     None),
-    ("socmetrics_cmd",    "/socmetrics",                    "read",     None),
-    ("edrstatus",         "/edrstatus",                     "read",     None),
-    ("blocked_cmd",       "/blocked",                       "read",     None),
-    ("whitelists_cmd",    "/whitelists",                    "read",     None),
-    ("intel_cmd",         "/intel 8.8.8.8",                 "read",     None),
-    ("tracev",            "/trace_imperva 758812345 1",     "read",     None),
-    ("tracevakamai",      "/trace_akamai 12345678",         "read",     None),
-    ("tracevpalo",        "/trace_palo 999888",             "read",     None),
-    ("queryhost",         "/query_host 10.0.0.50",          "read",     None),
-    ("askai_cmd",         "/ask_ai ringkasan incident 42",  "read",     None),
-    ("rca_cmd",           "/rca 8.8.8.8",                   "read",     None),
-    ("aiprovider_cmd",    "/ai_provider",                   "read",     None),
-    ("aimodel_cmd",       "/ai_model",                      "read",     None),
+    ("help",              "/help",                          "read",     None,                    None),
+    ("health",            "/health",                        "read",     None,                    None),
+    ("cases_cmd",         "/cases",                         "read",     None,                    None),
+    ("case_cmd",          "/case INC-20260818-001",          "read",     None,                    None),
+    ("exportcase_cmd",    "/export_case INC-20260818-001",   "read",     None,                    None),
+    ("socmetrics_cmd",    "/socmetrics",                    "read",     None,                    None),
+    ("edrstatus",         "/edrstatus",                     "read",     None,                    None),
+    ("blocked_cmd",       "/blocked",                       "read",     None,                    None),
+    ("whitelists_cmd",    "/whitelists",                    "read",     None,                    None),
+    ("intel_cmd",         "/intel 8.8.8.8",                 "read",     None,                    None),
+    ("tracev",            "/trace_imperva 758812345 1",     "read",     None,                    "imperva"),
+    ("tracevakamai",      "/trace_akamai 12345678",         "read",     None,                    "akamai"),
+    ("tracevpalo",        "/trace_palo 999888",             "read",     None,                    "palo"),
+    ("queryhost",         "/query_host 10.0.0.50",          "read",     None,                    "edr-kaspersky"),
+    ("askai_cmd",         "/ask_ai ringkasan incident 42",  "read",     None,                    None),
+    ("rca_cmd",           "/rca 8.8.8.8",                   "read",     None,                    None),
+    ("aiprovider_cmd",    "/ai_provider",                   "read",     None,                    None),
+    ("aimodel_cmd",       "/ai_model",                      "read",     None,                    None),
     # Mutasi record case/jira sungguhan. Tidak ada command undo-nya, jadi
     # menimpa status investigating milik orang lain tidak bisa ditarik back.
-    ("updatecase_cmd",    "/update_case INC-20260818-001 INVESTIGATING tes-e2e", "no_undo", None),
-    ("syncticket_cmd",    "/sync_ticket INC-20260818-001",  "no_undo",  None),
-    ("blockonimperva",    "/block_imperva 203.0.113.88",    "write",    "/unblock_imperva 203.0.113.88"),
-    ("unblockonimperva",  "/unblock_imperva 203.0.113.88",  "write",    None),   # netralizer
-    ("blockonpalo",       "/block_palo 203.0.113.88",       "write",    "/unblock_palo 203.0.113.88"),
-    ("unblockonpalo",     "/unblock_palo 203.0.113.88",     "write",    None),   # netralizer
-    ("blockonakamai",     "/block_akamai 203.0.113.88",     "write",    "/unblock_akamai 203.0.113.88"),
-    ("unblockonakamai",   "/unblock_akamai 203.0.113.88",   "write",    None),   # netralizer
-    ("blockoncf_cmd",     "/block_cf 203.0.113.88",         "write",    "/unblock_cf 203.0.113.88"),
-    ("unblockoncf_cmd",   "/unblock_cf 203.0.113.88",       "write",    None),   # netralizer
-    ("blockonforti_cmd",  "/block_forti 203.0.113.88",      "write",    "/unblock_forti 203.0.113.88"),
-    ("unblockonforti_cmd","/unblock_forti 203.0.113.88",    "write",    None),   # netralizer
-    ("whitelist_add_cmd", "/whitelist_add 198.51.100.55 tes-e2e", "write", "/whitelist_remove 198.51.100.55"),
-    ("whitelist_remove_cmd", "/whitelist_remove 198.51.100.55",  "write", None),  # netralizer
+    ("updatecase_cmd",    "/update_case INC-20260818-001 INVESTIGATING tes-e2e", "no_undo", None, None),
+    ("syncticket_cmd",    "/sync_ticket INC-20260818-001",  "no_undo",  None,                    None),
+    ("blockonimperva",    "/block_imperva 203.0.113.88",    "write",    "/unblock_imperva 203.0.113.88", "imperva"),
+    ("unblockonimperva",  "/unblock_imperva 203.0.113.88",  "write",    None,                    "imperva"),
+    ("blockonpalo",       "/block_palo 203.0.113.88",       "write",    "/unblock_palo 203.0.113.88",  "palo"),
+    ("unblockonpalo",     "/unblock_palo 203.0.113.88",     "write",    None,                    "palo"),
+    ("blockonakamai",     "/block_akamai 203.0.113.88",     "write",    "/unblock_akamai 203.0.113.88", "akamai"),
+    ("unblockonakamai",   "/unblock_akamai 203.0.113.88",   "write",    None,                    "akamai"),
+    ("blockoncf_cmd",     "/block_cf 203.0.113.88",         "write",    "/unblock_cf 203.0.113.88", "cloudflare"),
+    ("unblockoncf_cmd",   "/unblock_cf 203.0.113.88",       "write",    None,                    "cloudflare"),
+    ("blockonforti_cmd",  "/block_forti 203.0.113.88",      "write",    "/unblock_forti 203.0.113.88", "fortigate"),
+    ("unblockonforti_cmd","/unblock_forti 203.0.113.88",    "write",    None,                    "fortigate"),
+    ("whitelist_add_cmd", "/whitelist_add 198.51.100.55 tes-e2e", "write", "/whitelist_remove 198.51.100.55", "whitelist"),
+    ("whitelist_remove_cmd", "/whitelist_remove 198.51.100.55",  "write", None,  "whitelist"),
     # partial_commit() meng-commit SEMUA pending change milik admin itu, bukan
     # hanya milik test, jadi tidak boleh dipicu harness mana pun.
-    ("commitpalo",        "/commit_palo",                   "no_undo",  None),
+    ("commitpalo",        "/commit_palo",                   "no_undo",  None,                    "palo"),
     # Dikunci oleh HOST_ISOLATION_BLOCKED, bukan sekadar default mati.
-    ("isolatehost",       "/isolate_host 10.0.0.50 trendmicro", "host",     "/restore_host 10.0.0.50 trendmicro"),
-    ("restorehost",       "/restore_host 10.0.0.50 trendmicro", "host",     None),   # netralizer
+    ("isolatehost",       "/isolate_host 10.0.0.50 trendmicro", "host", "/restore_host 10.0.0.50 trendmicro", "trendmicro"),
+    ("restorehost",       "/restore_host 10.0.0.50 trendmicro", "host",  None,                    "trendmicro"),
     # Tidak ada /remove_edr_ioc di bot, dan scripts/cleanup_minisoar_edr_iocs.py
     # TIDAK akan mengapus ini: handler memberi comment "Manual IoC by @user",
     # sedangkan cleaner hanya mau marker "threatintel rep:", "event:alert_",
     # "minisoar automated", "minisoar-block-", dan 4 playbook lain
     # (cleanup_minisoar_edr_iocs.py:90-101). Kunci redis-nya TTL 24 jam.
-    ("addedrioc",         "/add_edr_ioc 10.0.0.50 all",     "no_undo",  None),
+    ("addedrioc",         "/add_edr_ioc 10.0.0.50 all",     "no_undo",  None,                    "edr-kaspersky"),
     # Guard MINISOAR_MOCK (bot.py activateakamai & retrainmodel_cmd) membalas
     # "Mode mock aktif ... dilewati". BUKAN "read": tanpa mock keduanya
     # menyentuh produksi (aktivasi Akamai network PRODUCTION; ES minisoar-
     # labels-* + tulis model), jadi tidak boleh masuk mode real.
-    ("activateakamai",    "/activate_akamai",               "mock_only", None),
-    ("retrainmodel_cmd",  "/retrainmodel",                  "mock_only", None),
+    ("activateakamai",    "/activate_akamai",               "mock_only", None,                   "akamai"),
+    ("retrainmodel_cmd",  "/retrainmodel",                  "mock_only", None,                   None),
 ]
 
 # Perintah pembatal yang boleh dipakai sebagai undo. Daftar putih ini yang
@@ -236,18 +250,6 @@ PERIMETER = {
                    "tidak ada command bot yang membaca state Kaspersky/TrendMicro"),
 }
 
-# Prefiks handler -> kunci PERIMETER. Dipakai untuk menentukan sistem mana
-# yang benar-benar tersentuh oleh kasus yang dipilih. Sengaja spesifik: yang
-# read-only seperti queryhost tidak mengubah state, jadi tidak perlu ikut
-# diverifikasi.
-HANDLER_PERIMETER = (
-    ("imperva", "imperva"), ("palo", "palo"), ("akamai", "akamai"),
-    ("cf_cmd", "cloudflare"), ("forti_cmd", "fortigate"),
-    ("whitelist_", "whitelist"),
-    ("isolatehost", "trendmicro"), ("restorehost", "trendmicro"),
-    ("queryhost", "edr-kaspersky"), ("addedrioc", "edr-kaspersky"),
-)
-
 # Probe mock: jawaban tetap copilot.call_llm() saat MINISOAR_MOCK=1.
 MOCK_PROBE_CMD = "/ask_ai e2e-mock-probe"
 MOCK_PROBE_MARKER = "Mock Analysis"
@@ -268,13 +270,6 @@ TIMEOUT = 90
 # sampai SUNYI selama SETTLE detik, kalau tidak reply yang lambat akan
 # masuk ke command berikutnya.
 SETTLE = 9.0
-
-
-def handler_perimeter(handler: str) -> str | None:
-    for needle, key in HANDLER_PERIMETER:
-        if needle in handler:
-            return key
-    return None
 
 
 def parse_args(argv=None):
@@ -301,8 +296,7 @@ def parse_args(argv=None):
 
 def get_real_skip_reason(case):
     """Alasan mengapa kasus dibuang saat mode real aktif."""
-    handler, cmd, kind, _undo = case
-    perim = handler_perimeter(handler)
+    handler, cmd, kind, _undo, perim = case
     if perim in REAL_DISABLED_PERIMETERS:
         return REAL_DISABLED_PERIMETERS[perim]
     if perim and perim not in REAL_ALLOWED_PROVIDERS:
@@ -346,7 +340,7 @@ def touched_perimeters(cases):
     """Sistem mana saja yang benar-benar disentuh kasus yang dipilih."""
     out = []
     for c in cases:
-        key = handler_perimeter(c[0])
+        key = c[4]
         if key and key not in out:
             out.append(key)
     return out
@@ -356,7 +350,7 @@ def self_check():
     """Invarian matriks. Tidak butuh jaringan; jalankan sebelum mode real."""
     problems = []
     for c in CASES:
-        handler, cmd, kind, undo = c
+        handler, cmd, kind, undo, perim = c
         neutral = cmd.startswith(NEUTRALIZER)
         if kind in ("write", "host"):
             # Kasus yang berubah state harus punya undo, kecuali command-nya
@@ -379,9 +373,8 @@ def self_check():
     for c in CASES:
         if c[2] in ("no_undo", "mock_only") and c[0] in real_names:
             problems.append(f"{c[0]}: kind={c[2]} bocor ke mode real")
-        p = handler_perimeter(c[0])
-        if p and p not in REAL_ALLOWED_PROVIDERS and c[0] in real_names:
-            problems.append(f"{c[0]}: perimeter '{p}' bocor ke mode real padahal tidak aktif")
+        if perim and perim not in REAL_ALLOWED_PROVIDERS and c[0] in real_names:
+            problems.append(f"{c[0]}: perimeter '{perim}' bocor ke mode real padahal tidak aktif")
     if HOST_ISOLATION_BLOCKED:
         for c in CASES:
             if c[2] == "host" and c[0] in real_names:
@@ -403,9 +396,31 @@ def self_check():
 
     # Setiap kasus write harus terhubung ke sistem perimeter yang bisa dilacak.
     for c in CASES:
-        if c[2] in ("write", "host") and handler_perimeter(c[0]) is None:
+        if c[2] in ("write", "host") and c[4] is None:
             problems.append(f"{c[0]}: kind={c[2]} tidak terhubung ke PERIMETER, "
                             "cleanup tidak akan memverifikasinya")
+
+    # Kunci perimeter harus benar-benar ada di PERIMETER. Salah ketik di kolom
+    # akan membuat verify_clean() melempar KeyError di tengah cleanup, jauh
+    # setelah command sudah terkirim ke perimeter nyata.
+    for c in CASES:
+        if c[4] is not None and c[4] not in PERIMETER:
+            problems.append(f"{c[0]}: perimeter '{c[4]}' tidak ada di PERIMETER")
+
+    # Nama handler tidak boleh jadi sumber kebenaran pemetaan. Kalau suatu saat
+    # ada yang menambahkan kembali pemetaan berbasis substring, guard ini
+    # menangkapnya: dua handler yang namanya substring satu sama lain WAJIB
+    # punya perimeter berbeda, kecuali pasangannya memang satu perimeter yang
+    # berlawanan arah (unblockonX vs blockonX).
+    for a in CASES:
+        for b in CASES:
+            if (a is not b and a[0] != b[0] and a[0] in b[0]
+                    and a[4] is not None and a[4] == b[4]
+                    and b[0] != "un" + a[0]):
+                problems.append(
+                    f"{a[0]} adalah substring dari {b[0]} tapi keduanya sudah "
+                    f"petakan ke '{a[4]}'; pemetaan berbasis nama handler "
+                    f"tidak akan bisa membedakan keduanya")
 
     if problems:
         print(f"SELF-CHECK GAGAL ({len(problems)}):")
@@ -686,7 +701,7 @@ async def main():
     results = []
     code = 0
     try:
-        for handler, cmd, kind, _undo in cases:
+        for handler, cmd, kind, _undo, _perim in cases:
             before = await boundary(client, bot)
             r = await one(client, bot, handler, cmd, kind, before)
             results.append(r)
