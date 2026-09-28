@@ -127,10 +127,69 @@ def test_every_write_case_maps_to_known_perimeter():
 
 def test_touched_perimeters_for_full_real_run():
     got = h.touched_perimeters(h.select_cases(real=True))
-    # Cloudflare dan FortiGate ikut tersentuh dan tidak punya read-back -
-    # inilah yang membuat exit code cleanup jadi 3, bukan 0.
-    assert {"cloudflare", "fortigate", "imperva", "palo", "akamai", "whitelist"} == set(got)
-    assert "edr" not in got  # host terkunci, jadi EDR tidak pernah disentuh
+    # Provider yang dimatikan (cloudflare, fortigate, kaspersky/edr) serta imperva
+    # tidak boleh disentuh sama sekali di mode real. Default real-mode hanya menyentuh
+    # palo, akamai, dan whitelist.
+    assert {"palo", "akamai", "whitelist"} == set(got)
+    assert not ({"cloudflare", "fortigate", "imperva", "edr", "edr-kaspersky"} & set(got))
+
+
+def test_real_allowed_providers_constants():
+    assert h.REAL_ALLOWED_PROVIDERS == {"palo", "paloalto", "akamai", "trendmicro", "whitelist"}
+    assert h.REAL_ALLOWED_PERIMETERS == h.REAL_ALLOWED_PROVIDERS
+
+
+def test_select_cases_real_excludes_disabled_perimeters_with_reasons():
+    reasons = {}
+    cases = h.select_cases(real=True, skipped_reasons=reasons)
+    handlers = {c[0] for c in cases}
+    assert "blockoncf_cmd" not in handlers
+    assert "unblockoncf_cmd" not in handlers
+    assert "blockonforti_cmd" not in handlers
+    assert "unblockonforti_cmd" not in handlers
+    assert "queryhost" not in handlers
+    assert "blockonimperva" not in handlers
+    assert "unblockonimperva" not in handlers
+
+    # Periksa bahwa alasan tercatat di dict
+    assert "blockoncf_cmd" in reasons and "cloudflare" in reasons["blockoncf_cmd"].lower()
+    assert "blockonforti_cmd" in reasons and "fortigate" in reasons["blockonforti_cmd"].lower()
+    assert "queryhost" in reasons and "kaspersky" in reasons["queryhost"].lower()
+    assert "blockonimperva" in reasons and "imperva" in reasons["blockonimperva"].lower()
+
+
+def test_verify_clean_unverified_does_not_contain_dead_perimeters():
+    perimeters = h.touched_perimeters(h.select_cases(real=True))
+    # Default real run hanya sentuh provider dengan read-back, jadi unverified kosong
+    unverified = [k for k in perimeters if h.PERIMETER[k][0] is None]
+    assert unverified == []
+    assert not ({"cloudflare", "fortigate", "edr", "edr-kaspersky"} & set(perimeters))
+
+
+def test_real_mode_never_contains_forbidden_commands():
+    for allow_host in (False, True):
+        cases = h.select_cases(real=True, allow_host=allow_host)
+        for _handler, cmd, _kind, _undo in cases:
+            assert not cmd.startswith("/block_cf"), f"Bocor ke real: {cmd}"
+            assert not cmd.startswith("/unblock_cf"), f"Bocor ke real: {cmd}"
+            assert not cmd.startswith("/block_forti"), f"Bocor ke real: {cmd}"
+            assert not cmd.startswith("/unblock_forti"), f"Bocor ke real: {cmd}"
+            assert not cmd.startswith("/query_host"), f"Bocor ke real: {cmd}"
+            assert not cmd.startswith("/add_edr_ioc"), f"Bocor ke real: {cmd}"
+
+
+def test_mock_mode_keeps_all_38_cases_intact():
+    cases = h.select_cases()
+    assert len(cases) == 38
+    assert len(h.CASES) == 38
+    cmds = [c[1] for c in cases]
+    assert any(cmd.startswith("/block_cf") for cmd in cmds)
+    assert any(cmd.startswith("/unblock_cf") for cmd in cmds)
+    assert any(cmd.startswith("/block_forti") for cmd in cmds)
+    assert any(cmd.startswith("/unblock_forti") for cmd in cmds)
+    assert any(cmd.startswith("/query_host") for cmd in cmds)
+    assert any(cmd.startswith("/add_edr_ioc") for cmd in cmds)
+    assert any("/isolate_host" in cmd for cmd in cmds)
 
 
 # --- self-check -------------------------------------------------------------
@@ -164,6 +223,14 @@ def test_self_check_flags_leak_into_real(monkeypatch, capsys, kind):
     # Simulasikan select_cases yang gagal menyaring - kasus berbahaya lolos ke
     # mode real. self_check harus menangkapnya, bukan diam.
     monkeypatch.setattr(h, "CASES", [("x", "/activate_akamai", kind, None)])
+    monkeypatch.setattr(h, "select_cases", lambda **kw: list(h.CASES))
+    assert h.self_check() is False
+    assert "bocor" in capsys.readouterr().out
+
+
+@pytest.mark.parametrize("handler", ["blockoncf_cmd", "blockonforti_cmd", "queryhost", "blockonimperva"])
+def test_self_check_flags_disabled_perimeter_leak_into_real(monkeypatch, capsys, handler):
+    monkeypatch.setattr(h, "CASES", [(handler, "/test", "write", "/unblock_palo 1.1.1.1")])
     monkeypatch.setattr(h, "select_cases", lambda **kw: list(h.CASES))
     assert h.self_check() is False
     assert "bocor" in capsys.readouterr().out

@@ -116,6 +116,20 @@ HOST_ISOLATION_REASON = (
     "tidak menolong karena IP tidak pernah dipakai sebagai filter."
 )
 
+# Provider perimeter yang aktif dan boleh disentuh di mode real (user 2026-09-28:
+# Cloudflare, FortiGate, dan Kaspersky Security Center DIMATIKAN TOTAL.
+# Perimeter aktif hanya PaloAlto, Akamai, TrendMicro Vision One, ditambah
+# whitelist lokal).
+REAL_ALLOWED_PROVIDERS = {"palo", "paloalto", "akamai", "trendmicro", "whitelist"}
+REAL_ALLOWED_PERIMETERS = REAL_ALLOWED_PROVIDERS
+
+REAL_DISABLED_PERIMETERS = {
+    "cloudflare": "Perimeter Cloudflare dimatikan total (user 2026-09-28)",
+    "fortigate": "Perimeter FortiGate dimatikan total (user 2026-09-28)",
+    "edr-kaspersky": "Kaspersky Security Center (KSC) dimatikan total (user 2026-09-28)",
+    "imperva": "Perimeter Imperva di luar daftar provider aktif real (hanya PaloAlto, Akamai, TrendMicro)",
+}
+
 # Satu command per handler unik. Kolom: handler, command, kind, undo.
 #
 # kind:
@@ -168,8 +182,8 @@ CASES = [
     # hanya milik test, jadi tidak boleh dipicu harness mana pun.
     ("commitpalo",        "/commit_palo",                   "no_undo",  None),
     # Dikunci oleh HOST_ISOLATION_BLOCKED, bukan sekadar default mati.
-    ("isolatehost",       "/isolate_host 10.0.0.50 all",    "host",     "/restore_host 10.0.0.50 all"),
-    ("restorehost",       "/restore_host 10.0.0.50 all",    "host",     None),   # netralizer
+    ("isolatehost",       "/isolate_host 10.0.0.50 trendmicro", "host",     "/restore_host 10.0.0.50 trendmicro"),
+    ("restorehost",       "/restore_host 10.0.0.50 trendmicro", "host",     None),   # netralizer
     # Tidak ada /remove_edr_ioc di bot, dan scripts/cleanup_minisoar_edr_iocs.py
     # TIDAK akan mengapus ini: handler memberi comment "Manual IoC by @user",
     # sedangkan cleaner hanya mau marker "threatintel rep:", "event:alert_",
@@ -212,6 +226,11 @@ PERIMETER = {
                    "bot.py blockonforti_cmd tidak menulis Redis dan tidak ada command yang membaca blocklist FortiGate"),
     "whitelist":  ("/whitelists", "file-whitelist",
                    "/whitelists membaca minisoar-whitelist.txt langsung, jadi ini read-back sebenarnya"),
+    "trendmicro": (None, "tidak-ada",
+                   "/edrstatus hanya melaporkan konektivitas agent, bukan daftar host yang terisolasi; "
+                   "tidak ada command bot yang membaca state TrendMicro"),
+    "edr-kaspersky": (None, "tidak-ada",
+                      "Kaspersky KSC dimatikan total; tidak boleh disentuh di mode real"),
     "edr":        (None, "tidak-ada",
                    "/edrstatus hanya melaporkan konektivitas agent, bukan daftar host yang terisolasi; "
                    "tidak ada command bot yang membaca state Kaspersky/TrendMicro"),
@@ -225,7 +244,8 @@ HANDLER_PERIMETER = (
     ("imperva", "imperva"), ("palo", "palo"), ("akamai", "akamai"),
     ("cf_cmd", "cloudflare"), ("forti_cmd", "fortigate"),
     ("whitelist_", "whitelist"),
-    ("isolatehost", "edr"), ("restorehost", "edr"),
+    ("isolatehost", "trendmicro"), ("restorehost", "trendmicro"),
+    ("queryhost", "edr-kaspersky"), ("addedrioc", "edr-kaspersky"),
 )
 
 # Probe mock: jawaban tetap copilot.call_llm() saat MINISOAR_MOCK=1.
@@ -279,8 +299,23 @@ def parse_args(argv=None):
     return ap.parse_args(argv)
 
 
-def select_cases(read_only=False, only=None, real=False, allow_host=False):
-    """Pilih kasus. `real` membuang semua yang tidak bisa dibersihkan."""
+def get_real_skip_reason(case):
+    """Alasan mengapa kasus dibuang saat mode real aktif."""
+    handler, cmd, kind, _undo = case
+    perim = handler_perimeter(handler)
+    if perim in REAL_DISABLED_PERIMETERS:
+        return REAL_DISABLED_PERIMETERS[perim]
+    if perim and perim not in REAL_ALLOWED_PROVIDERS:
+        return f"perimeter '{perim}' di luar provider real yang diizinkan ({', '.join(sorted(REAL_ALLOWED_PROVIDERS))})"
+    if kind in ("no_undo", "mock_only"):
+        return f"kind={kind} tidak dikirim di mode real"
+    if kind == "host" and HOST_ISOLATION_BLOCKED:
+        return f"kind=host dikunci: {HOST_ISOLATION_REASON}"
+    return None
+
+
+def select_cases(read_only=False, only=None, real=False, allow_host=False, skipped_reasons=None):
+    """Pilih kasus. `real` membuang semua yang tidak bisa dibersihkan atau provider nonaktif."""
     out = []
     for c in CASES:
         handler, kind = c[0], c[2]
@@ -289,9 +324,14 @@ def select_cases(read_only=False, only=None, real=False, allow_host=False):
         if read_only and kind != "read":
             continue
         if real:
-            if kind in ("no_undo", "mock_only"):
+            reason = get_real_skip_reason(c)
+            if reason:
+                if skipped_reasons is not None:
+                    skipped_reasons[handler] = reason
                 continue
-            if kind == "host" and (HOST_ISOLATION_BLOCKED or not allow_host):
+            if kind == "host" and not allow_host:
+                if skipped_reasons is not None:
+                    skipped_reasons[handler] = "kind=host butuh --allow-host"
                 continue
         out.append(c)
     return out
@@ -339,6 +379,9 @@ def self_check():
     for c in CASES:
         if c[2] in ("no_undo", "mock_only") and c[0] in real_names:
             problems.append(f"{c[0]}: kind={c[2]} bocor ke mode real")
+        p = handler_perimeter(c[0])
+        if p and p not in REAL_ALLOWED_PROVIDERS and c[0] in real_names:
+            problems.append(f"{c[0]}: perimeter '{p}' bocor ke mode real padahal tidak aktif")
     if HOST_ISOLATION_BLOCKED:
         for c in CASES:
             if c[2] == "host" and c[0] in real_names:
@@ -663,11 +706,19 @@ async def main():
     print("\n=== DILEWATI ===")
     for h, c, why in SKIPPED:
         print(f"  {h:22s} {c:22s} {why}")
-    for c in CASES:
-        if c[2] == "no_undo":
-            print(f"  {c[0]:22s} {c[1]:22s} kind=no_undo -> tidak dikirim di mode real")
-    if HOST_ISOLATION_BLOCKED:
-        print("  isolate/restore_host 10.0.0.50   DIKUNCI: " + HOST_ISOLATION_REASON)
+    if real:
+        for c in CASES:
+            reason = get_real_skip_reason(c)
+            if reason:
+                print(f"  {c[0]:22s} {c[1]:22s} {reason}")
+            elif c[2] == "host" and not args.allow_host:
+                print(f"  {c[0]:22s} {c[1]:22s} kind=host dilewati (butuh --allow-host)")
+    else:
+        for c in CASES:
+            if c[2] == "no_undo":
+                print(f"  {c[0]:22s} {c[1]:22s} kind=no_undo (hanya mock)")
+        if HOST_ISOLATION_BLOCKED:
+            print("  isolate/restore_host 10.0.0.50   DIKUNCI: " + HOST_ISOLATION_REASON)
     # Exit code cuma bermakna di mode real: di mode mock tidak ada perimeter
     # nyata yang perlu dibuktikan, jadi exit 3 bukan kegagalan.
     return code if real else 0
