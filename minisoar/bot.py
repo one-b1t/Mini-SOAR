@@ -1686,6 +1686,29 @@ def main() -> None:
         print("Bot Telegram miniSOAR Enterprise aktif...")
         app.run_polling()
 
+    except telegram.error.InvalidToken as exc:
+        # Bot ditolak Telegram karena token tidak valid. Cukup sering terjadi
+        # saat setup baru: TELEGRAM_TOKEN kosong, salah ketik satu karakter,
+        # atau token dicabut/di-revoke. Nama variabelnya disebut eksplisit
+        # supaya user tahu persis mana yang harus dibetulkan.
+        logger.error(
+            "TOKEN TELEGRAM DITOLAK oleh server Telegram: %s. "
+            "Periksa TELEGRAM_TOKEN di file .env (nilai dibaca dari TELEGRAM_TOKEN, "
+            "dengan TELEGRAM_BOT sebagai fallback) — pastikan terisi, tidak ada "
+            "spasi/newline tersembunyi, dan token belum dicabut oleh BotFather "
+            "(jalankan /revoke lalu ambil token baru). Token asli tidak dicetak di sini.",
+            exc,
+        )
+    except telegram.error.NetworkError as exc:
+        # Termasuk TimedOut yang merupakan subclass NetworkError, jadi keduanya
+        # tertutup di sini. Pesan dibedakan dari InvalidToken karena penyebabnya
+        # tidak ada hubungannya dengan token.
+        logger.error(
+            "TIDAK BISA KONEK ke server Telegram: %s. "
+            "Ini masalah jaringan, bukan token. Periksa koneksi internet, proxy, "
+            "dan firewall (api.telegram.org:443 harus bisa dijangkau), lalu jalankan lagi.",
+            exc,
+        )
     except KeyboardInterrupt:
         print("\n[INFO] Bot Telegram dihentikan oleh pengguna (Ctrl+C). Keluar secara anggun...")
 
