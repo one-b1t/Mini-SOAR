@@ -88,6 +88,8 @@ def test_valid_labels_mapping_allow_ignore_block(fake_es_runner):
         "allow": "e_allow",
         "ignore": "e_ignore",
         "unblock": "e_unblock",
+        "false_positive": "e_fp",
+        "fp": "e_fp_short",
     }
     label_hits = [{"_source": {"event_id": eid, "label": lbl}} for lbl, eid in eids.items()]
     event_docs = [
@@ -108,6 +110,8 @@ def test_valid_labels_mapping_allow_ignore_block(fake_es_runner):
     assert by_eid["e_allow"] == 0
     assert by_eid["e_ignore"] == 0
     assert by_eid["e_unblock"] == 0
+    assert by_eid["e_fp"] == 0
+    assert by_eid["e_fp_short"] == 0
 
 
 def test_labels_pagination_reads_multiple_pages(fake_es_runner):

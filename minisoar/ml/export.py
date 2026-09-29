@@ -197,6 +197,8 @@ VALID_LABEL_MAP: dict[str, int] = {
     "whitelist": 0,
     "pass": 0,
     "benign": 0,
+    "false_positive": 0,
+    "fp": 0,
 }
 
 
