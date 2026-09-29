@@ -83,15 +83,12 @@ def norm_provider(provider: str | None) -> str:
 
 # Provider yang DIMATIKAN TOTAL — sumber kebenaran tunggal, semua jalur (mitigation,
 # EDR, bot, diagnostics) wajib populate dari sini sebelum menyentuh API.
-# Alasan: ketiganya tidak dimiliki di tempat kerja ini (Kaspersky: belum jelas dari
-# mana IoC ditambahkan), jadi blokir lewat MiniSOAR hanya menimbulkan rasa aman
-# semu. Perimeter aktif & terkonfirmasi: PaloAlto, Akamai, TrendMicro Vision One.
-# Boleh dihapus dari daftar ini kalau kredensial resmi dimiliki DAN operator
-# mengonfirmasi ada kebutuhan nyata memblokir lewat perimeter tersebut.
-# PERINGATAN saat menghidupkan kembali: cakupan regresi deteksi FORTIGATE_API_TOKEN
-# (commit e559e54, tests/test_fortigate_env.py) hilang sementara fortigate mati di
-# sini, jadi pulihkan test itu sebelum provider diaktifkan kembali.
-PERIMETER_NONAKTIF: frozenset[str] = frozenset({"cloudflare", "fortigate", "kaspersky"})
+# Alasan: Cloudflare & FortiGate tidak dimiliki di tempat kerja ini, jadi blokir lewat
+# MiniSOAR hanya menimbulkan rasa aman semu. Perimeter aktif & terkonfirmasi:
+# PaloAlto, Akamai, TrendMicro Vision One, dan Kaspersky Security Center (KSC).
+# Catatan KSC: KSC aktif untuk query host dan isolasi/restorasi endpoint, tetapi fitur
+# Add IoC KSC dinonaktifkan terisolasi di edr/kaspersky.py & edr/core.py.
+PERIMETER_NONAKTIF: frozenset[str] = frozenset({"cloudflare", "fortigate"})
 
 
 def canonical_perimeter(provider: str | None) -> str:
@@ -112,7 +109,7 @@ def perimeter_disabled_message(provider: str | None) -> str:
     return (
         f"Provider '{p}' TIDAK AKTIF / DIMATIKAN TOTAL di MiniSOAR: perimeter ini "
         f"tidak dimiliki di tempat kerja, jadi tidak ada panggilan API yang dikirim. "
-        f"Perimeter aktif: paloalto, akamai, trendmicro."
+        f"Perimeter aktif: paloalto, akamai, trendmicro, kaspersky."
     )
 
 

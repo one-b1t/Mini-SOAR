@@ -63,6 +63,7 @@ class _FakeRedisServer:
 
     def _serve(self, conn):
         f = conn.makefile("rb")
+        proto = 2
         try:
             while not self._stop.is_set():
                 cmd = self._read_command(f)
@@ -72,13 +73,14 @@ class _FakeRedisServer:
                     continue
                 name = cmd[0].upper()
                 if name == "HELLO":
+                    proto = 3
                     # redis-py 8 membuka tiap koneksi dengan HELLO 3 (RESP3).
                     conn.sendall(b"%2\r\n+server\r\n+redis\r\n+proto\r\n:3\r\n")
                 elif name == "BLPOP":
                     # Event.wait, bukan time.sleep: test daemon menambal time.sleep
                     # (modul global) untuk menghentikan loop.
                     self._stop.wait(float(cmd[-1]))
-                    conn.sendall(b"_\r\n")  # RESP3 nil: antrean tetap kosong
+                    conn.sendall(b"_\r\n" if proto == 3 else b"*-1\r\n")
                     self.blpops_answered += 1
                 elif name == "PING":
                     conn.sendall(b"+PONG\r\n")

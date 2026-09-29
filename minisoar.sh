@@ -51,7 +51,11 @@ elif [ -n "$VIRTUAL_ENV" ] && [ -x "$VIRTUAL_ENV/Scripts/python.exe" ]; then
     PYTHON_CMD="$VIRTUAL_ENV/Scripts/python.exe"
     PIP_CMD="$VIRTUAL_ENV/Scripts/pip.exe"
     PYTEST_CMD="$VIRTUAL_ENV/Scripts/pytest.exe"
-elif [ -x "$VENV_DIR/bin/python" ]; then
+elif [ -x "$HOME/.local/share/venvs/minisoar/bin/python" ]; then
+    PYTHON_CMD="$HOME/.local/share/venvs/minisoar/bin/python"
+    PIP_CMD="$HOME/.local/share/venvs/minisoar/bin/pip"
+    PYTEST_CMD="$HOME/.local/share/venvs/minisoar/bin/pytest"
+elif [ -x "$VENV_DIR/bin/python" ] && "$VENV_DIR/bin/python" -c "import sys" 2>/dev/null; then
     PYTHON_CMD="$VENV_DIR/bin/python"
     PIP_CMD="$VENV_DIR/bin/pip"
     PYTEST_CMD="$VENV_DIR/bin/pytest"

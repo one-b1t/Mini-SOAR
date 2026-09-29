@@ -145,9 +145,15 @@ def add_edr_ioc(
 ) -> tuple[bool, str]:
     """Adds suspicious object / IoC to EDR server blocklists."""
     p_norm = norm_edr_provider(provider)
+    if p_norm == "kaspersky":
+        return False, "Fitur Add IoC pada Kaspersky KSC dinonaktifkan (repositori IoC KSC tidak aktif/belum dikonfigurasi). Gunakan provider 'trendmicro'."
+
     providers_to_run, ditolak = _expand_providers(p_norm)
     if ditolak:
         return False, ditolak
+
+    # Jika 'all', lewati kaspersky khusus pendaftaran IoC
+    providers_to_run = [p for p in providers_to_run if p != "kaspersky"]
 
     overall_success = False
     messages: list[str] = []
@@ -156,11 +162,6 @@ def add_edr_ioc(
         if p == "trendmicro":
             ok, msg = trendmicro.add_suspicious_object(ioc_type, ioc_value, description=comment)
             messages.append(f"TrendMicro: {msg}")
-            if ok:
-                overall_success = True
-        elif p == "kaspersky":
-            ok, msg = kaspersky.add_ioc(ioc_type, ioc_value, comment=comment)
-            messages.append(f"Kaspersky: {msg}")
             if ok:
                 overall_success = True
 

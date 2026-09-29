@@ -81,10 +81,10 @@ def test_kaspersky_restore_reply_marker(monkeypatch, value, expected):
     _check(monkeypatch, value, expected, lambda: kaspersky.restore_host("HOST-1"))
 
 
-@pytest.mark.parametrize("value,expected", CASES, ids=IDS)
-def test_kaspersky_add_ioc_reply_marker(monkeypatch, value, expected):
-    _check(monkeypatch, value, expected,
-           lambda: kaspersky.add_ioc("sha256", "a" * 64))
+def test_kaspersky_add_ioc_disabled_always(monkeypatch):
+    ok, msg = kaspersky.add_ioc("sha256", "a" * 64)
+    assert ok is False
+    assert "dinonaktifkan" in msg.lower()
 
 
 @pytest.mark.parametrize("value,expected", CASES, ids=IDS)

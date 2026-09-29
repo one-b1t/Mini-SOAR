@@ -137,11 +137,13 @@ def query_threat_log(
     {"response": {"@status": ..., "result": {"log": {"entry": {...}}}}}
     """
     if threat_id:
-        field = f"( eq ( threatid {threat_id.strip()} ) )"
+        t_val = threat_id.strip()
+        field = f"(threatid eq {t_val})" if t_val.isdigit() else f"(threatid eq '{t_val}')"
     elif session_id:
-        field = f"( eq ( sessionid {session_id.strip()} ) )"
+        s_val = session_id.strip()
+        field = f"(sessionid eq {s_val})" if s_val.isdigit() else f"(sessionid eq '{s_val}')"
     elif src_ip:
-        field = f"( eq ( src {src_ip.strip()} ) )"
+        field = f"(addr.src in {src_ip.strip()})"
     else:
         return {"error": "No filter given (threat_id, session_id, or src_ip)"}
 
@@ -172,7 +174,11 @@ def parse_threat_logs(resp: dict) -> tuple[list[dict], str | None]:
         result = resp["response"].get("result") or {}
         count = int(result.get("@count") or 0)
         log_node = result.get("log") or {}
-        entry_node = log_node.get("entry") or []
+        if isinstance(log_node, dict) and "logs" in log_node:
+            log_node = log_node.get("logs") or {}
+            if not count and isinstance(log_node, dict):
+                count = int(log_node.get("@count") or 0)
+        entry_node = log_node.get("entry") or [] if isinstance(log_node, dict) else []
         if isinstance(entry_node, dict):
             entries = [entry_node]
         else:

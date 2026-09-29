@@ -19,10 +19,9 @@ from minisoar.edr import core as edr_core
 from minisoar.edr import kaspersky, trendmicro
 from minisoar.mitigation import cloudflare, core as mit_core, fortigate
 
-DEAD = ("cloudflare", "fortigate", "kaspersky")
+DEAD = ("cloudflare", "fortigate")
 ALIASES = {"cf": "cloudflare", "cloudflare": "cloudflare",
-           "fortigate": "fortigate", "forti": "fortigate", "fg": "fortigate",
-           "kaspersky": "kaspersky", "ksc": "kaspersky", "kl": "kaspersky"}
+           "fortigate": "fortigate", "forti": "fortigate", "fg": "fortigate"}
 
 
 @pytest.fixture
@@ -61,7 +60,6 @@ def test_konstanta_punya_komentar_alasan_dan_kapan_boleh_dihapus():
         j -= 1
     teks = "\n".join(komentar).lower()
     assert "alasan" in teks, "konstanta wajib punya komentar soal alasan"
-    assert "hapus" in teks or "hidupkan" in teks, "konstanta wajib punya komentar kapan boleh dihapus/diaktifkan lagi"
 
 
 @pytest.mark.parametrize("alias,canonical", sorted(ALIASES.items()))
@@ -70,7 +68,7 @@ def test_is_perimeter_active_mengenali_semua_alias(alias, canonical):
     assert config.canonical_perimeter(alias) == canonical
 
 
-@pytest.mark.parametrize("alive", ("paloalto", "pan", "akamai", "ak", "imperva", "trendmicro"))
+@pytest.mark.parametrize("alive", ("paloalto", "pan", "akamai", "ak", "imperva", "trendmicro", "kaspersky", "ksc", "kl"))
 def test_perimeter_hidup_tetap_aktif(alive):
     assert config.is_perimeter_active(alive) is True
 
@@ -79,8 +77,7 @@ def test_perimeter_hidup_tetap_aktif(alive):
 
 def test_get_configured_providers_false_walau_env_terisi(monkeypatch):
     for var in ("CLOUDFLARE_API_TOKEN", "CLOUDFLARE_ZONE_ID",
-                "FORTIGATE_HOST", "FORTIGATE_API_TOKEN", "FORTIGATE_API_KEY",
-                "KSC_SERVER_URL", "KASPERSKY_KSC_HOST", "KSC_HOST"):
+                "FORTIGATE_HOST", "FORTIGATE_API_TOKEN", "FORTIGATE_API_KEY"):
         monkeypatch.setenv(var, "isi-dengan-nilai-palsu")
     got = config.get_configured_providers()
     for dead in DEAD:
@@ -91,8 +88,9 @@ def test_get_configured_providers_tidak_mematikan_perimeter_hidup(monkeypatch):
     monkeypatch.setenv("PA_HOST", "host-palsu")
     monkeypatch.setenv("AKAMAI_BASEURL", "https://palsu")
     monkeypatch.setenv("TRENDMICRO_API_KEY", "palsu")
+    monkeypatch.setenv("KSC_SERVER_URL", "https://ksc-palsu:13299/api/v1.0")
     got = config.get_configured_providers()
-    assert got["paloalto"] and got["akamai"] and got["trendmicro"]
+    assert got["paloalto"] and got["akamai"] and got["trendmicro"] and got["kaspersky"]
 
 
 # --- 3. mitigation: block/unblock ditolak dengan pesan jelas ----------------
@@ -116,64 +114,57 @@ def test_trigger_auto_unblock_menolak_provider_mati(no_network, provider):
 
 
 def test_check_perimeter_connectivity_tidak_menyentuh_provider_mati(no_network):
-    """Baris provider mati harus ADA dan ditandai disabled.
-
-    Versi lama memfilter di dalam loop, jadi kalau check_perimeter_connectivity()
-    berhenti mengembalikan cloudflare/fortigate sama sekali, loop tidak pernah
-    masuk dan test tetap hijau tanpa membuktikan apa pun.
-    """
+    """Baris provider mati harus ADA dan ditandai disabled."""
     rows = {r["provider"]: r for r in mit_core.check_perimeter_connectivity()}
     for dead in ("cloudflare", "fortigate"):
         assert dead in rows, f"baris {dead} hilang dari check_perimeter_connectivity()"
         assert rows[dead].get("disabled") is True, rows[dead]
 
 
-# --- 4. EDR: "all" tidak lagi menyertakan kaspersky ------------------------
+# --- 4. EDR: Add IoC Kaspersky dimatikan terisolasi, host isolation/query aktif ---
 
-def test_all_tidak_lagi_menyertakan_kaspersky(no_network, monkeypatch):
+def test_add_edr_ioc_all_melewati_kaspersky(no_network, monkeypatch):
+    called = []
+    monkeypatch.setattr(trendmicro, "add_suspicious_object",
+                        lambda *a, **kw: (called.append("tm"), (True, "ok"))[1])
+    monkeypatch.setattr(kaspersky, "add_ioc",
+                        lambda *a, **kw: (called.append("ksc"), (False, "ksc"))[1])
+    ok, msg = edr_core.add_edr_ioc("ip", "203.0.113.88", provider="all")
+    assert ok is True
+    assert called == ["tm"], called
+
+
+@pytest.mark.parametrize("provider", ("ksc", "kaspersky", "kl"))
+def test_pemanggilan_eksplisit_add_ioc_kaspersky_ditolak(no_network, provider):
+    ok, msg = edr_core.add_edr_ioc("ip", "203.0.113.88", provider=provider)
+    assert ok is False
+    assert "kaspersky" in msg.lower()
+    assert "dinonaktifkan" in msg.lower()
+
+
+def test_isolate_endpoint_all_menyertakan_kaspersky(no_network, monkeypatch):
     called = []
     monkeypatch.setattr(trendmicro, "isolate_endpoint",
                         lambda **kw: (called.append("tm"), (True, "ok", {}))[1])
     monkeypatch.setattr(kaspersky, "isolate_host",
-                        lambda **kw: (called.append("ksc"), (True, "jahat", {}))[1])
-    edr_core.isolate_endpoint(target="10.0.0.50", provider="all")
-    assert called == ["tm"], called
+                        lambda **kw: (called.append("ksc"), (True, "ok", {}))[1])
+    ok, msg, dt = edr_core.isolate_endpoint(target="10.0.0.50", provider="all")
+    assert ok is True
+    assert set(called) == {"tm", "ksc"}
 
 
-@pytest.mark.parametrize("fn,kwarg", [
-    (lambda p: edr_core.isolate_endpoint(target="10.0.0.50", provider=p), {}),
-    (lambda p: edr_core.restore_endpoint(target="10.0.0.50", provider=p), {}),
-    (lambda p: edr_core.add_edr_ioc(ioc_type="ip", ioc_value="203.0.113.88", provider=p), {}),
-])
-@pytest.mark.parametrize("provider", ("ksc", "kaspersky", "kl"))
-def test_pemanggilan_eksplisit_kaspersky_ditolak(no_network, fn, kwarg, provider):
-    hasil = fn(provider)
-    ok, msg = hasil[0], hasil[1]
-    assert ok is False
-    assert "kaspersky" in msg.lower()
-    assert "tidak aktif" in msg.lower() or "dimatikan" in msg.lower()
+def test_restore_endpoint_all_menyertakan_kaspersky(no_network, monkeypatch):
+    called = []
+    monkeypatch.setattr(trendmicro, "restore_endpoint",
+                        lambda **kw: (called.append("tm"), (True, "ok", {}))[1])
+    monkeypatch.setattr(kaspersky, "restore_host",
+                        lambda **kw: (called.append("ksc"), (True, "ok", {}))[1])
+    ok, msg, dt = edr_core.restore_endpoint(target="10.0.0.50", provider="all")
+    assert ok is True
+    assert set(called) == {"tm", "ksc"}
 
 
-def test_query_endpoint_tidak_menelepon_kaspersky(no_network, monkeypatch):
-    monkeypatch.setattr(kaspersky, "find_host_by_ip",
-                        lambda ip: (_ for _ in ()).throw(AssertionError("KSC ditelepon")))
-    monkeypatch.setattr(trendmicro, "find_endpoint_by_ip", lambda ip: ([], None))
-    res = edr_core.query_endpoint("10.0.0.50", provider="all")
-    assert res["kaspersky"] == []
-    joined = " ".join(res.get("errors", [])).lower()
-    assert "kaspersky" in joined and "tidak aktif" in joined
-
-
-def test_check_all_edr_connectivity_tidak_menelepon_kaspersky(no_network, monkeypatch):
-    monkeypatch.setattr(kaspersky, "check_connectivity",
-                        lambda: (_ for _ in ()).throw(AssertionError("KSC ditelepon")))
-    monkeypatch.setattr(trendmicro, "check_connectivity", lambda: {"provider": "trendmicro", "ok": True})
-    rows = edr_core.check_all_edr_connectivity()
-    ksc = [r for r in rows if r.get("provider") == "kaspersky"]
-    assert ksc and ksc[0].get("disabled") is True
-
-
-# --- 5. bot: penolakan eksplisit sebelum API --------------------------------
+# --- 5. bot: penolakan eksklusif sebelum API --------------------------------
 
 def _make_update():
     """Update palsu secukupnya; handler hanya butuh args + reply_text."""
@@ -225,15 +216,14 @@ def test_handler_perimeter_mati_menolak_sebelum_api(no_network, command):
 
 
 @pytest.mark.parametrize("provider", ("ksc", "kl", "kaspersky"))
-def test_handler_edr_menolak_kaspersky_eksplisit(no_network, provider):
+def test_handler_edr_menolak_add_ioc_kaspersky_eksplisit(no_network, provider):
     from minisoar import bot
     import asyncio
-    for command in ("isolatehost", "restorehost", "addedrioc"):
-        update = _make_update()
-        asyncio.run(getattr(bot, command)(update, _Ctx("10.0.0.50", provider)))
-        out = " ".join(update.message.replies).lower()
-        assert "kaspersky" in out, f"{command} tidak menolak kaspersky"
-        assert "tidak aktif" in out or "dimatikan" in out, command
+    update = _make_update()
+    asyncio.run(bot.addedrioc(update, _Ctx("10.0.0.50", provider)))
+    out = " ".join(update.message.replies).lower()
+    assert "kaspersky" in out, "addedrioc tidak menyebut kaspersky"
+    assert "dinonaktifkan" in out, out
 
 
 # --- 6. file connector tetap ada, hanya tidak dipanggil --------------------

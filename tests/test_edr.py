@@ -90,52 +90,49 @@ def test_kaspersky_edr_mock():
     assert ok_res is True
     assert "restored" in msg_res.lower()
 
-    # 5. Add IoC
+    # 5. Add IoC (Kaspersky Add IoC dinonaktifkan terisolasi)
     ok_ioc, msg_ioc = kaspersky.add_ioc("hash", "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855")
-    assert ok_ioc is True
-    assert "Kaspersky KSC" in msg_ioc
+    assert ok_ioc is False
+    assert "dinonaktifkan" in msg_ioc.lower()
 
 
 def test_edr_core_router():
     os.environ["MINISOAR_MOCK"] = "1"
 
-    # 1. Check all connectivity
+    # 1. Check all connectivity (KSC kini aktif)
     conns = check_all_edr_connectivity()
     assert len(conns) == 2
-    # kaspersky tetap muncul sebagai disabled=True (bukan dihapus) supaya accounting jujur
     ksc = [c for c in conns if c["provider"] == "kaspersky"]
-    assert ksc and ksc[0]["disabled"] is True
+    assert ksc and ksc[0].get("disabled") is not True
     assert [c for c in conns if c["provider"] == "trendmicro"][0]["ok"] is True
 
-    # 2. Query endpoint across both EDRs
+    # 2. Query endpoint across both EDRs (KSC aktif)
     res = query_endpoint("192.168.1.100", provider="all")
     assert len(res["trendmicro"]) == 1
-    # "all" tidak lagi menyentuh kaspersky
-    assert res["kaspersky"] == []
-    assert any("Kaspersky" in e for e in res["errors"])
+    assert len(res["kaspersky"]) == 1
 
-    # 3. Isolate across all EDRs
+    # 3. Isolate across all EDRs (KSC aktif)
     ok_all, msg_all, details = isolate_endpoint("192.168.1.100", provider="all")
     assert ok_all is True
     assert "trendmicro" in details
-    assert "kaspersky" not in details
+    assert "kaspersky" in details
 
-    # 4. Restore across all EDRs
+    # 4. Restore across all EDRs (KSC aktif)
     ok_rst, msg_rst, details_rst = restore_endpoint("192.168.1.100", provider="all")
     assert ok_rst is True
     assert "trendmicro" in details_rst
-    assert "kaspersky" not in details_rst
+    assert "kaspersky" in details_rst
 
-    # 5. Add IoC across all EDRs
+    # 5. Add IoC across all EDRs (otomatis lewati Kaspersky, hanya kirim TrendMicro)
     ok_ioc, msg_ioc = add_edr_ioc("ip", "198.51.100.77", provider="all")
     assert ok_ioc is True
     assert "TrendMicro" in msg_ioc
     assert "Kaspersky" not in msg_ioc
 
-    # Pemanggilan kaspersky eksplisit ditolak eksplisit, bukan diam-diam lolos
+    # Pemanggilan Add IoC kaspersky eksplisit ditolak dengan pesan informatif
     for prov in ("ksc", "kl", "kaspersky"):
-        ok_x, msg_x, _ = isolate_endpoint("192.168.1.100", provider=prov)
-        assert ok_x is False and "tidak aktif" in msg_x.lower()
+        ok_x, msg_x = add_edr_ioc("ip", "198.51.100.77", provider=prov)
+        assert ok_x is False and "dinonaktifkan" in msg_x.lower()
 
 
 def test_edr_playbook_execution(monkeypatch):
@@ -405,4 +402,44 @@ def test_webshell_playbook_high_confidence_executes_edr_ioc(monkeypatch):
     assert pb_id == "pb-webshell-immediate"
     assert "step_block_perimeter" in ctx.executed_steps
     assert "step_add_edr_ioc" in ctx.executed_steps  # MUST EXECUTE FOR TI >= 50% & ML >= 70%
+
+
+def test_kaspersky_add_ioc_direct_guard_disabled():
+    ok, msg = kaspersky.add_ioc("ip", "203.0.113.88")
+    assert ok is False
+    assert "dinonaktifkan" in msg.lower()
+
+
+def test_add_edr_ioc_all_skips_kaspersky_and_succeeds_trendmicro(monkeypatch):
+    called = []
+    monkeypatch.setattr(trendmicro, "add_suspicious_object",
+                        lambda *a, **kw: (called.append("tm"), (True, "ok"))[1])
+    monkeypatch.setattr(kaspersky, "add_ioc",
+                        lambda *a, **kw: (called.append("ksc"), (False, "fail"))[1])
+    ok, msg = add_edr_ioc("ip", "203.0.113.88", provider="all")
+    assert ok is True
+    assert called == ["tm"]
+    assert "TrendMicro" in msg
+    assert "Kaspersky" not in msg
+
+
+def test_add_edr_ioc_kaspersky_explicit_returns_informative_message():
+    for p in ("kaspersky", "ksc", "kl"):
+        ok, msg = add_edr_ioc("ip", "203.0.113.88", provider=p)
+        assert ok is False
+        assert "dinonaktifkan" in msg.lower()
+        assert "trendmicro" in msg.lower()
+
+
+def test_kaspersky_query_endpoint_active(monkeypatch):
+    called = []
+    monkeypatch.setattr(kaspersky, "find_host_by_ip",
+                        lambda ip: (called.append("ksc"), ([{"hostId": "ksc-1", "ipAddress": ip}], None))[1])
+    monkeypatch.setattr(trendmicro, "find_endpoint_by_ip",
+                        lambda ip: (called.append("tm"), ([], None))[1])
+    res = query_endpoint("10.0.0.50", provider="all")
+    assert "ksc" in called
+    assert len(res["kaspersky"]) == 1
+    assert res["kaspersky"][0]["hostId"] == "ksc-1"
+
 

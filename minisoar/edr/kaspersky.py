@@ -361,30 +361,9 @@ def add_ioc(
     comment: str = "MiniSOAR automated IoC feed",
 ) -> tuple[bool, str]:
     """Registers an IoC (hash, IP, URL) to Kaspersky Security Center 15.1 IoC repository."""
-    if os.getenv("MINISOAR_MOCK", "").lower() in {"1", "true", "yes"}:
-        logger.info("[MOCK] Kaspersky KSC add IoC: %s=%s", ioc_type, ioc_value)
-        return True, f"SUCCESS: Registered IoC {ioc_type}={ioc_value} on Kaspersky KSC (Mock)"
-
-    token, err = login()
-    if not token:
-        return False, f"KSC login failed: {err}"
-
-    url = f"{_get_base_url()}/IoCRepository.AddObject"
-    headers = _get_auth_headers(token)
-    payload = {
-        "type": ioc_type,
-        "value": ioc_value,
-        "comment": comment,
-    }
-
-    try:
-        resp = requests.post(url, headers=headers, json=payload, verify=_get_verify_ssl(), timeout=15)
-        if resp.status_code in {200, 201}:
-            data = resp.json() if resp.text else {}
-            if "PxgError" in data:
-                # If standalone IoCRepository listener is unconfigured on KSC, fallback to host tag/log
-                return False, f"KSC OpenAPI: {data['PxgError'].get('message', 'IoCRepository unavailable')}"
-            return True, f"SUCCESS: IoC {ioc_value} added to Kaspersky KSC"
-        return False, f"HTTP {resp.status_code}: {resp.text[:300]}"
-    except Exception as e:
-        return False, f"Request failed: {e}"
+    # Fitur Add IoC KSC dinonaktifkan secara sengaja karena repositori IoC KSC tidak aktif/belum dikonfigurasi.
+    # Operasi inventory/query host, isolasi host, dan pemulihan host tetap aktif.
+    return (
+        False,
+        "Fitur Add IoC pada Kaspersky KSC dinonaktifkan (repositori IoC KSC tidak aktif/belum dikonfigurasi). Operasi isolasi dan query host tetap aktif.",
+    )
