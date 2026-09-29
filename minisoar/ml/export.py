@@ -181,15 +181,99 @@ def _ecs_severity(evt_src: dict[str, Any]) -> str:
     return next((name for floor, name in _ECS_SEVERITY if sev >= floor), "low")
 
 
-def extract_minisoar_samples(labels_prefix: str, events_prefix: str) -> list[list[Any]]:
+# Nilai label kanonik untuk klasifikasi biner MiniSOAR:
+# 1 = Positif (ancaman yang harus diblokir / aksi blokir)
+# 0 = Negatif (dibolehkan / diabaikan / di-unblock)
+VALID_LABEL_MAP: dict[str, int] = {
+    # Positif (1): Aksi penegakan blokir
+    "block": 1,
+    "blocked": 1,
+    "deny": 1,
+    "drop": 1,
+    # Negatif (0): Diabaikan, diizinkan, atau dipulihkan
+    "unblock": 0,
+    "allow": 0,
+    "ignore": 0,
+    "whitelist": 0,
+    "pass": 0,
+    "benign": 0,
+}
+
+
+def extract_minisoar_samples(
+    labels_prefix: str,
+    events_prefix: str,
+    *,
+    page_size: int = 10000,
+    max_labels: int | None = None,
+) -> list[list[Any]]:
     """Extracts joined event-label samples from MiniSOAR internal indices."""
     rows: list[list[Any]] = []
     try:
-        labels_data = es_request("GET", f"{labels_prefix}-*/_search", body={"size": 10000})
-        label_hits = labels_data.get("hits", {}).get("hits", [])
+        label_hits: list[dict[str, Any]] = []
+        search_after: list[Any] | None = None
+        sort_clause = [{"@timestamp": "asc"}, {"_id": "asc"}]
+        total_in_es: int | None = None
+        page_num = 0
+
+        while True:
+            page_num += 1
+            query_size = page_size if max_labels is None else min(page_size, max_labels - len(label_hits))
+            if query_size <= 0:
+                break
+
+            body: dict[str, Any] = {
+                "size": query_size,
+                "sort": sort_clause,
+            }
+            if search_after is not None:
+                body["search_after"] = search_after
+
+            labels_data = es_request("GET", f"{labels_prefix}-*/_search", body=body)
+            hits_container = labels_data.get("hits", {})
+
+            if total_in_es is None:
+                tot = hits_container.get("total", {})
+                if isinstance(tot, dict):
+                    total_in_es = tot.get("value")
+                elif isinstance(tot, int):
+                    total_in_es = tot
+
+            page_hits = hits_container.get("hits", [])
+            if not page_hits:
+                break
+
+            label_hits.extend(page_hits)
+
+            # Jika page_hits lebih sedikit dari query_size, berarti sudah halaman terakhir
+            if len(page_hits) < query_size:
+                break
+
+            # Jika mock/stub tidak mengembalikan sort, jangan loop tak hingga
+            last_sort = page_hits[-1].get("sort")
+            if not last_sort:
+                break
+            search_after = last_sort
+
+            if max_labels is not None and len(label_hits) >= max_labels:
+                break
+
         if not label_hits:
             logger.info("No records found in MiniSOAR labels index (%s)", labels_prefix)
             return rows
+
+        # Deteksi pemotongan/pemangkasan dokumen label
+        if total_in_es is not None and total_in_es > len(label_hits):
+            logger.warning(
+                "Jumlah label yang diekstrak (%d) lebih kecil dari total di Elasticsearch (%d) "
+                "pada index %s-*; data label terpangkas.",
+                len(label_hits), total_in_es, labels_prefix,
+            )
+        elif page_num > 1:
+            logger.info(
+                "Paginasi label selesai: berhasil membaca %d label dari %d halaman (index %s-*)",
+                len(label_hits), page_num, labels_prefix,
+            )
 
         label_map: dict[str, int] = {}
         for hit in label_hits:
@@ -197,8 +281,14 @@ def extract_minisoar_samples(labels_prefix: str, events_prefix: str) -> list[lis
             eid = src.get("event_id")
             if not eid:
                 continue
-            label_str = str(src.get("label", "")).lower()
-            label_map[eid] = 1 if "block" in label_str else 0
+            label_norm = str(src.get("label", "")).strip().lower()
+            if label_norm in VALID_LABEL_MAP:
+                label_map[eid] = VALID_LABEL_MAP[label_norm]
+            else:
+                logger.warning(
+                    "Label '%s' pada event_id '%s' tidak dikenali di VALID_LABEL_MAP; diabaikan dari training dataset.",
+                    label_norm, eid,
+                )
 
         event_ids = list(label_map.keys())
         seen: set[str] = set()
